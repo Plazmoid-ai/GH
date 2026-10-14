@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ "beta" ]
+    branches: [ "beta", "debug" ]
     paths-ignore:
       - ".github/**"
       - "!.github/workflows/**"
@@ -30,7 +30,7 @@ jobs:
     steps:
   
       - name: Generate bot data
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         run: |
           echo "RANDOM_QUOTE=$(shuf -n1 <<<"$LIST_OF_QUOTES")" >> $GITHUB_ENV
         env:
@@ -52,7 +52,7 @@ jobs:
         run: echo releaseType=CI > package.properties
 
       - name: Create signing files
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         run: |
           mkdir -p ~/.gradle
           echo "${{ secrets.KEYSTORE_SECRET }}" | base64 -d > ~/key.jks
@@ -62,33 +62,31 @@ jobs:
           echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PWD }}" >> ~/.gradle/gradle.properties
 
       - name: Build with Gradle
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         run: ./gradlew :app:assembleRelease
   
-      - name: Build with Gradle for pull request
-        if: github.event_name == 'pull_request'
+      - name: Build debug APK (no release keystore required)
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/debug'
         run: ./gradlew :app:assembleDebug
 
-      - name: Find apk
-        if: github.event_name != 'pull_request'
+      - name: Find release apk
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         run: |
-          APK_FILE=$(find app/build/outputs/apk/release -name '*.apk')
+          APK_FILE=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
+          test -n "$APK_FILE"
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
-          echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
+          echo "APK_FILE_NAME=$(basename "$APK_FILE" .apk)" >> $GITHUB_ENV
   
-      - name: Find apk for pull request
-        if: github.event_name == 'pull_request'
+      - name: Find debug apk
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/debug'
         run: |
-          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk')
+          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          test -n "$APK_FILE"
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
-          echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
-        env:
-          API_ID: ${{ secrets.TG_APP_ID }}
-          API_HASH: ${{ secrets.TG_APP_HASH }}
-          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          echo "APK_FILE_NAME=$(basename "$APK_FILE" .apk)" >> $GITHUB_ENV
 
       - name: Upload files to Telegram
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         uses: xz-dev/TelegramFileUploader@v1.1.1
         with:
           to-who: ${{ secrets.TG_CHAT_ID }}
@@ -100,7 +98,7 @@ jobs:
           API_HASH: ${{ secrets.TG_APP_HASH }}
           BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
 
-      - name: Upload apk
+      - name: Upload apk for pull request
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
@@ -108,8 +106,16 @@ jobs:
           path: ${{ env.APK_FILE }}
           compression-level: 9
 
-      - name: Upload apk
-        if: github.event_name != 'pull_request'
+      - name: Upload debug APK artifact
+        if: github.ref == 'refs/heads/debug' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.APK_FILE_NAME }}
+          path: ${{ env.APK_FILE }}
+          archive: false
+
+      - name: Upload release apk artifact
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ env.APK_FILE_NAME }}
