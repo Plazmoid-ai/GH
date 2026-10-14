@@ -736,7 +736,7 @@ class FullBottomSheet
             config.skipValue.toLong() * 1_000L
         }
         val skipDuration = smartSeekNextSkipDurationMs.takeIf { it > 0L } ?: configuredSkipMs
-        val unit = if (config.usePercent) "%" else "s"
+        val unit = if (config.usePercent) "%" else context.getString(R.string.smart_seek_seconds_short)
         val playLabel = "${config.playValue}$unit"
         val skipLabel = "${config.skipValue}$unit"
         val randomSuffix = if (config.pattern == SmartSeekPattern.RANDOM) " · random" else ""
