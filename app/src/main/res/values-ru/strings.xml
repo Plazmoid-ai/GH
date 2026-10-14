@@ -561,5 +561,10 @@
     <string name="smart_seek_random_help">В случайном режиме длительность воспроизведения и величина пропуска независимо меняются примерно на 25% в каждом цикле.</string>
     <string name="smart_seek_save">Сохранить</string>
     <string name="smart_seek_invalid_value">Введите значение от 1 до %1$d.</string>
-    <string name="smart_seek_progress_label">Smart Seek · играть %1$s / пропуск +%2$s</string>
+    <string name="smart_seek_marker_color">Цвет меток Smart Seek</string>
+    <string name="smart_seek_color_orange">Оранжевый</string>
+    <string name="smart_seek_color_cyan">Голубой</string>
+    <string name="smart_seek_color_lime">Зелёный</string>
+    <string name="smart_seek_color_pink">Розовый</string>
+    <string name="smart_seek_color_violet">Фиолетовый</string>
 </resources>

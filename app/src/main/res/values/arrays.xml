@@ -48,4 +48,19 @@
         <item>@string/actions_query_start_random_music</item>
         <item>@string/actions_query_start_random_songs</item>
     </string-array>
+    <string-array name="smart_seek_marker_color_entries" translatable="false">
+        <item>@string/smart_seek_color_orange</item>
+        <item>@string/smart_seek_color_cyan</item>
+        <item>@string/smart_seek_color_lime</item>
+        <item>@string/smart_seek_color_pink</item>
+        <item>@string/smart_seek_color_violet</item>
+    </string-array>
+
+    <string-array name="smart_seek_marker_color_values" translatable="false">
+        <item>orange</item>
+        <item>cyan</item>
+        <item>lime</item>
+        <item>pink</item>
+        <item>violet</item>
+    </string-array>
 </resources>

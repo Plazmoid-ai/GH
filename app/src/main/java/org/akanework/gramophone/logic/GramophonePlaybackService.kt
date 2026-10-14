@@ -2030,10 +2030,22 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         newPosition: Player.PositionInfo,
         reason: Int
     ) {
+        // Smart Seek jumps within the same track. Do not clear the active audio-format cache merely
+        // because Media3 reports a different period after such a seek; the format may not be emitted
+        // again when playback resumes, leaving the quality row empty.
+        val isSmartSeekJump = smartSeekSeeking &&
+            reason == Player.DISCONTINUITY_REASON_SEEK &&
+            oldPosition.mediaItemIndex == newPosition.mediaItemIndex
         if (smartSeekSeeking && reason == Player.DISCONTINUITY_REASON_SEEK) {
             smartSeekSeeking = false
         }
-        if (lastKnownPeriodUid != newPosition.periodUid || oldPosition.periodUid != newPosition.periodUid) {
+
+        if (isSmartSeekJump) {
+            lastKnownPeriodUid = newPosition.periodUid
+        } else if (
+            lastKnownPeriodUid != newPosition.periodUid ||
+            oldPosition.periodUid != newPosition.periodUid
+        ) {
             var changed = false
             downstreamFormat.toSet().forEach {
                 if (newPosition.periodUid != it.first) {

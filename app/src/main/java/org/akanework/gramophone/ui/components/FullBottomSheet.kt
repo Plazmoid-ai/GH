@@ -738,19 +738,23 @@ class FullBottomSheet
         val skipDuration = smartSeekNextSkipDurationMs.takeIf { it > 0L } ?: configuredSkipMs
         val unit = if (config.usePercent) "%" else context.getString(R.string.smart_seek_seconds_short)
         val playLabel = "${config.playValue}$unit"
-        val skipLabel = "${config.skipValue}$unit"
-        val randomSuffix = if (config.pattern == SmartSeekPattern.RANDOM) " · random" else ""
-        val label = context.getString(
-            R.string.smart_seek_progress_label,
-            playLabel,
-            skipLabel
-        ) + randomSuffix
+        val skipLabel = "+${config.skipValue}$unit"
+        val markerColor = when (prefs.getString("smart_seek_marker_color", "orange")) {
+            "cyan" -> Color.rgb(0, 184, 212)
+            "lime" -> Color.rgb(124, 179, 66)
+            "pink" -> Color.rgb(245, 0, 87)
+            "violet" -> Color.rgb(124, 77, 255)
+            else -> Color.rgb(255, 109, 0)
+        }
         bottomSheetSmartSeekProgressOverlay.update(
             active = activity.controllerViewModel.isSmartSeekActive(),
             durationMs = duration,
             nextSeekPositionMs = smartSeekNextPositionMs,
             skipDurationMs = skipDuration,
-            label = label
+            playLabel = playLabel,
+            skipLabel = skipLabel,
+            markerColor = markerColor,
+            persistent = prefs.getBoolean("smart_seek_persistent", false)
         )
     }
 
@@ -850,6 +854,46 @@ class FullBottomSheet
         patternGroup.addView(randomButton)
         content.addView(patternGroup)
 
+        val persistentCheck = CheckBox(context).apply {
+            text = context.getString(R.string.settings_smart_seek_persistent)
+            isChecked = prefs.getBoolean("smart_seek_persistent", false)
+        }
+        content.addView(
+            persistentCheck,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = padding
+                bottomMargin = sectionGap
+            }
+        )
+
+        addLabel(context.getString(R.string.smart_seek_marker_color))
+        val markerColorGroup = RadioGroup(context).apply {
+            orientation = RadioGroup.VERTICAL
+        }
+        val markerColorChoices = listOf(
+            Triple("orange", R.string.smart_seek_color_orange, Color.rgb(255, 109, 0)),
+            Triple("cyan", R.string.smart_seek_color_cyan, Color.rgb(0, 184, 212)),
+            Triple("lime", R.string.smart_seek_color_lime, Color.rgb(124, 179, 66)),
+            Triple("pink", R.string.smart_seek_color_pink, Color.rgb(245, 0, 87)),
+            Triple("violet", R.string.smart_seek_color_violet, Color.rgb(124, 77, 255))
+        )
+        val savedMarkerColor = prefs.getString("smart_seek_marker_color", "orange")
+        markerColorChoices.forEach { (key, labelRes, color) ->
+            markerColorGroup.addView(
+                RadioButton(context).apply {
+                    id = View.generateViewId()
+                    tag = key
+                    text = context.getString(labelRes)
+                    buttonTintList = ColorStateList.valueOf(color)
+                    isChecked = key == savedMarkerColor
+                }
+            )
+        }
+        content.addView(markerColorGroup)
+
         content.addView(
             TextView(context).apply {
                 text = context.getString(R.string.smart_seek_random_help)
@@ -896,6 +940,13 @@ class FullBottomSheet
                         SmartSeekPattern.STRICT
                     }
                 ).save(prefs)
+                val selectedMarkerColor = markerColorGroup
+                    .findViewById<RadioButton>(markerColorGroup.checkedRadioButtonId)
+                    ?.tag as? String ?: "orange"
+                prefs.edit {
+                    putBoolean("smart_seek_persistent", persistentCheck.isChecked)
+                    putString("smart_seek_marker_color", selectedMarkerColor)
+                }
                 activity.controllerViewModel.refreshSmartSeekConfiguration()
                 updateSmartSeekProgressOverlay()
                 dialog.dismiss()
@@ -972,6 +1023,9 @@ class FullBottomSheet
         }
         if (key == null || key == "cookie_cover") {
             bottomSheetFullCover.setClip(prefs.getBooleanStrict("cookie_cover", false))
+        }
+        if (key == null || key == "smart_seek_persistent" || key == "smart_seek_marker_color") {
+            updateSmartSeekProgressOverlay()
         }
     }
 
