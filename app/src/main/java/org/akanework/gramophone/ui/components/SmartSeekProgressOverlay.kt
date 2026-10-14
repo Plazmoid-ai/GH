@@ -97,6 +97,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val trackY = height / 2f + dp(1f)
 
         // The highlighted interval between the two markers is the area Smart Seek will jump over.
+        paint.style = Paint.Style.STROKE
         paint.color = primary
         paint.alpha = 95
         paint.strokeWidth = dp(5f)
@@ -118,6 +119,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             trackY + dp(6f),
             paint
         )
+        paint.style = Paint.Style.FILL
     }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
