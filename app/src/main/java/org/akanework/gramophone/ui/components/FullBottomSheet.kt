@@ -110,6 +110,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.GramophonePlaybackService
+import org.akanework.gramophone.logic.SmartSeekMode
 import org.akanework.gramophone.logic.clone
 import org.akanework.gramophone.logic.dpToPx
 import org.akanework.gramophone.logic.fadInAnimation
@@ -262,6 +263,7 @@ class FullBottomSheet
     private val bottomSheetLoopButton: MaterialButton
     private val bottomSheetPlaylistButton: MaterialButton
     private val bottomSheetTimerButton: MaterialButton
+    private val bottomSheetSmartSeekButton: MaterialButton
     private val bottomSheetPlaybackSpeedButton: MaterialButton
     private val bottomSheetFavoriteButton: MaterialButton
     val bottomSheetLyricButton: MaterialButton
@@ -289,6 +291,7 @@ class FullBottomSheet
         bottomSheetShuffleButton = findViewById(R.id.sheet_random)
         bottomSheetLoopButton = findViewById(R.id.sheet_loop)
         bottomSheetTimerButton = findViewById(R.id.timer)
+        bottomSheetSmartSeekButton = findViewById(R.id.smart_seek)
         bottomSheetPlaybackSpeedButton = findViewById(R.id.playback_speed)
         bottomSheetFavoriteButton = findViewById(R.id.favor)
         bottomSheetPlaylistButton = findViewById(R.id.playlist)
@@ -296,9 +299,14 @@ class FullBottomSheet
         bottomSheetFullQualityDetails = findViewById(R.id.quality_details)
         refreshSettings(null)
         prefs.registerOnSharedPreferenceChangeListener(this)
-        activity.controllerViewModel.customCommandListeners.addCallback(activity.lifecycle) { _, command, _ ->
+        activity.controllerViewModel.customCommandListeners.addCallback(activity.lifecycle) { _, command, args ->
             when (command.customAction) {
                 GramophonePlaybackService.SERVICE_TIMER_CHANGED -> updateTimer()
+
+                GramophonePlaybackService.SERVICE_SMART_SEEK -> {
+                    activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
+                    updateSmartSeekButton()
+                }
 
                 GramophonePlaybackService.SERVICE_GET_LYRICS -> {
                     val parsedLyrics = instance?.getLyrics()
@@ -321,6 +329,17 @@ class FullBottomSheet
                 }
             }
             return@addCallback Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        updateSmartSeekButton()
+        bottomSheetSmartSeekButton.setOnClickListener {
+            ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
+            if (activity.controllerViewModel.isSmartSeekActive()) {
+                activity.controllerViewModel.stopSmartSeek()
+            } else {
+                activity.controllerViewModel.startSmartSeek(SmartSeekMode.MANUAL)
+            }
+            updateSmartSeekButton()
         }
 
         val seekBarProgressWavelength =
@@ -640,6 +659,15 @@ class FullBottomSheet
         } else {
             super.onRestoreInstanceState(null)
         }
+    }
+
+    private fun updateSmartSeekButton() {
+        val active = activity.controllerViewModel.isSmartSeekActive()
+        bottomSheetSmartSeekButton.isChecked = active
+        TooltipCompat.setTooltipText(
+            bottomSheetSmartSeekButton,
+            context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
+        )
     }
 
     private fun updateTimer() {
