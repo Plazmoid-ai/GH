@@ -541,4 +541,23 @@
     <string name="settings_always_skip_previous">Всегда переключать на предыдущий трек</string>
     <string name="settings_always_skip_previous_summary">Мгновенное переключение на предыдущий трек вместо перемотки в начало при нажатии кнопки «Назад»</string>
     <string name="reverse_order">Инвертировать порядок</string>
+    <!-- Smart Seek -->
+    <string name="smart_seek">Smart Seek · нажать — вкл./выкл. · удержать — настройки</string>
+    <string name="smart_seek_start">Нажмите, чтобы включить Smart Seek · удерживайте для настроек</string>
+    <string name="smart_seek_stop">Smart Seek включён · нажмите, чтобы выключить · удерживайте для настроек</string>
+    <string name="smart_seek_settings_title">Настройки Smart Seek</string>
+    <string name="smart_seek_settings_intro">Воспроизведение выбранного интервала, затем переход вперёд на заданную величину пропуска. Настройки сохраняются.</string>
+    <string name="smart_seek_play_interval">Интервал воспроизведения</string>
+    <string name="smart_seek_skip_amount">Пропустить вперёд</string>
+    <string name="smart_seek_unit">Значения задаются в</string>
+    <string name="smart_seek_seconds">секундах</string>
+    <string name="smart_seek_seconds_short">с</string>
+    <string name="smart_seek_percent">процентах длительности трека</string>
+    <string name="smart_seek_pattern">Режим</string>
+    <string name="smart_seek_strict">Строгий (фиксированные значения)</string>
+    <string name="smart_seek_random">Случайный (отклонение ±25%)</string>
+    <string name="smart_seek_random_help">В случайном режиме длительность воспроизведения и величина пропуска независимо меняются примерно на 25% в каждом цикле.</string>
+    <string name="smart_seek_save">Сохранить</string>
+    <string name="smart_seek_invalid_value">Введите значение от 1 до %1$d.</string>
+    <string name="smart_seek_progress_label">Smart Seek · %1$s → +%2$s</string>
 </resources>
