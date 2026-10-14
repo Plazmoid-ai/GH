@@ -737,10 +737,14 @@ class FullBottomSheet
         }
         val skipDuration = smartSeekNextSkipDurationMs.takeIf { it > 0L } ?: configuredSkipMs
         val unit = if (config.usePercent) "%" else "s"
-        val randomPrefix = if (config.pattern == SmartSeekPattern.RANDOM) "≈" else ""
-        val playLabel = "$randomPrefix${config.playValue}$unit"
-        val skipLabel = "$randomPrefix${config.skipValue}$unit"
-        val label = context.getString(R.string.smart_seek_progress_label, playLabel, skipLabel)
+        val playLabel = "${config.playValue}$unit"
+        val skipLabel = "${config.skipValue}$unit"
+        val randomSuffix = if (config.pattern == SmartSeekPattern.RANDOM) " · random" else ""
+        val label = context.getString(
+            R.string.smart_seek_progress_label,
+            playLabel,
+            skipLabel
+        ) + randomSuffix
         bottomSheetSmartSeekProgressOverlay.update(
             active = activity.controllerViewModel.isSmartSeekActive(),
             durationMs = duration,
@@ -815,7 +819,7 @@ class FullBottomSheet
         )
 
         addLabel(context.getString(R.string.smart_seek_unit))
-        val unitGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
+        val unitGroup = RadioGroup(context).apply { orientation = LinearLayout.VERTICAL }
         val secondsButton = RadioButton(context).apply {
             id = View.generateViewId()
             text = context.getString(R.string.smart_seek_seconds)
