@@ -60,7 +60,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         val primary = MaterialColors.getColor(
             this,
-            com.google.android.material.R.attr.colorPrimary,
+            androidx.appcompat.R.attr.colorPrimary,
             Color.WHITE
         )
         val secondary = MaterialColors.getColor(
