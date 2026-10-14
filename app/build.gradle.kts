@@ -7,6 +7,7 @@ import java.util.Properties
 
 val aboutLibsVersion = "13.1.0" // keep in sync with plugin version
 val kotlinVersion = "2.3.0"
+val targetAbi = providers.gradleProperty("targetAbi").orNull
 
 plugins {
     id("com.android.application")
@@ -101,6 +102,11 @@ android {
     }
 
     defaultConfig {
+        if (targetAbi != null) {
+            ndk {
+                abiFilters += targetAbi
+            }
+        }
         applicationId = appIdOverride ?: "org.akanework.gramophone"
         minSdk = 23
         targetSdk = 37
