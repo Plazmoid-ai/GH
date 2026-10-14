@@ -1315,6 +1315,7 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_skip_amount">Skip forward</string>
     <string name="smart_seek_unit">Values are</string>
     <string name="smart_seek_seconds">seconds</string>
+    <string name="smart_seek_seconds_short">s</string>
     <string name="smart_seek_percent">percent of track duration</string>
     <string name="smart_seek_pattern">Behavior</string>
     <string name="smart_seek_strict">Strict (fixed values)</string>
