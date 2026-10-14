@@ -174,6 +174,15 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
         smartSeekActive = active
     }
 
+    fun refreshSmartSeekConfiguration() {
+        get()?.sendCustomCommand(
+            SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
+                customExtras.putBoolean("configure", true)
+            },
+            Bundle.EMPTY
+        )
+    }
+
     override fun onDisconnected(controller: MediaController) {
         controllerLifecycle?.destroy()
         controllerLifecycle = null
