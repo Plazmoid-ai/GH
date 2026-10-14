@@ -65,9 +65,25 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         run: ./gradlew :app:assembleRelease
   
+      - name: Build debug APK for arm64-v8a
+        if: github.ref == 'refs/heads/debug' && github.event_name != 'pull_request'
+        run: ./gradlew :app:assembleDebug -PtargetAbi=arm64-v8a
+
       - name: Build debug APK (no release keystore required)
-        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/debug'
+        if: github.event_name == 'pull_request'
         run: ./gradlew :app:assembleDebug
+
+      - name: Verify debug APK architecture
+        if: github.ref == 'refs/heads/debug' && github.event_name != 'pull_request'
+        run: |
+          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          test -n "$APK_FILE"
+          ABIS=$(unzip -Z1 "$APK_FILE" | awk -F/ '$1 == "lib" && NF >= 3 { print $2 }' | sort -u)
+          if [ "$ABIS" != "arm64-v8a" ]; then
+            echo "Expected only arm64-v8a native libraries, found: ${ABIS:-none}"
+            exit 1
+          fi
+          echo "Verified: $APK_FILE contains only arm64-v8a native libraries."
 
       - name: Find release apk
         if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
