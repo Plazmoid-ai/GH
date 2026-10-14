@@ -1323,5 +1323,5 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_random_help">Random mode varies both the play interval and skip amount independently by about 25% each cycle.</string>
     <string name="smart_seek_save">Save</string>
     <string name="smart_seek_invalid_value">Enter a value from 1 to %1$d.</string>
-    <string name="smart_seek_progress_label">Smart Seek · %1$s → +%2$s</string>
+    <string name="smart_seek_progress_label">Smart Seek · play %1$s / skip +%2$s</string>
 </resources>
