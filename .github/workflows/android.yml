@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ "beta", "debug" ]
+    branches: [ "beta" ]
     paths-ignore:
       - ".github/**"
       - "!.github/workflows/**"
