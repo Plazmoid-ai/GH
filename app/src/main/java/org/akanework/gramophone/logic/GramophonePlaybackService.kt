@@ -854,6 +854,23 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         broadcastSmartSeekState()
     }
 
+    private fun isSmartSeekPersistent(): Boolean =
+        prefs.getBoolean("smart_seek_persistent", false)
+
+    /**
+     * Finish Smart Seek for the current track without disabling the persistent mode.
+     * A later media-item transition will schedule a fresh interval for the next track.
+     */
+    private fun finishSmartSeekTrack() {
+        if (isSmartSeekPersistent()) {
+            smartSeekNextPositionMs = -1L
+            smartSeekSeeking = false
+            broadcastSmartSeekState()
+        } else {
+            stopSmartSeek()
+        }
+    }
+
     private fun cancelSmartSeekJob(resetPendingSeek: Boolean = false) {
         smartSeekJob?.cancel()
         smartSeekJob = null
@@ -866,11 +883,24 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         if (!smartSeekActive || smartSeekJob?.isActive == true) return
         val player = controller ?: return
         if (!player.isPlaying) return
-        if (player.currentMediaItem == null ||
-            player.currentMediaItemIndex != smartSeekTrackIndex
-        ) {
-            stopSmartSeek()
+        if (player.currentMediaItem == null) {
+            if (isSmartSeekPersistent()) {
+                smartSeekTrackIndex = C.INDEX_UNSET
+                smartSeekNextPositionMs = -1L
+                broadcastSmartSeekState()
+            } else {
+                stopSmartSeek()
+            }
             return
+        }
+        if (player.currentMediaItemIndex != smartSeekTrackIndex) {
+            if (isSmartSeekPersistent()) {
+                smartSeekTrackIndex = player.currentMediaItemIndex
+                smartSeekNextPositionMs = -1L
+            } else {
+                stopSmartSeek()
+                return
+            }
         }
 
         val job = smartSeekScope.launch(start = CoroutineStart.LAZY) {
@@ -879,22 +909,22 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     val currentPlayer = controller ?: break
                     if (!currentPlayer.isPlaying) break
                     if (currentPlayer.currentMediaItemIndex != smartSeekTrackIndex) {
-                        stopSmartSeek()
+                        if (!isSmartSeekPersistent()) stopSmartSeek()
                         break
                     }
                     if (currentPlayer.playbackState != Player.STATE_READY ||
                         currentPlayer.duration <= 0L
                     ) {
-                        Log.i(TAG, "Smart Seek stopped: player is not ready or duration is unknown")
-                        stopSmartSeek()
+                        Log.i(TAG, "Smart Seek stopped for this track: player is not ready or duration is unknown")
+                        finishSmartSeekTrack()
                         break
                     }
 
                     val cycle = smartSeekConfig.resolveCycle(currentPlayer.duration)
                     val remainingMs = currentPlayer.duration - currentPlayer.currentPosition
                     if (remainingMs <= cycle.playDurationMs) {
-                        Log.i(TAG, "Smart Seek stopped: not enough track time remains for another interval")
-                        stopSmartSeek()
+                        Log.i(TAG, "Smart Seek finished for this track: not enough time remains for another interval")
+                        finishSmartSeekTrack()
                         break
                     }
 
@@ -911,12 +941,12 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     val seekPlayer = controller ?: break
                     if (!seekPlayer.isPlaying) break
                     if (seekPlayer.currentMediaItemIndex != smartSeekTrackIndex) {
-                        stopSmartSeek()
+                        if (!isSmartSeekPersistent()) stopSmartSeek()
                         break
                     }
                     if (seekPlayer.playbackState != Player.STATE_READY || seekPlayer.duration <= 0L) {
-                        Log.i(TAG, "Smart Seek stopped before seekTo: player is not ready or duration is unknown")
-                        stopSmartSeek()
+                        Log.i(TAG, "Smart Seek finished for this track before seekTo: player is not ready or duration is unknown")
+                        finishSmartSeekTrack()
                         break
                     }
 
@@ -936,8 +966,8 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     val currentPosition = seekPlayer.currentPosition
                     val targetPosition = currentPosition + cycle.skipDurationMs
                     if (targetPosition >= seekPlayer.duration) {
-                        Log.i(TAG, "Smart Seek stopped: next target is beyond the current track")
-                        stopSmartSeek()
+                        Log.i(TAG, "Smart Seek finished for this track: next target is beyond the current track")
+                        finishSmartSeekTrack()
                         break
                     }
 
@@ -1736,7 +1766,13 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
     override fun onPlaybackStateChanged(state: Int) {
         if (state == Player.STATE_ENDED && smartSeekActive) {
-            stopSmartSeek()
+            if (isSmartSeekPersistent()) {
+                cancelSmartSeekJob(resetPendingSeek = true)
+                smartSeekNextPositionMs = -1L
+                broadcastSmartSeekState()
+            } else {
+                stopSmartSeek()
+            }
         }
         if (state == Player.STATE_IDLE) {
             var changed = false
@@ -1790,8 +1826,23 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         if (smartSeekActive) {
-            // Manual Smart Seek belongs to one track; let subsequent tracks play normally.
-            stopSmartSeek()
+            if (isSmartSeekPersistent()) {
+                // Keep the mode enabled, but start a fresh interval for the new track.
+                cancelSmartSeekJob(resetPendingSeek = true)
+                smartSeekTrackIndex = if (mediaItem != null) {
+                    controller?.currentMediaItemIndex ?: C.INDEX_UNSET
+                } else {
+                    C.INDEX_UNSET
+                }
+                smartSeekNextPositionMs = -1L
+                broadcastSmartSeekState()
+                if (mediaItem != null && controller?.isPlaying == true) {
+                    startSmartSeekLoop()
+                }
+            } else {
+                // Manual Smart Seek belongs to one track; let subsequent tracks play normally.
+                stopSmartSeek()
+            }
         }
         if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
             bitrate = null

@@ -1309,6 +1309,8 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek">Smart Seek · tap to toggle · hold for settings</string>
     <string name="smart_seek_start">Tap to enable Smart Seek · hold for settings</string>
     <string name="smart_seek_stop">Smart Seek is active · tap to disable · hold for settings</string>
+    <string name="settings_smart_seek_persistent">Persistent mode for all tracks</string>
+    <string name="settings_smart_seek_persistent_summary">Keep Smart Seek enabled when the current track changes. Turn off Smart Seek with its player button.</string>
     <string name="smart_seek_settings_title">Smart Seek settings</string>
     <string name="smart_seek_settings_intro">Play for the chosen interval, then jump forward by the skip amount. Settings are saved.</string>
     <string name="smart_seek_play_interval">Play interval</string>

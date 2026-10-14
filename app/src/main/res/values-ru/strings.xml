@@ -545,6 +545,8 @@
     <string name="smart_seek">Smart Seek · нажать — вкл./выкл. · удержать — настройки</string>
     <string name="smart_seek_start">Нажмите, чтобы включить Smart Seek · удерживайте для настроек</string>
     <string name="smart_seek_stop">Smart Seek включён · нажмите, чтобы выключить · удерживайте для настроек</string>
+    <string name="settings_smart_seek_persistent">Постоянный режим для всех треков</string>
+    <string name="settings_smart_seek_persistent_summary">Smart Seek продолжает работать при смене трека. Для отключения нажмите кнопку Smart Seek в плеере.</string>
     <string name="smart_seek_settings_title">Настройки Smart Seek</string>
     <string name="smart_seek_settings_intro">Воспроизведение выбранного интервала, затем переход вперёд на заданную величину пропуска. Настройки сохраняются.</string>
     <string name="smart_seek_play_interval">Интервал воспроизведения</string>
