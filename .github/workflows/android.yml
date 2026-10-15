@@ -91,8 +91,33 @@ jobs:
           echo "APK_FILE_NAME=$(basename "$APK_FILE" .apk)" >> $GITHUB_ENV
           echo "Found APK: $APK_FILE"
           ls -l "$APK_FILE"
-          echo "--- ABIs inside APK ---"
-          unzip -Z1 "$APK_FILE" | awk -F/ '$1 == "lib" && NF >= 3 { print $2 }' | sort -u
+
+          APK_ENTRIES=$(unzip -Z1 "$APK_FILE")
+          echo "--- Native .so files inside APK ---"
+          SO_FILES=$(printf '%s\n' "$APK_ENTRIES" | awk -F/ '$1 == "lib" && $NF ~ /\.so$/ { print $0 }' | sort)
+          if [ -z "$SO_FILES" ]; then
+            if printf '%s\n' "$APK_ENTRIES" | grep -q '^lib/'; then
+              echo "::error::APK contains a lib/ directory, but no native .so files were found."
+            else
+              echo "::error::APK has no lib/ directory; native libraries are missing."
+            fi
+            exit 1
+          fi
+          printf '%s\n' "$SO_FILES"
+
+          ABI_DIRS=$(printf '%s\n' "$SO_FILES" | awk -F/ 'NF >= 3 { print $2 }' | sort -u)
+          if [ -z "$ABI_DIRS" ]; then
+            echo "::error::Native .so files exist, but no ABI directory could be determined."
+            exit 1
+          fi
+          echo "--- ABI directories inside APK ---"
+          printf '%s\n' "$ABI_DIRS"
+
+          if [ "$ABI_DIRS" != "arm64-v8a" ]; then
+            echo "::error::Expected only arm64-v8a, but found these ABI directories: $ABI_DIRS"
+            exit 1
+          fi
+          echo "ABI verification passed: arm64-v8a only."
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
