@@ -32,7 +32,8 @@ data class SmartSeekConfig(
     val absolutePlaySeconds: Int = DEFAULT_ABSOLUTE_PLAY_SECONDS,
     val absoluteSkipSeconds: Int = DEFAULT_ABSOLUTE_SKIP_SECONDS,
     val playPercent: Int = DEFAULT_PLAY_PERCENT,
-    val skipPercent: Int = DEFAULT_SKIP_PERCENT
+    val skipPercent: Int = DEFAULT_SKIP_PERCENT,
+    val boostBuffer: Boolean = false
 ) {
     fun resolveCycle(trackDurationMs: Long): SmartSeekCycle {
         if (inputMode == SmartSeekInputMode.CYCLE) {
@@ -79,6 +80,7 @@ data class SmartSeekConfig(
             .putInt(PREF_ABSOLUTE_SKIP_SECONDS, absoluteSkipSeconds.coerceIn(1, MAX_SECONDS))
             .putInt(PREF_PLAY_PERCENT, playPercent.coerceIn(1, 99))
             .putInt(PREF_SKIP_PERCENT, skipPercent.coerceIn(1, 99))
+            .putBoolean(PREF_BOOST_BUFFER, boostBuffer)
             .apply()
     }
 
@@ -94,6 +96,7 @@ data class SmartSeekConfig(
         const val PREF_ABSOLUTE_SKIP_SECONDS = "smart_seek_absolute_skip_seconds"
         const val PREF_PLAY_PERCENT = "smart_seek_play_percent"
         const val PREF_SKIP_PERCENT = "smart_seek_skip_percent"
+        const val PREF_BOOST_BUFFER = "smart_seek_boost_buffer"
 
         const val DEFAULT_ABSOLUTE_PLAY_SECONDS = 20
         const val DEFAULT_ABSOLUTE_SKIP_SECONDS = 10
@@ -155,7 +158,8 @@ data class SmartSeekConfig(
                 absolutePlaySeconds = absolutePlaySeconds,
                 absoluteSkipSeconds = absoluteSkipSeconds,
                 playPercent = playPercent,
-                skipPercent = skipPercent
+                skipPercent = skipPercent,
+                boostBuffer = preferences.getBoolean(PREF_BOOST_BUFFER, false)
             )
         }
     }

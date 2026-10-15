@@ -1347,4 +1347,6 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_cycle_minutes_invalid">Enter a value from 0 to 10 minutes.</string>
     <string name="smart_seek_cycle_seconds_invalid">Enter a value from 0 to 59 seconds.</string>
     <string name="smart_seek_cycle_duration_range">Cycle duration must be between 1 second and 10 minutes.</string>
+    <string name="smart_seek_boost_buffer">Boost buffering for Smart Seek</string>
+    <string name="smart_seek_boost_buffer_help">Uses larger playback buffers for all playback, not only when Smart Seek is active. Changes take effect when the playback service/player is recreated.</string>
 </resources>

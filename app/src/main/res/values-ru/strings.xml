@@ -583,4 +583,6 @@
     <string name="smart_seek_cycle_minutes_invalid">Введите от 0 до 10 минут.</string>
     <string name="smart_seek_cycle_seconds_invalid">Введите от 0 до 59 секунд.</string>
     <string name="smart_seek_cycle_duration_range">Длительность цикла должна быть от 1 секунды до 10 минут.</string>
+    <string name="smart_seek_boost_buffer">Ускорять буфер при Smart Seek</string>
+    <string name="smart_seek_boost_buffer_help">Увеличенный буфер используется при любом воспроизведении, а не только в Smart Seek. Настройка применяется после пересоздания плеера или службы воспроизведения.</string>
 </resources>

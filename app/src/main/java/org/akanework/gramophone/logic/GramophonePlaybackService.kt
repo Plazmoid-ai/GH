@@ -444,7 +444,11 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         it.setConstantBitrateSeekingEnabled(true)
                         it.setMp3ExtractorFlags(Mp3Extractor.FLAG_ENABLE_INDEX_SEEKING)
                     })
-            )
+            ).apply {
+                if (SmartSeekConfig.load(prefs).boostBuffer) {
+                    setLoadControl(SmartSeekLoadControl.create())
+                }
+            }
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .setAudioAttributes(
                     AudioAttributes

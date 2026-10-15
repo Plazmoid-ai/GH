@@ -991,6 +991,30 @@ class FullBottomSheet
             }
         )
 
+        val boostBufferCheck = CheckBox(context).apply {
+            text = context.getString(R.string.smart_seek_boost_buffer)
+            isChecked = current.boostBuffer
+        }
+        content.addView(
+            boostBufferCheck,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = padding }
+        )
+        content.addView(
+            TextView(context).apply {
+                text = context.getString(R.string.smart_seek_boost_buffer_help)
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = sectionGap
+                bottomMargin = padding
+            }
+        )
+
         addLabel(content, context.getString(R.string.smart_seek_marker_color))
         val markerColorGroup = RadioGroup(context).apply {
             orientation = RadioGroup.VERTICAL
@@ -1135,7 +1159,8 @@ class FullBottomSheet
                     absolutePlaySeconds = savedAbsolutePlay,
                     absoluteSkipSeconds = savedAbsoluteSkip,
                     playPercent = savedPercentPlay,
-                    skipPercent = savedPercentSkip
+                    skipPercent = savedPercentSkip,
+                    boostBuffer = boostBufferCheck.isChecked
                 ).save(prefs)
 
                 val selectedMarkerColor = markerColorGroup
