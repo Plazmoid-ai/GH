@@ -221,6 +221,12 @@
                 tools:value="0.5"
                 tools:visibility="visible" />
 
+            <org.akanework.gramophone.ui.components.SmartSeekProgressOverlay
+                android:id="@+id/smart_seek_progress_overlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no" />
+
         </FrameLayout>
 
         <!-- TODO remove useless ConstraintLayout -->

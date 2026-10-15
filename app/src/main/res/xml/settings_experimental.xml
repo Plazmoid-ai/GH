@@ -66,6 +66,25 @@
 
         <SwitchPreferenceCompat
             android:defaultValue="false"
+            android:key="smart_seek_persistent"
+            android:layout="@layout/preference_switch"
+            android:summary="@string/settings_smart_seek_persistent_summary"
+            android:title="@string/settings_smart_seek_persistent"
+            android:widgetLayout="@layout/preference_switch_widget"
+            app:iconSpaceReserved="false" />
+
+        <ListPreference
+            android:defaultValue="orange"
+            android:entries="@array/smart_seek_marker_color_entries"
+            android:entryValues="@array/smart_seek_marker_color_values"
+            android:key="smart_seek_marker_color"
+            android:layout="@layout/preference_basic"
+            android:title="@string/smart_seek_marker_color"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
             android:key="mq_preview"
             android:layout="@layout/preference_switch"
             android:title="@string/settings_mq_enabled"

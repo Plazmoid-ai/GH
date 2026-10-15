@@ -31,6 +31,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
+import android.text.InputType
 import android.text.format.DateFormat
 import android.util.AttributeSet
 import android.view.AbsSavedState
@@ -47,6 +48,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.SeekBar
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
@@ -110,7 +114,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.GramophonePlaybackService
+import org.akanework.gramophone.logic.SmartSeekConfig
 import org.akanework.gramophone.logic.SmartSeekMode
+import org.akanework.gramophone.logic.SmartSeekPattern
 import org.akanework.gramophone.logic.clone
 import org.akanework.gramophone.logic.dpToPx
 import org.akanework.gramophone.logic.fadInAnimation
@@ -269,6 +275,10 @@ class FullBottomSheet
     val bottomSheetLyricButton: MaterialButton
     private val bottomSheetFullSeekBar: SeekBar
     private val bottomSheetFullSlider: Slider
+    private val bottomSheetSmartSeekProgressOverlay: SmartSeekProgressOverlay
+    private var smartSeekNextPositionMs = -1L
+    private var smartSeekNextSkipDurationMs = 0L
+    private var lastSmartSeekButtonActive: Boolean? = null
     private val bottomSheetFullCoverFrame: MaterialCardView
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
     private val progressDrawable: SquigglyProgress
@@ -287,6 +297,7 @@ class FullBottomSheet
         bottomSheetFullDuration = findViewById(R.id.duration)
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
+        bottomSheetSmartSeekProgressOverlay = findViewById(R.id.smart_seek_progress_overlay)
         bottomSheetFullSlideUpButton = findViewById(R.id.slide_down)
         bottomSheetShuffleButton = findViewById(R.id.sheet_random)
         bottomSheetLoopButton = findViewById(R.id.sheet_loop)
@@ -305,6 +316,8 @@ class FullBottomSheet
 
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
                     activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
+                    smartSeekNextPositionMs = args.getLong("nextPositionMs", -1L)
+                    smartSeekNextSkipDurationMs = args.getLong("skipDurationMs", 0L)
                     updateSmartSeekButton()
                 }
 
@@ -340,6 +353,11 @@ class FullBottomSheet
                 activity.controllerViewModel.startSmartSeek(SmartSeekMode.MANUAL)
             }
             updateSmartSeekButton()
+        }
+        bottomSheetSmartSeekButton.setOnLongClickListener {
+            ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
+            showSmartSeekSettingsDialog()
+            true
         }
 
         val seekBarProgressWavelength =
@@ -664,10 +682,277 @@ class FullBottomSheet
     private fun updateSmartSeekButton() {
         val active = activity.controllerViewModel.isSmartSeekActive()
         bottomSheetSmartSeekButton.isChecked = active
+        bottomSheetSmartSeekButton.isActivated = active
+        bottomSheetSmartSeekButton.contentDescription =
+            context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
+
+        val backgroundColor = MaterialColors.getColor(
+            bottomSheetSmartSeekButton,
+            if (active) com.google.android.material.R.attr.colorPrimaryContainer
+            else com.google.android.material.R.attr.colorSurfaceVariant,
+            Color.TRANSPARENT
+        )
+        val iconColor = MaterialColors.getColor(
+            bottomSheetSmartSeekButton,
+            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
+            else com.google.android.material.R.attr.colorOnSurfaceVariant,
+            Color.WHITE
+        )
+        bottomSheetSmartSeekButton.backgroundTintList = ColorStateList.valueOf(backgroundColor)
+        bottomSheetSmartSeekButton.iconTint = ColorStateList.valueOf(iconColor)
         TooltipCompat.setTooltipText(
             bottomSheetSmartSeekButton,
             context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
         )
+
+        val previousState = lastSmartSeekButtonActive
+        lastSmartSeekButtonActive = active
+        if (previousState != null && previousState != active) {
+            bottomSheetSmartSeekButton.animate().cancel()
+            bottomSheetSmartSeekButton.scaleX = 0.88f
+            bottomSheetSmartSeekButton.scaleY = 0.88f
+            bottomSheetSmartSeekButton.animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(180L)
+                .withEndAction {
+                    bottomSheetSmartSeekButton.scaleX = 1f
+                    bottomSheetSmartSeekButton.scaleY = 1f
+                }
+                .start()
+        }
+        updateSmartSeekProgressOverlay()
+    }
+
+    private fun updateSmartSeekProgressOverlay(durationOverrideMs: Long? = null) {
+        val config = SmartSeekConfig.load(prefs)
+        val duration = durationOverrideMs
+            ?: instance?.contentDuration?.let { if (it == C.TIME_UNSET) null else it }
+            ?: instance?.currentMediaItem?.mediaMetadata?.durationMs
+            ?: 0L
+        val configuredSkipMs = if (config.usePercent) {
+            duration.coerceAtLeast(0L) * config.skipValue / 100L
+        } else {
+            config.skipValue.toLong() * 1_000L
+        }
+        val skipDuration = smartSeekNextSkipDurationMs.takeIf { it > 0L } ?: configuredSkipMs
+        val unit = if (config.usePercent) "%" else context.getString(R.string.smart_seek_seconds_short)
+        val playLabel = "${config.playValue}$unit"
+        val skipLabel = "+${config.skipValue}$unit"
+        val markerColor = when (prefs.getString("smart_seek_marker_color", "orange")) {
+            "cyan" -> Color.rgb(0, 184, 212)
+            "lime" -> Color.rgb(124, 179, 66)
+            "pink" -> Color.rgb(245, 0, 87)
+            "violet" -> Color.rgb(124, 77, 255)
+            else -> Color.rgb(255, 109, 0)
+        }
+        bottomSheetSmartSeekProgressOverlay.update(
+            active = activity.controllerViewModel.isSmartSeekActive(),
+            durationMs = duration,
+            nextSeekPositionMs = smartSeekNextPositionMs,
+            skipDurationMs = skipDuration,
+            playLabel = playLabel,
+            skipLabel = skipLabel,
+            markerColor = markerColor,
+            persistent = prefs.getBoolean("smart_seek_persistent", false)
+        )
+    }
+
+    private fun showSmartSeekSettingsDialog() {
+        val current = SmartSeekConfig.load(prefs)
+        val density = resources.displayMetrics.density
+        val padding = (8 * density).toInt()
+        val sectionGap = (4 * density).toInt()
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, sectionGap, padding, sectionGap)
+        }
+
+        val intro = TextView(context).apply {
+            text = context.getString(R.string.smart_seek_settings_intro)
+        }
+        content.addView(
+            intro,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = padding }
+        )
+
+        fun addLabel(text: String) {
+            content.addView(
+                TextView(context).apply {
+                    this.text = text
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = sectionGap
+                    bottomMargin = sectionGap
+                }
+            )
+        }
+
+        fun newValueInput(value: Int): EditText =
+            EditText(context).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setSingleLine(true)
+                setSelectAllOnFocus(true)
+                setText(value.toString())
+            }
+
+        addLabel(context.getString(R.string.smart_seek_play_interval))
+        val playInput = newValueInput(current.playValue)
+        content.addView(
+            playInput,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        addLabel(context.getString(R.string.smart_seek_skip_amount))
+        val skipInput = newValueInput(current.skipValue)
+        content.addView(
+            skipInput,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        addLabel(context.getString(R.string.smart_seek_unit))
+        val unitGroup = RadioGroup(context).apply { orientation = LinearLayout.VERTICAL }
+        val secondsButton = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = context.getString(R.string.smart_seek_seconds)
+            isChecked = !current.usePercent
+        }
+        val percentButton = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = context.getString(R.string.smart_seek_percent)
+            isChecked = current.usePercent
+        }
+        unitGroup.addView(secondsButton)
+        unitGroup.addView(percentButton)
+        content.addView(unitGroup)
+
+        addLabel(context.getString(R.string.smart_seek_pattern))
+        val patternGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
+        val strictButton = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = context.getString(R.string.smart_seek_strict)
+            isChecked = current.pattern == SmartSeekPattern.STRICT
+        }
+        val randomButton = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = context.getString(R.string.smart_seek_random)
+            isChecked = current.pattern == SmartSeekPattern.RANDOM
+        }
+        patternGroup.addView(strictButton)
+        patternGroup.addView(randomButton)
+        content.addView(patternGroup)
+
+        val persistentCheck = CheckBox(context).apply {
+            text = context.getString(R.string.settings_smart_seek_persistent)
+            isChecked = prefs.getBoolean("smart_seek_persistent", false)
+        }
+        content.addView(
+            persistentCheck,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = padding
+                bottomMargin = sectionGap
+            }
+        )
+
+        addLabel(context.getString(R.string.smart_seek_marker_color))
+        val markerColorGroup = RadioGroup(context).apply {
+            orientation = RadioGroup.VERTICAL
+        }
+        val markerColorChoices = listOf(
+            Triple("orange", R.string.smart_seek_color_orange, Color.rgb(255, 109, 0)),
+            Triple("cyan", R.string.smart_seek_color_cyan, Color.rgb(0, 184, 212)),
+            Triple("lime", R.string.smart_seek_color_lime, Color.rgb(124, 179, 66)),
+            Triple("pink", R.string.smart_seek_color_pink, Color.rgb(245, 0, 87)),
+            Triple("violet", R.string.smart_seek_color_violet, Color.rgb(124, 77, 255))
+        )
+        val savedMarkerColor = prefs.getString("smart_seek_marker_color", "orange")
+        markerColorChoices.forEach { (key, labelRes, color) ->
+            markerColorGroup.addView(
+                RadioButton(context).apply {
+                    id = View.generateViewId()
+                    tag = key
+                    text = context.getString(labelRes)
+                    buttonTintList = ColorStateList.valueOf(color)
+                    isChecked = key == savedMarkerColor
+                }
+            )
+        }
+        content.addView(markerColorGroup)
+
+        content.addView(
+            TextView(context).apply {
+                text = context.getString(R.string.smart_seek_random_help)
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = padding }
+        )
+
+        val scroll = ScrollView(context).apply {
+            isFillViewport = true
+            addView(content)
+        }
+        val dialog = MaterialAlertDialogBuilder(context)
+            .setTitle(R.string.smart_seek_settings_title)
+            .setView(scroll)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.smart_seek_save, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val isPercent = percentButton.isChecked
+                val maxValue = if (isPercent) 99 else SmartSeekConfig.MAX_SECONDS
+                val playValue = playInput.text.toString().trim().toIntOrNull()
+                val skipValue = skipInput.text.toString().trim().toIntOrNull()
+                if (playValue == null || playValue !in 1..maxValue) {
+                    playInput.error = context.getString(R.string.smart_seek_invalid_value, maxValue)
+                    return@setOnClickListener
+                }
+                if (skipValue == null || skipValue !in 1..maxValue) {
+                    skipInput.error = context.getString(R.string.smart_seek_invalid_value, maxValue)
+                    return@setOnClickListener
+                }
+
+                SmartSeekConfig(
+                    playValue = playValue,
+                    skipValue = skipValue,
+                    usePercent = isPercent,
+                    pattern = if (randomButton.isChecked) {
+                        SmartSeekPattern.RANDOM
+                    } else {
+                        SmartSeekPattern.STRICT
+                    }
+                ).save(prefs)
+                val selectedMarkerColor = markerColorGroup
+                    .findViewById<RadioButton>(markerColorGroup.checkedRadioButtonId)
+                    ?.tag as? String ?: "orange"
+                prefs.edit {
+                    putBoolean("smart_seek_persistent", persistentCheck.isChecked)
+                    putString("smart_seek_marker_color", selectedMarkerColor)
+                }
+                activity.controllerViewModel.refreshSmartSeekConfiguration()
+                updateSmartSeekProgressOverlay()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     private fun updateTimer() {
@@ -738,6 +1023,9 @@ class FullBottomSheet
         }
         if (key == null || key == "cookie_cover") {
             bottomSheetFullCover.setClip(prefs.getBooleanStrict("cookie_cover", false))
+        }
+        if (key == null || key == "smart_seek_persistent" || key == "smart_seek_marker_color") {
+            updateSmartSeekProgressOverlay()
         }
     }
 
@@ -1508,6 +1796,7 @@ class FullBottomSheet
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
+        updateSmartSeekProgressOverlay(duration)
     }
 
     override fun onCheckedChanged(button: MaterialButton?, isChecked: Boolean) {

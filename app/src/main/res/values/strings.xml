@@ -1305,8 +1305,30 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="loading_playlists">Loading playlists...</string>
     <!-- Option to enable reordering mode for items in a list -->
     <string name="edit_mode">Enter edit mode</string>
-    <!-- Toggle Smart Seek for the current track. -->
-    <string name="smart_seek">Smart Seek</string>
-    <string name="smart_seek_start">Enable Smart Seek</string>
-    <string name="smart_seek_stop">Disable Smart Seek</string>
+    <!-- Smart Seek toggle; long-press opens its settings. -->
+    <string name="smart_seek">Smart Seek · tap to toggle · hold for settings</string>
+    <string name="smart_seek_start">Tap to enable Smart Seek · hold for settings</string>
+    <string name="smart_seek_stop">Smart Seek is active · tap to disable · hold for settings</string>
+    <string name="settings_smart_seek_persistent">Persistent mode for all tracks</string>
+    <string name="settings_smart_seek_persistent_summary">Keep Smart Seek enabled when the current track changes. Turn off Smart Seek with its player button.</string>
+    <string name="smart_seek_settings_title">Smart Seek settings</string>
+    <string name="smart_seek_settings_intro">Play for the chosen interval, then jump forward by the skip amount. Settings are saved.</string>
+    <string name="smart_seek_play_interval">Play interval</string>
+    <string name="smart_seek_skip_amount">Skip forward</string>
+    <string name="smart_seek_unit">Values are</string>
+    <string name="smart_seek_seconds">seconds</string>
+    <string name="smart_seek_seconds_short">s</string>
+    <string name="smart_seek_percent">percent of track duration</string>
+    <string name="smart_seek_pattern">Behavior</string>
+    <string name="smart_seek_strict">Strict (fixed values)</string>
+    <string name="smart_seek_random">Random (varies by ±25%)</string>
+    <string name="smart_seek_random_help">Random mode varies both the play interval and skip amount independently by about 25% each cycle.</string>
+    <string name="smart_seek_save">Save</string>
+    <string name="smart_seek_invalid_value">Enter a value from 1 to %1$d.</string>
+    <string name="smart_seek_marker_color">Smart Seek marker color</string>
+    <string name="smart_seek_color_orange">Orange</string>
+    <string name="smart_seek_color_cyan">Cyan</string>
+    <string name="smart_seek_color_lime">Green</string>
+    <string name="smart_seek_color_pink">Pink</string>
+    <string name="smart_seek_color_violet">Violet</string>
 </resources>
