@@ -28,7 +28,7 @@ jobs:
     name: Build App
     runs-on: ubuntu-latest
     steps:
-  
+
       - name: Generate bot data
         if: github.event_name != 'pull_request'
         run: |
@@ -55,16 +55,16 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p ~/.gradle
-          echo "${{ secrets.KEYSTORE_SECRET }}" | base64 -d > ~/key.jks
-          echo "AKANE_RELEASE_STORE_FILE=$(realpath ~/key.jks)" > ~/.gradle/gradle.properties
-          echo "AKANE_RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PWD }}" >> ~/.gradle/gradle.properties
+          echo "${{ secrets.SIGNING_KEY }}" | base64 -d > ~/mod.jks
+          echo "AKANE_RELEASE_STORE_FILE=$(realpath ~/mod.jks)" > ~/.gradle/gradle.properties
+          echo "AKANE_RELEASE_STORE_PASSWORD=${{ secrets.KEY_STORE_PASSWORD }}" >> ~/.gradle/gradle.properties
           echo "AKANE_RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> ~/.gradle/gradle.properties
-          echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PWD }}" >> ~/.gradle/gradle.properties
+          echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> ~/.gradle/gradle.properties
 
       - name: Build with Gradle
         if: github.event_name != 'pull_request'
         run: ./gradlew :app:assembleRelease
-  
+
       - name: Build with Gradle for pull request
         if: github.event_name == 'pull_request'
         run: ./gradlew :app:assembleDebug
@@ -75,7 +75,7 @@ jobs:
           APK_FILE=$(find app/build/outputs/apk/release -name '*.apk')
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
           echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
-  
+
       - name: Find apk for pull request
         if: github.event_name == 'pull_request'
         run: |
