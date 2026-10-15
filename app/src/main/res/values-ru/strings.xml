@@ -589,4 +589,6 @@
     <string name="smart_seek_restart_required_message">Настройка буфера сохранена. Перезапустите приложение сейчас, чтобы применить её, или выберите «Позже» — настройка применится при следующем запуске.</string>
     <string name="smart_seek_restart_now">Перезапустить</string>
     <string name="smart_seek_restart_later">Позже</string>
+    <string name="settings_smart_seek_enabled">Включить Smart Seek</string>
+    <string name="settings_smart_seek_enabled_summary">Показывать элементы управления Smart Seek и разрешить его работу. При отключении текущая сессия Smart Seek останавливается.</string>
 </resources>
