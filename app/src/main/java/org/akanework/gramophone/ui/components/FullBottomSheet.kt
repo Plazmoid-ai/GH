@@ -352,6 +352,7 @@ class FullBottomSheet
 
         updateSmartSeekButton()
         bottomSheetSmartSeekButton.setOnClickListener {
+            if (!prefs.getBoolean("smart_seek_enabled", true)) return@setOnClickListener
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
             if (activity.controllerViewModel.isSmartSeekActive()) {
                 activity.controllerViewModel.stopSmartSeek()
@@ -686,7 +687,9 @@ class FullBottomSheet
     }
 
     private fun updateSmartSeekButton() {
-        val active = activity.controllerViewModel.isSmartSeekActive()
+        val enabled = prefs.getBoolean("smart_seek_enabled", true)
+        bottomSheetSmartSeekButton.visibility = if (enabled) VISIBLE else GONE
+        val active = enabled && activity.controllerViewModel.isSmartSeekActive()
         bottomSheetSmartSeekButton.isChecked = active
         bottomSheetSmartSeekButton.isActivated = active
         bottomSheetSmartSeekButton.contentDescription =
@@ -731,6 +734,11 @@ class FullBottomSheet
     }
 
     private fun updateSmartSeekProgressOverlay(durationOverrideMs: Long? = null) {
+        if (!prefs.getBoolean("smart_seek_enabled", true)) {
+            bottomSheetSmartSeekProgressOverlay.visibility = GONE
+            return
+        }
+        bottomSheetSmartSeekProgressOverlay.visibility = VISIBLE
         val config = SmartSeekConfig.load(prefs)
         val duration = durationOverrideMs
             ?: instance?.contentDuration?.let { if (it == C.TIME_UNSET) null else it }
@@ -1331,8 +1339,11 @@ class FullBottomSheet
         if (key == null || key == "cookie_cover") {
             bottomSheetFullCover.setClip(prefs.getBooleanStrict("cookie_cover", false))
         }
-        if (key == null || key == "smart_seek_persistent" || key == "smart_seek_marker_color") {
+        if (key == null || key == "smart_seek_enabled" || key == "smart_seek_persistent" || key == "smart_seek_marker_color") {
             updateSmartSeekProgressOverlay()
+        }
+        if (key == "smart_seek_enabled") {
+            updateSmartSeekButton()
         }
     }
 
