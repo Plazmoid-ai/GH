@@ -1,7 +1,9 @@
 @file:Suppress("UnstableApiUsage")
 
+import com.android.build.api.dsl.ApkSigningConfig
 import com.android.build.gradle.tasks.PackageAndroidArtifact
 import org.gradle.api.GradleException
+import org.gradle.api.Project
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.util.removeSuffixIfPresent
 import java.util.Properties
@@ -20,7 +22,7 @@ plugins {
     id("pt.jcosta.resourceplaceholders")
 }
 
-fun com.android.build.gradle.internal.dsl.SigningConfig.configureFromEnv(prefix: String) {
+fun ApkSigningConfig.configureFromEnv(project: Project, prefix: String) {
     val storeFileEnv = System.getenv("${prefix}_STORE_FILE")
     val storePassEnv = System.getenv("${prefix}_STORE_PASSWORD")
     val aliasEnv = System.getenv("${prefix}_KEY_ALIAS")
@@ -45,7 +47,7 @@ fun com.android.build.gradle.internal.dsl.SigningConfig.configureFromEnv(prefix:
         )
     }
 
-    val keystore = file(storeFileEnv!!)
+    val keystore = project.file(storeFileEnv!!)
     require(keystore.exists()) {
         "Keystore file not found: ${keystore.absolutePath}. " +
         "Check the base64 decode step in the workflow."
@@ -78,14 +80,12 @@ android {
 
     signingConfigs {
         create("release") {
-            configureFromEnv("AKANE_RELEASE")
+            configureFromEnv(project, "AKANE_RELEASE")
         }
         create("release2") {
-            configureFromEnv("AKANE2_RELEASE")
+            configureFromEnv(project, "AKANE2_RELEASE")
         }
     }
-
-    // ... файл продолжается без изменений: buildTypes и остальное ...
 
     androidResources {
         generateLocaleConfig = true
@@ -252,10 +252,6 @@ android {
         forEach {
             it.vcsInfo {
                 include = false
-            }
-            if (project.hasProperty("AKANE_RELEASE_KEY_ALIAS") || project.hasProperty("signing2")) {
-                it.signingConfig = signingConfigs[if (project.hasProperty("signing2"))
-                    "release2" else "release"]
             }
             it.isCrunchPngs = false // for reproducible builds TODO how much size impact does this have? where are the pngs from? can we use webp?
         }
