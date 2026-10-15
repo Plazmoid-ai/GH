@@ -567,4 +567,20 @@
     <string name="smart_seek_color_lime">Зелёный</string>
     <string name="smart_seek_color_pink">Розовый</string>
     <string name="smart_seek_color_violet">Фиолетовый</string>
+    <!-- Режимы ввода Smart Seek -->
+    <string name="smart_seek_input_mode">Режим настройки</string>
+    <string name="smart_seek_mode_absolute">Фиксированные секунды</string>
+    <string name="smart_seek_mode_percent">Проценты от длительности трека</string>
+    <string name="smart_seek_mode_cycle">Фиксированный цикл и доля звука</string>
+    <string name="smart_seek_absolute_help">Длительности воспроизведения и пропуска задаются отдельно в секундах (1–600).</string>
+    <string name="smart_seek_percent_help">Воспроизведение и пропуск задаются независимо в процентах от длительности текущего трека (1–99%).</string>
+    <string name="smart_seek_cycle_duration">Длительность цикла</string>
+    <string name="smart_seek_sound_ratio">Соотношение звука и пропуска</string>
+    <string name="smart_seek_sound_ratio_label">%1$d%% каждого цикла воспроизводится со звуком</string>
+    <string name="smart_seek_cycle_help">Длительность цикла остаётся фиксированной. Случайные отклонения отключены, последняя часть трека воспроизводится полностью.</string>
+    <string name="smart_seek_cycle_minutes">Минуты</string>
+    <string name="smart_seek_cycle_seconds">Секунды</string>
+    <string name="smart_seek_cycle_minutes_invalid">Введите от 0 до 10 минут.</string>
+    <string name="smart_seek_cycle_seconds_invalid">Введите от 0 до 59 секунд.</string>
+    <string name="smart_seek_cycle_duration_range">Длительность цикла должна быть от 1 секунды до 10 минут.</string>
 </resources>

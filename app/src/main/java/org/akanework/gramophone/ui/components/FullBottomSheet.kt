@@ -116,6 +116,7 @@ import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.GramophonePlaybackService
 import org.akanework.gramophone.logic.SmartSeekConfig
 import org.akanework.gramophone.logic.SmartSeekMode
+import org.akanework.gramophone.logic.SmartSeekInputMode
 import org.akanework.gramophone.logic.SmartSeekPattern
 import org.akanework.gramophone.logic.clone
 import org.akanework.gramophone.logic.dpToPx
@@ -730,15 +731,26 @@ class FullBottomSheet
             ?: instance?.contentDuration?.let { if (it == C.TIME_UNSET) null else it }
             ?: instance?.currentMediaItem?.mediaMetadata?.durationMs
             ?: 0L
-        val configuredSkipMs = if (config.usePercent) {
-            duration.coerceAtLeast(0L) * config.skipValue / 100L
-        } else {
-            config.skipValue.toLong() * 1_000L
+        val configuredCycle = config.resolveCycle(duration)
+        val skipDuration = smartSeekNextSkipDurationMs.takeIf { it > 0L }
+            ?: configuredCycle.skipDurationMs
+        val secondsUnit = context.getString(R.string.smart_seek_seconds_short)
+        val playLabel: String
+        val skipLabel: String
+        when (config.inputMode) {
+            SmartSeekInputMode.ABSOLUTE -> {
+                playLabel = "${config.absolutePlaySeconds}$secondsUnit"
+                skipLabel = "+${config.absoluteSkipSeconds}$secondsUnit"
+            }
+            SmartSeekInputMode.PERCENT -> {
+                playLabel = "${config.playPercent}%"
+                skipLabel = "+${config.skipPercent}%"
+            }
+            SmartSeekInputMode.CYCLE -> {
+                playLabel = "${configuredCycle.playDurationMs / 1_000L}$secondsUnit"
+                skipLabel = "+${configuredCycle.skipDurationMs / 1_000L}$secondsUnit"
+            }
         }
-        val skipDuration = smartSeekNextSkipDurationMs.takeIf { it > 0L } ?: configuredSkipMs
-        val unit = if (config.usePercent) "%" else context.getString(R.string.smart_seek_seconds_short)
-        val playLabel = "${config.playValue}$unit"
-        val skipLabel = "+${config.skipValue}$unit"
         val markerColor = when (prefs.getString("smart_seek_marker_color", "orange")) {
             "cyan" -> Color.rgb(0, 184, 212)
             "lime" -> Color.rgb(124, 179, 66)
@@ -768,22 +780,9 @@ class FullBottomSheet
             setPadding(padding, sectionGap, padding, sectionGap)
         }
 
-        val intro = TextView(context).apply {
-            text = context.getString(R.string.smart_seek_settings_intro)
-        }
-        content.addView(
-            intro,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = padding }
-        )
-
-        fun addLabel(text: String) {
-            content.addView(
-                TextView(context).apply {
-                    this.text = text
-                },
+        fun addLabel(parent: LinearLayout, text: String) {
+            parent.addView(
+                TextView(context).apply { this.text = text },
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -802,43 +801,137 @@ class FullBottomSheet
                 setText(value.toString())
             }
 
-        addLabel(context.getString(R.string.smart_seek_play_interval))
-        val playInput = newValueInput(current.playValue)
+        fun addInput(parent: LinearLayout, input: EditText) {
+            parent.addView(
+                input,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        val intro = TextView(context).apply {
+            text = context.getString(R.string.smart_seek_settings_intro)
+        }
         content.addView(
-            playInput,
+            intro,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = padding }
+        )
+
+        addLabel(content, context.getString(R.string.smart_seek_input_mode))
+        val modeGroup = RadioGroup(context).apply { orientation = LinearLayout.VERTICAL }
+        fun modeButton(mode: SmartSeekInputMode, label: Int) = RadioButton(context).apply {
+            id = View.generateViewId()
+            tag = mode
+            text = context.getString(label)
+            isChecked = current.inputMode == mode
+        }
+        val absoluteModeButton = modeButton(SmartSeekInputMode.ABSOLUTE, R.string.smart_seek_mode_absolute)
+        val percentModeButton = modeButton(SmartSeekInputMode.PERCENT, R.string.smart_seek_mode_percent)
+        val cycleModeButton = modeButton(SmartSeekInputMode.CYCLE, R.string.smart_seek_mode_cycle)
+        modeGroup.addView(absoluteModeButton)
+        modeGroup.addView(percentModeButton)
+        modeGroup.addView(cycleModeButton)
+        content.addView(modeGroup)
+
+        val absoluteSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        addLabel(absoluteSection, context.getString(R.string.smart_seek_play_interval))
+        val absolutePlayInput = newValueInput(current.absolutePlaySeconds)
+        addInput(absoluteSection, absolutePlayInput)
+        addLabel(absoluteSection, context.getString(R.string.smart_seek_skip_amount))
+        val absoluteSkipInput = newValueInput(current.absoluteSkipSeconds)
+        addInput(absoluteSection, absoluteSkipInput)
+        addLabel(absoluteSection, context.getString(R.string.smart_seek_absolute_help))
+        content.addView(absoluteSection)
+
+        val percentSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        addLabel(percentSection, context.getString(R.string.smart_seek_play_interval))
+        val percentPlayInput = newValueInput(current.playPercent)
+        addInput(percentSection, percentPlayInput)
+        addLabel(percentSection, context.getString(R.string.smart_seek_skip_amount))
+        val percentSkipInput = newValueInput(current.skipPercent)
+        addInput(percentSection, percentSkipInput)
+        addLabel(percentSection, context.getString(R.string.smart_seek_percent_help))
+        content.addView(percentSection)
+
+        val cycleSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        addLabel(cycleSection, context.getString(R.string.smart_seek_cycle_duration))
+        val cycleDurationRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val cycleMinutesColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val cycleMinutesInput = newValueInput(
+            (current.cycleDurationMs / 60_000L).toInt()
+        )
+        addLabel(cycleMinutesColumn, context.getString(R.string.smart_seek_cycle_minutes))
+        addInput(cycleMinutesColumn, cycleMinutesInput)
+        cycleDurationRow.addView(
+            cycleMinutesColumn,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = sectionGap
+            }
+        )
+
+        val cycleSecondsColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val cycleSecondsInput = newValueInput(
+            ((current.cycleDurationMs % 60_000L) / 1_000L).toInt()
+        )
+        addLabel(cycleSecondsColumn, context.getString(R.string.smart_seek_cycle_seconds))
+        addInput(cycleSecondsColumn, cycleSecondsInput)
+        cycleDurationRow.addView(
+            cycleSecondsColumn,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = sectionGap
+            }
+        )
+        cycleSection.addView(
+            cycleDurationRow,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         )
-
-        addLabel(context.getString(R.string.smart_seek_skip_amount))
-        val skipInput = newValueInput(current.skipValue)
-        content.addView(
-            skipInput,
+        addLabel(cycleSection, context.getString(R.string.smart_seek_sound_ratio))
+        val soundRatioLabel = TextView(context).apply {
+            text = context.getString(
+                R.string.smart_seek_sound_ratio_label,
+                current.soundRatioPercent
+            )
+        }
+        cycleSection.addView(soundRatioLabel)
+        val soundRatioSlider = Slider(context).apply {
+            valueTo = 99f
+            valueFrom = 1f
+            stepSize = 1f
+            value = current.soundRatioPercent.toFloat()
+            contentDescription = context.getString(R.string.smart_seek_sound_ratio)
+        }
+        soundRatioSlider.addOnChangeListener { _, value, _ ->
+            soundRatioLabel.text = context.getString(
+                R.string.smart_seek_sound_ratio_label,
+                value.toInt()
+            )
+        }
+        cycleSection.addView(
+            soundRatioSlider,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            ).apply { topMargin = sectionGap }
         )
+        addLabel(cycleSection, context.getString(R.string.smart_seek_cycle_help))
+        content.addView(cycleSection)
 
-        addLabel(context.getString(R.string.smart_seek_unit))
-        val unitGroup = RadioGroup(context).apply { orientation = LinearLayout.VERTICAL }
-        val secondsButton = RadioButton(context).apply {
-            id = View.generateViewId()
-            text = context.getString(R.string.smart_seek_seconds)
-            isChecked = !current.usePercent
-        }
-        val percentButton = RadioButton(context).apply {
-            id = View.generateViewId()
-            text = context.getString(R.string.smart_seek_percent)
-            isChecked = current.usePercent
-        }
-        unitGroup.addView(secondsButton)
-        unitGroup.addView(percentButton)
-        content.addView(unitGroup)
-
-        addLabel(context.getString(R.string.smart_seek_pattern))
+        val patternSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        addLabel(patternSection, context.getString(R.string.smart_seek_pattern))
         val patternGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
         val strictButton = RadioButton(context).apply {
             id = View.generateViewId()
@@ -852,7 +945,36 @@ class FullBottomSheet
         }
         patternGroup.addView(strictButton)
         patternGroup.addView(randomButton)
-        content.addView(patternGroup)
+        patternSection.addView(patternGroup)
+        val randomHelp = TextView(context).apply {
+            text = context.getString(R.string.smart_seek_random_help)
+        }
+        patternSection.addView(
+            randomHelp,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = sectionGap }
+        )
+        content.addView(patternSection)
+
+        fun selectedMode(): SmartSeekInputMode =
+            (modeGroup.findViewById<RadioButton>(modeGroup.checkedRadioButtonId)?.tag
+                as? SmartSeekInputMode) ?: current.inputMode
+
+        fun updateModeVisibility() {
+            val mode = selectedMode()
+            absoluteSection.visibility = if (mode == SmartSeekInputMode.ABSOLUTE) View.VISIBLE else View.GONE
+            percentSection.visibility = if (mode == SmartSeekInputMode.PERCENT) View.VISIBLE else View.GONE
+            cycleSection.visibility = if (mode == SmartSeekInputMode.CYCLE) View.VISIBLE else View.GONE
+            patternSection.visibility = if (mode == SmartSeekInputMode.CYCLE) View.GONE else View.VISIBLE
+            randomHelp.visibility = if (
+                mode != SmartSeekInputMode.CYCLE && randomButton.isChecked
+            ) View.VISIBLE else View.GONE
+        }
+        modeGroup.setOnCheckedChangeListener { _, _ -> updateModeVisibility() }
+        patternGroup.setOnCheckedChangeListener { _, _ -> updateModeVisibility() }
+        updateModeVisibility()
 
         val persistentCheck = CheckBox(context).apply {
             text = context.getString(R.string.settings_smart_seek_persistent)
@@ -869,7 +991,7 @@ class FullBottomSheet
             }
         )
 
-        addLabel(context.getString(R.string.smart_seek_marker_color))
+        addLabel(content, context.getString(R.string.smart_seek_marker_color))
         val markerColorGroup = RadioGroup(context).apply {
             orientation = RadioGroup.VERTICAL
         }
@@ -894,16 +1016,6 @@ class FullBottomSheet
         }
         content.addView(markerColorGroup)
 
-        content.addView(
-            TextView(context).apply {
-                text = context.getString(R.string.smart_seek_random_help)
-            },
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = padding }
-        )
-
         val scroll = ScrollView(context).apply {
             isFillViewport = true
             addView(content)
@@ -915,31 +1027,117 @@ class FullBottomSheet
             .setPositiveButton(R.string.smart_seek_save, null)
             .create()
 
+        fun readValue(input: EditText, maxValue: Int): Int? =
+            input.text.toString().trim().toIntOrNull()?.takeIf { it in 1..maxValue }
+
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val isPercent = percentButton.isChecked
-                val maxValue = if (isPercent) 99 else SmartSeekConfig.MAX_SECONDS
-                val playValue = playInput.text.toString().trim().toIntOrNull()
-                val skipValue = skipInput.text.toString().trim().toIntOrNull()
-                if (playValue == null || playValue !in 1..maxValue) {
-                    playInput.error = context.getString(R.string.smart_seek_invalid_value, maxValue)
-                    return@setOnClickListener
+                val mode = selectedMode()
+                val cycleMinutes = cycleMinutesInput.text.toString().trim().toIntOrNull()
+                val cycleSeconds = cycleSecondsInput.text.toString().trim().toIntOrNull()
+                var absolutePlay = readValue(absolutePlayInput, SmartSeekConfig.MAX_SECONDS)
+                var absoluteSkip = readValue(absoluteSkipInput, SmartSeekConfig.MAX_SECONDS)
+                var percentPlay = readValue(percentPlayInput, 99)
+                var percentSkip = readValue(percentSkipInput, 99)
+
+                when (mode) {
+                    SmartSeekInputMode.ABSOLUTE -> {
+                        if (absolutePlay == null) {
+                            absolutePlayInput.error = context.getString(
+                                R.string.smart_seek_invalid_value,
+                                SmartSeekConfig.MAX_SECONDS
+                            )
+                            return@setOnClickListener
+                        }
+                        if (absoluteSkip == null) {
+                            absoluteSkipInput.error = context.getString(
+                                R.string.smart_seek_invalid_value,
+                                SmartSeekConfig.MAX_SECONDS
+                            )
+                            return@setOnClickListener
+                        }
+                    }
+                    SmartSeekInputMode.PERCENT -> {
+                        if (percentPlay == null) {
+                            percentPlayInput.error = context.getString(R.string.smart_seek_invalid_value, 99)
+                            return@setOnClickListener
+                        }
+                        if (percentSkip == null) {
+                            percentSkipInput.error = context.getString(R.string.smart_seek_invalid_value, 99)
+                            return@setOnClickListener
+                        }
+                    }
+                    SmartSeekInputMode.CYCLE -> {
+                        if (cycleMinutes == null || cycleMinutes !in 0..10) {
+                            cycleMinutesInput.error = context.getString(
+                                R.string.smart_seek_cycle_minutes_invalid
+                            )
+                            return@setOnClickListener
+                        }
+                        if (cycleSeconds == null || cycleSeconds !in 0..59) {
+                            cycleSecondsInput.error = context.getString(
+                                R.string.smart_seek_cycle_seconds_invalid
+                            )
+                            return@setOnClickListener
+                        }
+                        val totalSeconds = cycleMinutes * 60 + cycleSeconds
+                        if (totalSeconds !in 1..SmartSeekConfig.MAX_SECONDS) {
+                            cycleSecondsInput.error = context.getString(
+                                R.string.smart_seek_cycle_duration_range
+                            )
+                            return@setOnClickListener
+                        }
+                    }
                 }
-                if (skipValue == null || skipValue !in 1..maxValue) {
-                    skipInput.error = context.getString(R.string.smart_seek_invalid_value, maxValue)
-                    return@setOnClickListener
+
+                val savedAbsolutePlay = absolutePlay ?: current.absolutePlaySeconds
+                val savedAbsoluteSkip = absoluteSkip ?: current.absoluteSkipSeconds
+                val savedPercentPlay = percentPlay ?: current.playPercent
+                val savedPercentSkip = percentSkip ?: current.skipPercent
+                val enteredCycleDurationSeconds = if (
+                    cycleMinutes != null && cycleMinutes in 0..10 &&
+                    cycleSeconds != null && cycleSeconds in 0..59
+                ) {
+                    cycleMinutes * 60 + cycleSeconds
+                } else {
+                    null
+                }
+                val savedCycleDurationSeconds = enteredCycleDurationSeconds
+                    ?.takeIf { it in 1..SmartSeekConfig.MAX_SECONDS }
+                    ?: (current.cycleDurationMs / 1_000L).toInt()
+
+                val activePlayValue = when (mode) {
+                    SmartSeekInputMode.ABSOLUTE -> savedAbsolutePlay
+                    SmartSeekInputMode.PERCENT -> savedPercentPlay
+                    SmartSeekInputMode.CYCLE -> (savedCycleDurationSeconds * soundRatioSlider.value.toInt() / 100)
+                        .coerceAtLeast(1)
+                }
+                val activeSkipValue = when (mode) {
+                    SmartSeekInputMode.ABSOLUTE -> savedAbsoluteSkip
+                    SmartSeekInputMode.PERCENT -> savedPercentSkip
+                    SmartSeekInputMode.CYCLE -> (
+                        savedCycleDurationSeconds - savedCycleDurationSeconds * soundRatioSlider.value.toInt() / 100
+                    ).coerceAtLeast(1)
                 }
 
                 SmartSeekConfig(
-                    playValue = playValue,
-                    skipValue = skipValue,
-                    usePercent = isPercent,
+                    playValue = activePlayValue,
+                    skipValue = activeSkipValue,
+                    usePercent = mode == SmartSeekInputMode.PERCENT,
                     pattern = if (randomButton.isChecked) {
                         SmartSeekPattern.RANDOM
                     } else {
                         SmartSeekPattern.STRICT
-                    }
+                    },
+                    inputMode = mode,
+                    cycleDurationMs = savedCycleDurationSeconds.toLong() * 1_000L,
+                    soundRatioPercent = soundRatioSlider.value.toInt(),
+                    absolutePlaySeconds = savedAbsolutePlay,
+                    absoluteSkipSeconds = savedAbsoluteSkip,
+                    playPercent = savedPercentPlay,
+                    skipPercent = savedPercentSkip
                 ).save(prefs)
+
                 val selectedMarkerColor = markerColorGroup
                     .findViewById<RadioButton>(markerColorGroup.checkedRadioButtonId)
                     ?.tag as? String ?: "orange"

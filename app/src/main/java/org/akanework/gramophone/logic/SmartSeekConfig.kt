@@ -28,7 +28,11 @@ data class SmartSeekConfig(
     val pattern: SmartSeekPattern = SmartSeekPattern.STRICT,
     val inputMode: SmartSeekInputMode = SmartSeekInputMode.CYCLE,
     val cycleDurationMs: Long = DEFAULT_CYCLE_DURATION_MS,
-    val soundRatioPercent: Int = DEFAULT_SOUND_RATIO_PERCENT
+    val soundRatioPercent: Int = DEFAULT_SOUND_RATIO_PERCENT,
+    val absolutePlaySeconds: Int = DEFAULT_ABSOLUTE_PLAY_SECONDS,
+    val absoluteSkipSeconds: Int = DEFAULT_ABSOLUTE_SKIP_SECONDS,
+    val playPercent: Int = DEFAULT_PLAY_PERCENT,
+    val skipPercent: Int = DEFAULT_SKIP_PERCENT
 ) {
     fun resolveCycle(trackDurationMs: Long): SmartSeekCycle {
         if (inputMode == SmartSeekInputMode.CYCLE) {
@@ -40,15 +44,15 @@ data class SmartSeekConfig(
             )
         }
         val safeDuration = trackDurationMs.coerceAtLeast(1L)
-        val playBase = if (usePercent) {
-            safeDuration * playValue.coerceIn(1, 99) / 100L
-        } else {
-            playValue.coerceIn(1, MAX_SECONDS).toLong() * 1_000L
+        val playBase = when (inputMode) {
+            SmartSeekInputMode.ABSOLUTE -> absolutePlaySeconds.coerceIn(1, MAX_SECONDS).toLong() * 1_000L
+            SmartSeekInputMode.PERCENT -> safeDuration * playPercent.coerceIn(1, 99) / 100L
+            SmartSeekInputMode.CYCLE -> error("Cycle mode was handled above")
         }
-        val skipBase = if (usePercent) {
-            safeDuration * skipValue.coerceIn(1, 99) / 100L
-        } else {
-            skipValue.coerceIn(1, MAX_SECONDS).toLong() * 1_000L
+        val skipBase = when (inputMode) {
+            SmartSeekInputMode.ABSOLUTE -> absoluteSkipSeconds.coerceIn(1, MAX_SECONDS).toLong() * 1_000L
+            SmartSeekInputMode.PERCENT -> safeDuration * skipPercent.coerceIn(1, 99) / 100L
+            SmartSeekInputMode.CYCLE -> error("Cycle mode was handled above")
         }
 
         return SmartSeekCycle(
@@ -64,13 +68,17 @@ data class SmartSeekConfig(
 
     fun save(preferences: SharedPreferences) {
         preferences.edit()
-            .putInt(PREF_PLAY_VALUE, playValue.coerceIn(1, MAX_SECONDS))
-            .putInt(PREF_SKIP_VALUE, skipValue.coerceIn(1, MAX_SECONDS))
-            .putBoolean(PREF_USE_PERCENT, usePercent)
+            .putInt(PREF_PLAY_VALUE, playValue.coerceIn(1, if (inputMode == SmartSeekInputMode.PERCENT) 99 else MAX_SECONDS))
+            .putInt(PREF_SKIP_VALUE, skipValue.coerceIn(1, if (inputMode == SmartSeekInputMode.PERCENT) 99 else MAX_SECONDS))
+            .putBoolean(PREF_USE_PERCENT, inputMode == SmartSeekInputMode.PERCENT)
             .putString(PREF_PATTERN, pattern.name)
             .putString(PREF_INPUT_MODE, inputMode.name)
             .putLong(PREF_CYCLE_DURATION_MS, cycleDurationMs.coerceIn(MIN_INTERVAL_MS, MAX_CYCLE_DURATION_MS))
             .putInt(PREF_SOUND_RATIO_PERCENT, soundRatioPercent.coerceIn(1, 99))
+            .putInt(PREF_ABSOLUTE_PLAY_SECONDS, absolutePlaySeconds.coerceIn(1, MAX_SECONDS))
+            .putInt(PREF_ABSOLUTE_SKIP_SECONDS, absoluteSkipSeconds.coerceIn(1, MAX_SECONDS))
+            .putInt(PREF_PLAY_PERCENT, playPercent.coerceIn(1, 99))
+            .putInt(PREF_SKIP_PERCENT, skipPercent.coerceIn(1, 99))
             .apply()
     }
 
@@ -82,7 +90,15 @@ data class SmartSeekConfig(
         const val PREF_INPUT_MODE = "smart_seek_input_mode"
         const val PREF_CYCLE_DURATION_MS = "smart_seek_cycle_duration_ms"
         const val PREF_SOUND_RATIO_PERCENT = "smart_seek_sound_ratio_percent"
+        const val PREF_ABSOLUTE_PLAY_SECONDS = "smart_seek_absolute_play_seconds"
+        const val PREF_ABSOLUTE_SKIP_SECONDS = "smart_seek_absolute_skip_seconds"
+        const val PREF_PLAY_PERCENT = "smart_seek_play_percent"
+        const val PREF_SKIP_PERCENT = "smart_seek_skip_percent"
 
+        const val DEFAULT_ABSOLUTE_PLAY_SECONDS = 20
+        const val DEFAULT_ABSOLUTE_SKIP_SECONDS = 10
+        const val DEFAULT_PLAY_PERCENT = 60
+        const val DEFAULT_SKIP_PERCENT = 40
         const val DEFAULT_CYCLE_DURATION_MS = 30_000L
         const val DEFAULT_SOUND_RATIO_PERCENT = 60
         const val DEFAULT_CYCLE_PLAY_DURATION_MS = DEFAULT_CYCLE_DURATION_MS * DEFAULT_SOUND_RATIO_PERCENT / 100
@@ -110,16 +126,36 @@ data class SmartSeekConfig(
                 .coerceIn(MIN_INTERVAL_MS, MAX_CYCLE_DURATION_MS)
             val soundRatioPercent = preferences.getInt(PREF_SOUND_RATIO_PERCENT, DEFAULT_SOUND_RATIO_PERCENT)
                 .coerceIn(1, 99)
-            val usePercent = preferences.getBoolean(PREF_USE_PERCENT, false)
-            val maxValue = if (usePercent) 99 else MAX_SECONDS
+            val absolutePlaySeconds = preferences.getInt(PREF_ABSOLUTE_PLAY_SECONDS, DEFAULT_ABSOLUTE_PLAY_SECONDS)
+                .coerceIn(1, MAX_SECONDS)
+            val absoluteSkipSeconds = preferences.getInt(PREF_ABSOLUTE_SKIP_SECONDS, DEFAULT_ABSOLUTE_SKIP_SECONDS)
+                .coerceIn(1, MAX_SECONDS)
+            val playPercent = preferences.getInt(PREF_PLAY_PERCENT, DEFAULT_PLAY_PERCENT).coerceIn(1, 99)
+            val skipPercent = preferences.getInt(PREF_SKIP_PERCENT, DEFAULT_SKIP_PERCENT).coerceIn(1, 99)
+            val cyclePlaySeconds = (cycleDurationMs * soundRatioPercent / 100L / 1_000L).toInt().coerceAtLeast(1)
+            val cycleSkipSeconds = ((cycleDurationMs - cycleDurationMs * soundRatioPercent / 100L) / 1_000L).toInt().coerceAtLeast(1)
+            val playValue = when (inputMode) {
+                SmartSeekInputMode.ABSOLUTE -> absolutePlaySeconds
+                SmartSeekInputMode.PERCENT -> playPercent
+                SmartSeekInputMode.CYCLE -> cyclePlaySeconds
+            }
+            val skipValue = when (inputMode) {
+                SmartSeekInputMode.ABSOLUTE -> absoluteSkipSeconds
+                SmartSeekInputMode.PERCENT -> skipPercent
+                SmartSeekInputMode.CYCLE -> cycleSkipSeconds
+            }
             return SmartSeekConfig(
-                playValue = preferences.getInt(PREF_PLAY_VALUE, DEFAULT_PLAY_VALUE).coerceIn(1, maxValue),
-                skipValue = preferences.getInt(PREF_SKIP_VALUE, DEFAULT_SKIP_VALUE).coerceIn(1, maxValue),
-                usePercent = usePercent,
+                playValue = playValue,
+                skipValue = skipValue,
+                usePercent = inputMode == SmartSeekInputMode.PERCENT,
                 pattern = pattern,
                 inputMode = inputMode,
                 cycleDurationMs = cycleDurationMs,
-                soundRatioPercent = soundRatioPercent
+                soundRatioPercent = soundRatioPercent,
+                absolutePlaySeconds = absolutePlaySeconds,
+                absoluteSkipSeconds = absoluteSkipSeconds,
+                playPercent = playPercent,
+                skipPercent = skipPercent
             )
         }
     }

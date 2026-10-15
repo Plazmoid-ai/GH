@@ -1331,4 +1331,20 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_color_lime">Green</string>
     <string name="smart_seek_color_pink">Pink</string>
     <string name="smart_seek_color_violet">Violet</string>
+    <!-- Smart Seek input modes -->
+    <string name="smart_seek_input_mode">Input mode</string>
+    <string name="smart_seek_mode_absolute">Fixed seconds</string>
+    <string name="smart_seek_mode_percent">Percent of track duration</string>
+    <string name="smart_seek_mode_cycle">Fixed cycle and sound ratio</string>
+    <string name="smart_seek_absolute_help">Play and skip durations are set independently in seconds (1–600).</string>
+    <string name="smart_seek_percent_help">Play and skip amounts are set independently as percentages of the current track duration (1–99%).</string>
+    <string name="smart_seek_cycle_duration">Cycle duration</string>
+    <string name="smart_seek_sound_ratio">Sound ratio</string>
+    <string name="smart_seek_sound_ratio_label">%1$d%% of each cycle plays with sound</string>
+    <string name="smart_seek_cycle_help">Cycle length stays fixed. Random variation is disabled, and the final part of each track plays normally.</string>
+    <string name="smart_seek_cycle_minutes">Minutes</string>
+    <string name="smart_seek_cycle_seconds">Seconds</string>
+    <string name="smart_seek_cycle_minutes_invalid">Enter a value from 0 to 10 minutes.</string>
+    <string name="smart_seek_cycle_seconds_invalid">Enter a value from 0 to 59 seconds.</string>
+    <string name="smart_seek_cycle_duration_range">Cycle duration must be between 1 second and 10 minutes.</string>
 </resources>
