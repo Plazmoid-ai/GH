@@ -51,4 +51,167 @@ jobs:
       - name: Set release type
         run: echo releaseType=CI > package.properties
 
-      # 1. Проверяем, что секреты вообще пришли (значения
+      # 1. Проверяем, что секреты вообще пришли (значения не печатаем).
+      - name: Check signing secrets present
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        run: |
+          check() {
+            local name="$1" value="$2"
+            if [ -z "$value" ]; then
+              echo "::error::Secret $name is EMPTY or missing"
+            else
+              echo "Secret $name: present (${#value} chars)"
+            fi
+          }
+          check "KEYSTORE_SECRET" "${{ secrets.KEYSTORE_SECRET }}"
+          check "KEYSTORE_PWD"    "${{ secrets.KEYSTORE_PWD }}"
+          check "KEY_ALIAS"       "${{ secrets.KEY_ALIAS }}"
+          check "KEY_PWD"         "${{ secrets.KEY_PWD }}"
+
+      # 2. Показываем, какие имена свойств реально ожидает build.gradle.
+      #    Расхождение в одну букву между этими именами и тем, что мы
+      #    записываем в gradle.properties — и есть самая вероятная причина ошибки.
+      - name: Show what build scripts expect
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        run: |
+          grep -rn -i "AKANE_RELEASE\|storeFile\|signingConfig\|keystore.properties\|signing.properties" \
+            --include="*.gradle" --include="*.kts" . | grep -v "^./build/" | grep -v "/build/" \
+            || echo "::warning::No signing-related properties found in gradle scripts"
+
+      # 3. Создаём keystore и gradle.properties (как было).
+      - name: Create signing files
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.KEYSTORE_SECRET }}" | base64 -d > ~/key.jks
+          mkdir -p ~/.gradle
+          {
+            echo "AKANE_RELEASE_STORE_FILE=$(realpath ~/key.jks)"
+            echo "AKANE_RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PWD }}"
+            echo "AKANE_RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}"
+            echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PWD }}"
+          } > ~/.gradle/gradle.properties
+
+          # Диагностика: что реально записалось (значения маскируем).
+          echo "--- diagnostics ---"
+          ls -l ~/key.jks
+          head -c 8 ~/key.jks | xxd   # валидный JKS начинается с magic-байт CAFEBABE
+          awk -F= '{ if ($1 ~ /PASSWORD/) print $1 "=<masked>"; else print }' ~/.gradle/gradle.properties
+          echo "-------------------"
+
+      # 4. Сборка: свойства подаём И через gradle.properties (шаг выше),
+      #    И через env, И через флаги -P (самый приоритетный канал —
+      #    Gradle видит их всегда, в обход любых файлов и кешей).
+      #    --no-configuration-cache исключает переиспользование закешированной
+      #    конфигурации без ключа. --stacktrace даёт полный стек ошибки.
+      - name: Build with Gradle
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        env:
+          AKANE_RELEASE_STORE_FILE: ${{ github.workspace }}/../key.jks
+          AKANE_RELEASE_STORE_PASSWORD: ${{ secrets.KEYSTORE_PWD }}
+          AKANE_RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          AKANE_RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PWD }}
+        run: |
+          KS="$HOME/key.jks"
+          ./gradlew :app:assembleRelease --no-configuration-cache --stacktrace \
+            -PAKANE_RELEASE_STORE_FILE="$KS" \
+            -PAKANE_RELEASE_STORE_PASSWORD="${{ secrets.KEYSTORE_PWD }}" \
+            -PAKANE_RELEASE_KEY_ALIAS="${{ secrets.KEY_ALIAS }}" \
+            -PAKANE_RELEASE_KEY_PASSWORD="${{ secrets.KEY_PWD }}"
+
+      - name: Build debug APK for arm64-v8a
+        if: github.ref == 'refs/heads/debug' && github.event_name != 'pull_request'
+        run: ./gradlew :app:assembleDebug -PtargetAbi=arm64-v8a
+
+      - name: Build debug APK (no release keystore required)
+        if: github.event_name == 'pull_request'
+        run: ./gradlew :app:assembleDebug
+
+      # 5. При падении печатаем состояние всех источников свойств.
+      - name: Dump signing state on failure
+        if: failure() && github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        run: |
+          echo "--- ~/.gradle/gradle.properties (masked) ---"
+          awk -F= '{ if ($1 ~ /PASSWORD/) print $1 "=<masked>"; else print }' ~/.gradle/gradle.properties 2>/dev/null \
+            || echo "file missing"
+          echo "--- keystore file ---"
+          ls -l "$HOME/key.jks" 2>/dev/null || echo "~/key.jks missing"
+          echo "--- project gradle.properties (without secrets) ---"
+          [ -f gradle.properties ] && grep -v -i 'password\|secret\|key' gradle.properties || echo "no project gradle.properties"
+
+      # 6. Логи и отчёты падения — артефактом, чтобы не потерялись.
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            app/build/reports/**
+            app/build/outputs/**
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Verify debug APK architecture
+        if: github.ref == 'refs/heads/debug' && github.event_name != 'pull_request'
+        run: |
+          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          test -n "$APK_FILE"
+          ABIS=$(unzip -Z1 "$APK_FILE" | awk -F/ '$1 == "lib" && NF >= 3 { print $2 }' | sort -u)
+          if [ "$ABIS" != "arm64-v8a" ]; then
+            echo "Expected only arm64-v8a native libraries, found: ${ABIS:-none}"
+            exit 1
+          fi
+          echo "Verified: $APK_FILE contains only arm64-v8a native libraries."
+
+      - name: Find release apk
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        run: |
+          APK_FILE=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
+          test -n "$APK_FILE"
+          echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
+          echo "APK_FILE_NAME=$(basename "$APK_FILE" .apk)" >> $GITHUB_ENV
+
+      - name: Find debug apk
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/debug'
+        run: |
+          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          test -n "$APK_FILE"
+          echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
+          echo "APK_FILE_NAME=$(basename "$APK_FILE" .apk)" >> $GITHUB_ENV
+
+      - name: Upload files to Telegram
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        uses: xz-dev/TelegramFileUploader@v1.1.1
+        with:
+          to-who: ${{ secrets.TG_CHAT_ID }}
+          message: ${{ env.RANDOM_QUOTE }}
+          files: |
+            ${{ env.APK_FILE }}
+        env:
+          API_ID: ${{ secrets.TG_APP_ID }}
+          API_HASH: ${{ secrets.TG_APP_HASH }}
+          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+
+      - name: Upload apk for pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_FILE_NAME }}
+          path: ${{ env.APK_FILE }}
+          compression-level: 9
+
+      - name: Upload debug APK artifact
+        if: github.ref == 'refs/heads/debug' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.APK_FILE_NAME }}
+          path: ${{ env.APK_FILE }}
+          archive: false
+
+      - name: Upload release apk artifact
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.APK_FILE_NAME }}
+          path: ${{ env.APK_FILE }}
+          archive: false
