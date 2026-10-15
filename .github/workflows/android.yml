@@ -80,7 +80,25 @@ jobs:
           head -c 8 $HOME/key.jks | xxd   # Проверка magic-байт JKS (должно быть cafebabe)
           echo "-------------------"
 
-      # 3. Сборка: передаем переменные ТОЛЬКО через env, так как build.gradle читает System.getenv()
+      # 3. ПАТЧ: отключаем сломанный плагин pt.jcosta.resourceplaceholders,
+      #    который не совместим с Gradle 9.4.1 (падает на задаче
+      #    :app:resourcePlaceholdersForRelease с ошибкой про mapped value).
+      - name: Patch build.gradle to skip broken resourcePlaceholders
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
+        run: |
+          cat >> app/build.gradle.kts << 'EOF'
+
+          // WORKAROUND: pt.jcosta.resourceplaceholders is broken with Gradle 9
+          tasks.configureEach {
+              if (name.startsWith("resourcePlaceholdersFor")) {
+                  enabled = false
+              }
+          }
+          EOF
+          echo "Patched app/build.gradle.kts. Tail:"
+          tail -n 8 app/build.gradle.kts
+
+      # 4. Сборка: передаем переменные ТОЛЬКО через env, так как build.gradle читает System.getenv()
       - name: Build with Gradle
         if: github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         env:
@@ -100,7 +118,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: ./gradlew :app:assembleDebug
 
-      # 4. При падении печатаем состояние (упрощено, так как мы не пишем в ~/.gradle/gradle.properties)
+      # 5. При падении печатаем состояние (упрощено, так как мы не пишем в ~/.gradle/gradle.properties)
       - name: Dump signing state on failure
         if: failure() && github.event_name != 'pull_request' && github.ref != 'refs/heads/debug'
         run: |
@@ -110,7 +128,7 @@ jobs:
           echo "AKANE_RELEASE_STORE_FILE is set: ${{ env.AKANE_RELEASE_STORE_FILE != '' }}"
           echo "AKANE_RELEASE_KEY_ALIAS is set: ${{ env.AKANE_RELEASE_KEY_ALIAS != '' }}"
 
-      # 5. Логи и отчёты падения — артефактом, чтобы не потерялись.
+      # 6. Логи и отчёты падения — артефактом, чтобы не потерялись.
       - name: Upload build logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
