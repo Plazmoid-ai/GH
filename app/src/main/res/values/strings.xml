@@ -1353,4 +1353,6 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_restart_required_message">The buffer setting is saved. Restart the app now to apply it, or choose Later to apply it the next time you open the app.</string>
     <string name="smart_seek_restart_now">Restart now</string>
     <string name="smart_seek_restart_later">Later</string>
+    <string name="settings_smart_seek_enabled">Enable Smart Seek</string>
+    <string name="settings_smart_seek_enabled_summary">Show Smart Seek controls and allow Smart Seek actions. Disabling stops the current Smart Seek session.</string>
 </resources>
