@@ -18,9 +18,12 @@
 package org.akanework.gramophone.ui.components
 
 import android.animation.ValueAnimator
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.DialogInterface
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -31,6 +34,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
+import android.os.Process
+import android.os.SystemClock
 import android.text.InputType
 import android.text.format.DateFormat
 import android.util.AttributeSet
@@ -1044,18 +1049,62 @@ class FullBottomSheet
             isFillViewport = true
             addView(content)
         }
+        val dialogContent = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(
+                scroll,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    (resources.displayMetrics.heightPixels * 0.55f).toInt()
+                )
+            )
+        }
+        val buttonRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+        val cancelButton = MaterialButton(context).apply {
+            text = context.getString(android.R.string.cancel)
+        }
+        val saveButton = MaterialButton(context).apply {
+            text = context.getString(R.string.smart_seek_save)
+        }
+        buttonRow.addView(
+            cancelButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        buttonRow.addView(
+            saveButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = sectionGap }
+        )
+        dialogContent.addView(
+            buttonRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = sectionGap
+                bottomMargin = sectionGap
+                marginEnd = padding
+            }
+        )
         val dialog = MaterialAlertDialogBuilder(context)
             .setTitle(R.string.smart_seek_settings_title)
-            .setView(scroll)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(R.string.smart_seek_save, null)
+            .setView(dialogContent)
             .create()
+        cancelButton.setOnClickListener { dialog.dismiss() }
 
         fun readValue(input: EditText, maxValue: Int): Int? =
             input.text.toString().trim().toIntOrNull()?.takeIf { it in 1..maxValue }
 
         dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            saveButton.setOnClickListener {
                 val mode = selectedMode()
                 val cycleMinutes = cycleMinutesInput.text.toString().trim().toIntOrNull()
                 val cycleSeconds = cycleSecondsInput.text.toString().trim().toIntOrNull()
@@ -1144,6 +1193,7 @@ class FullBottomSheet
                     ).coerceAtLeast(1)
                 }
 
+                val boostBufferChanged = current.boostBuffer != boostBufferCheck.isChecked
                 SmartSeekConfig(
                     playValue = activePlayValue,
                     skipValue = activeSkipValue,
@@ -1173,9 +1223,43 @@ class FullBottomSheet
                 activity.controllerViewModel.refreshSmartSeekConfiguration()
                 updateSmartSeekProgressOverlay()
                 dialog.dismiss()
+                if (boostBufferChanged) {
+                    showBufferRestartPrompt()
+                }
             }
         }
         dialog.show()
+    }
+
+    private fun showBufferRestartPrompt() {
+        MaterialAlertDialogBuilder(wrappedContext ?: context)
+            .setTitle(R.string.smart_seek_restart_required_title)
+            .setMessage(R.string.smart_seek_restart_required_message)
+            .setPositiveButton(R.string.smart_seek_restart_now) { _, _ ->
+                restartApplication()
+            }
+            .setNegativeButton(R.string.smart_seek_restart_later, null)
+            .show()
+    }
+
+    private fun restartApplication() {
+        val launchIntent = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
+            ?: return
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        val pendingIntent = PendingIntent.getActivity(
+            activity,
+            9281,
+            launchIntent,
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = activity.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmManager.set(
+            AlarmManager.ELAPSED_REALTIME,
+            SystemClock.elapsedRealtime() + 500L,
+            pendingIntent
+        )
+        activity.finishAffinity()
+        Process.killProcess(Process.myPid())
     }
 
     private fun updateTimer() {
