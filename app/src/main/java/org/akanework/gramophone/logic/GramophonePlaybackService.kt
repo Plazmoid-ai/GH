@@ -833,6 +833,10 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     private fun startSmartSeek() {
+        if (!isSmartSeekEnabled()) {
+            stopSmartSeek()
+            return
+        }
         val player = controller
         if (player?.currentMediaItem == null) {
             Log.i(TAG, "Smart Seek was not started because there is no current media item")
@@ -858,8 +862,11 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         broadcastSmartSeekState()
     }
 
+    private fun isSmartSeekEnabled(): Boolean =
+        prefs.getBoolean("smart_seek_enabled", true)
+
     private fun isSmartSeekPersistent(): Boolean =
-        prefs.getBoolean("smart_seek_persistent", false)
+        isSmartSeekEnabled() && prefs.getBoolean("smart_seek_persistent", false)
 
     /**
      * Finish Smart Seek for the current track without disabling the persistent mode.
@@ -884,7 +891,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     private fun startSmartSeekLoop() {
-        if (!smartSeekActive || smartSeekJob?.isActive == true) return
+        if (!isSmartSeekEnabled() || !smartSeekActive || smartSeekJob?.isActive == true) return
         val player = controller ?: return
         if (!player.isPlaying) return
         if (player.currentMediaItem == null) {
@@ -1157,6 +1164,9 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
+        if (key == "smart_seek_enabled" && !isSmartSeekEnabled()) {
+            handler.post { stopSmartSeek() }
+        }
         var restart = false
         if (key == null || key == "notification_lyrics" || key == "status_bar_lyrics") {
             scheduleSendingLyrics(false)
@@ -1314,7 +1324,9 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     val mode = customCommand.customExtras.getString("mode")
                     val configure = customCommand.customExtras.getBoolean("configure")
                     handler.post {
-                        if (configure) {
+                        if (configure && !isSmartSeekEnabled()) {
+                            stopSmartSeek()
+                        } else if (configure) {
                             smartSeekConfig = SmartSeekConfig.load(prefs)
                             cancelSmartSeekJob(resetPendingSeek = true)
                             smartSeekNextPositionMs = -1L
@@ -1322,7 +1334,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                                 startSmartSeekLoop()
                             }
                             broadcastSmartSeekState()
-                        } else if (enabled && mode == SmartSeekMode.MANUAL.name) {
+                        } else if (enabled && mode == SmartSeekMode.MANUAL.name && isSmartSeekEnabled()) {
                             startSmartSeek()
                         } else {
                             stopSmartSeek()
