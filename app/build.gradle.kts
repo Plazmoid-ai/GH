@@ -59,6 +59,8 @@ fun ApkSigningConfig.configureFromEnv(project: Project, prefix: String) {
     keyPassword = keyPassEnv
 }
 
+val targetAbi = providers.gradleProperty("targetAbi").orElse("arm64-v8a").get()
+
 android {
     val packageProperties = readProperties(file("../package.properties"))
     fun resolveProperties(property: String): String? {
@@ -132,6 +134,9 @@ android {
 
     defaultConfig {
         applicationId = appIdOverride ?: "org.akanework.gramophone"
+        ndk {
+            abiFilters += targetAbi
+        }
         minSdk = 23
         targetSdk = 37
         versionCode = 24
