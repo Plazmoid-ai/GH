@@ -1,6 +1,7 @@
 @file:Suppress("UnstableApiUsage")
 
 import com.android.build.gradle.tasks.PackageAndroidArtifact
+import org.gradle.api.GradleException
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.util.removeSuffixIfPresent
 import java.util.Properties
@@ -17,6 +18,43 @@ plugins {
     id("com.mikepenz.aboutlibraries.plugin")
     id("com.mikepenz.aboutlibraries.plugin.android")
     id("pt.jcosta.resourceplaceholders")
+}
+
+fun com.android.build.gradle.internal.dsl.SigningConfig.configureFromEnv(prefix: String) {
+    val storeFileEnv = System.getenv("${prefix}_STORE_FILE")
+    val storePassEnv = System.getenv("${prefix}_STORE_PASSWORD")
+    val aliasEnv = System.getenv("${prefix}_KEY_ALIAS")
+    val keyPassEnv = System.getenv("${prefix}_KEY_PASSWORD")
+
+    val missing = listOf(
+        "${prefix}_STORE_FILE" to storeFileEnv,
+        "${prefix}_STORE_PASSWORD" to storePassEnv,
+        "${prefix}_KEY_ALIAS" to aliasEnv,
+        "${prefix}_KEY_PASSWORD" to keyPassEnv,
+    ).filter { (_, value) -> value.isNullOrBlank() }
+        .map { (name, _) -> name }
+
+    // Переменных нет вообще — локальная сборка без подписи, пропускаем
+    if (missing.size == 4) return
+
+    if (missing.isNotEmpty()) {
+        throw GradleException(
+            "Signing config '$prefix' is incomplete. " +
+            "Missing env vars: ${missing.joinToString(", ")}. " +
+            "Check CI secrets and the env block in the workflow."
+        )
+    }
+
+    val keystore = file(storeFileEnv!!)
+    require(keystore.exists()) {
+        "Keystore file not found: ${keystore.absolutePath}. " +
+        "Check the base64 decode step in the workflow."
+    }
+
+    storeFile = keystore
+    storePassword = storePassEnv
+    keyAlias = aliasEnv
+    keyPassword = keyPassEnv
 }
 
 android {
@@ -40,22 +78,14 @@ android {
 
     signingConfigs {
         create("release") {
-            if (resolveProperties("AKANE_RELEASE_KEY_ALIAS") != null) {
-                storeFile = file(resolveProperties("AKANE_RELEASE_STORE_FILE")!!)
-                storePassword = resolveProperties("AKANE_RELEASE_STORE_PASSWORD")
-                keyAlias = resolveProperties("AKANE_RELEASE_KEY_ALIAS")
-                keyPassword = resolveProperties("AKANE_RELEASE_KEY_PASSWORD")
-            }
+            configureFromEnv("AKANE_RELEASE")
         }
         create("release2") {
-            if (resolveProperties("AKANE2_RELEASE_KEY_ALIAS")!= null) {
-                storeFile = file(resolveProperties("AKANE2_RELEASE_STORE_FILE")!!)
-                storePassword = resolveProperties("AKANE2_RELEASE_STORE_PASSWORD")
-                keyAlias = resolveProperties("AKANE2_RELEASE_KEY_ALIAS")
-                keyPassword = resolveProperties("AKANE2_RELEASE_KEY_PASSWORD")
-            }
+            configureFromEnv("AKANE2_RELEASE")
         }
     }
+
+    // ... файл продолжается без изменений: buildTypes и остальное ...
 
     androidResources {
         generateLocaleConfig = true
