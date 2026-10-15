@@ -25,9 +25,20 @@ data class SmartSeekConfig(
     val playValue: Int = DEFAULT_PLAY_VALUE,
     val skipValue: Int = DEFAULT_SKIP_VALUE,
     val usePercent: Boolean = false,
-    val pattern: SmartSeekPattern = SmartSeekPattern.STRICT
+    val pattern: SmartSeekPattern = SmartSeekPattern.STRICT,
+    val inputMode: SmartSeekInputMode = SmartSeekInputMode.CYCLE,
+    val cycleDurationMs: Long = DEFAULT_CYCLE_DURATION_MS,
+    val soundRatioPercent: Int = DEFAULT_SOUND_RATIO_PERCENT
 ) {
     fun resolveCycle(trackDurationMs: Long): SmartSeekCycle {
+        if (inputMode == SmartSeekInputMode.CYCLE) {
+            val cycleDuration = cycleDurationMs.coerceIn(MIN_INTERVAL_MS, MAX_CYCLE_DURATION_MS)
+            val playDuration = cycleDuration * soundRatioPercent.coerceIn(1, 99) / 100L
+            return SmartSeekCycle(
+                playDurationMs = playDuration.coerceAtLeast(1L),
+                skipDurationMs = (cycleDuration - playDuration).coerceAtLeast(1L)
+            )
+        }
         val safeDuration = trackDurationMs.coerceAtLeast(1L)
         val playBase = if (usePercent) {
             safeDuration * playValue.coerceIn(1, 99) / 100L
@@ -57,6 +68,9 @@ data class SmartSeekConfig(
             .putInt(PREF_SKIP_VALUE, skipValue.coerceIn(1, MAX_SECONDS))
             .putBoolean(PREF_USE_PERCENT, usePercent)
             .putString(PREF_PATTERN, pattern.name)
+            .putString(PREF_INPUT_MODE, inputMode.name)
+            .putLong(PREF_CYCLE_DURATION_MS, cycleDurationMs.coerceIn(MIN_INTERVAL_MS, MAX_CYCLE_DURATION_MS))
+            .putInt(PREF_SOUND_RATIO_PERCENT, soundRatioPercent.coerceIn(1, 99))
             .apply()
     }
 
@@ -65,6 +79,15 @@ data class SmartSeekConfig(
         const val PREF_SKIP_VALUE = "smart_seek_skip_value"
         const val PREF_USE_PERCENT = "smart_seek_use_percent"
         const val PREF_PATTERN = "smart_seek_pattern"
+        const val PREF_INPUT_MODE = "smart_seek_input_mode"
+        const val PREF_CYCLE_DURATION_MS = "smart_seek_cycle_duration_ms"
+        const val PREF_SOUND_RATIO_PERCENT = "smart_seek_sound_ratio_percent"
+
+        const val DEFAULT_CYCLE_DURATION_MS = 30_000L
+        const val DEFAULT_SOUND_RATIO_PERCENT = 60
+        const val DEFAULT_CYCLE_PLAY_DURATION_MS = DEFAULT_CYCLE_DURATION_MS * DEFAULT_SOUND_RATIO_PERCENT / 100
+        const val DEFAULT_CYCLE_SKIP_DURATION_MS = DEFAULT_CYCLE_DURATION_MS - DEFAULT_CYCLE_PLAY_DURATION_MS
+        const val MAX_CYCLE_DURATION_MS = 600_000L
 
         const val DEFAULT_PLAY_VALUE = 10
         const val DEFAULT_SKIP_VALUE = 15
@@ -79,13 +102,24 @@ data class SmartSeekConfig(
             val pattern = runCatching {
                 SmartSeekPattern.valueOf(patternName ?: SmartSeekPattern.STRICT.name)
             }.getOrDefault(SmartSeekPattern.STRICT)
+            val inputModeName = preferences.getString(PREF_INPUT_MODE, SmartSeekInputMode.CYCLE.name)
+            val inputMode = runCatching {
+                SmartSeekInputMode.valueOf(inputModeName ?: SmartSeekInputMode.CYCLE.name)
+            }.getOrDefault(SmartSeekInputMode.CYCLE)
+            val cycleDurationMs = preferences.getLong(PREF_CYCLE_DURATION_MS, DEFAULT_CYCLE_DURATION_MS)
+                .coerceIn(MIN_INTERVAL_MS, MAX_CYCLE_DURATION_MS)
+            val soundRatioPercent = preferences.getInt(PREF_SOUND_RATIO_PERCENT, DEFAULT_SOUND_RATIO_PERCENT)
+                .coerceIn(1, 99)
             val usePercent = preferences.getBoolean(PREF_USE_PERCENT, false)
             val maxValue = if (usePercent) 99 else MAX_SECONDS
             return SmartSeekConfig(
                 playValue = preferences.getInt(PREF_PLAY_VALUE, DEFAULT_PLAY_VALUE).coerceIn(1, maxValue),
                 skipValue = preferences.getInt(PREF_SKIP_VALUE, DEFAULT_SKIP_VALUE).coerceIn(1, maxValue),
                 usePercent = usePercent,
-                pattern = pattern
+                pattern = pattern,
+                inputMode = inputMode,
+                cycleDurationMs = cycleDurationMs,
+                soundRatioPercent = soundRatioPercent
             )
         }
     }
@@ -99,6 +133,12 @@ data class SmartSeekCycle(
 enum class SmartSeekPattern {
     STRICT,
     RANDOM
+}
+
+enum class SmartSeekInputMode {
+    ABSOLUTE,
+    PERCENT,
+    CYCLE
 }
 
 enum class SmartSeekMode {

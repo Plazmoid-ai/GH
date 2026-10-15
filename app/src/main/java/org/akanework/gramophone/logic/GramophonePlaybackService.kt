@@ -255,8 +255,8 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private var smartSeekSeeking = false
     private var smartSeekTrackIndex = C.INDEX_UNSET
     private var smartSeekNextPositionMs = -1L
-    private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_PLAY_VALUE * 1_000L
-    private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_SKIP_VALUE * 1_000L
+    private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
+    private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private val lastPlaylistLoaded = CompletableDeferred<Unit>()
     private val lyricsFetcher = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
     private val bitrateFetcher = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
@@ -922,7 +922,22 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
                     val cycle = smartSeekConfig.resolveCycle(currentPlayer.duration)
                     val remainingMs = currentPlayer.duration - currentPlayer.currentPosition
-                    if (remainingMs <= cycle.playDurationMs) {
+                    if (
+                        smartSeekConfig.inputMode == SmartSeekInputMode.CYCLE &&
+                        remainingMs <= smartSeekConfig.cycleDurationMs.coerceIn(
+                            SmartSeekConfig.MIN_INTERVAL_MS,
+                            SmartSeekConfig.MAX_CYCLE_DURATION_MS
+                        )
+                    ) {
+                        // Leave the final cycle to play normally so the track always ends with sound.
+                        Log.i(TAG, "Smart Seek finished for this track: entering the final audible tail")
+                        finishSmartSeekTrack()
+                        break
+                    }
+                    if (
+                        smartSeekConfig.inputMode != SmartSeekInputMode.CYCLE &&
+                        remainingMs <= cycle.playDurationMs
+                    ) {
                         Log.i(TAG, "Smart Seek finished for this track: not enough time remains for another interval")
                         finishSmartSeekTrack()
                         break
@@ -967,6 +982,15 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     val targetPosition = currentPosition + cycle.skipDurationMs
                     if (targetPosition >= seekPlayer.duration) {
                         Log.i(TAG, "Smart Seek finished for this track: next target is beyond the current track")
+                        finishSmartSeekTrack()
+                        break
+                    }
+                    if (
+                        smartSeekConfig.inputMode == SmartSeekInputMode.CYCLE &&
+                        seekPlayer.duration - targetPosition <= cycle.playDurationMs
+                    ) {
+                        // If the remaining tail is no longer than one sound segment, do not skip it.
+                        Log.i(TAG, "Smart Seek finished for this track: preserving the final audible tail")
                         finishSmartSeekTrack()
                         break
                     }
