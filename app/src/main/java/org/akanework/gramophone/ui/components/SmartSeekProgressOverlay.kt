@@ -53,6 +53,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         active: Boolean,
         currentPositionMs: Long,
         nextSeekPositionMs: Long,
+        seeking: Boolean,
         markerColor: Int
     ) {
         this.active = active
@@ -60,15 +61,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.nextSeekPositionMs = nextSeekPositionMs
         this.markerColor = markerColor
 
-        if (nextSeekPositionMs >= 0L) {
+        if (!seeking && nextSeekPositionMs >= 0L && this.currentPositionMs < nextSeekPositionMs) {
             val playStartMs = (nextSeekPositionMs - PLAY_DURATION_MS).coerceAtLeast(0L)
             playProgress = (
                 (this.currentPositionMs - playStartMs).toFloat() / PLAY_DURATION_MS
             ).coerceIn(0f, 1f)
             skipProgress = 0f
         } else {
-            // The service clears the next target while performing its seek.
-            // Show that brief transition as the skip interval being consumed.
+            // Once the service begins seeking, the play cursor stays at the end and the
+            // skip cursor jumps to its completed position. The next cycle resets both.
             playProgress = 1f
             skipProgress = 1f
         }

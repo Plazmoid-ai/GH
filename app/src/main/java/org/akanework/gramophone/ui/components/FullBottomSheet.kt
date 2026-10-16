@@ -284,6 +284,7 @@ class FullBottomSheet
     private val bottomSheetSmartSeekProgressOverlay: SmartSeekProgressOverlay
     private var smartSeekNextPositionMs = -1L
     private var smartSeekNextSkipDurationMs = 0L
+    private var smartSeekIsSeeking = false
     private var lastSmartSeekButtonActive: Boolean? = null
     private val bottomSheetFullCoverFrame: MaterialCardView
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
@@ -324,6 +325,7 @@ class FullBottomSheet
                     activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
                     smartSeekNextPositionMs = args.getLong("nextPositionMs", -1L)
                     smartSeekNextSkipDurationMs = args.getLong("skipDurationMs", 0L)
+                    smartSeekIsSeeking = args.getBoolean("seeking", false)
                     updateSmartSeekButton()
                 }
 
@@ -758,6 +760,7 @@ class FullBottomSheet
             active = true,
             currentPositionMs = instance?.currentPosition ?: 0L,
             nextSeekPositionMs = smartSeekNextPositionMs,
+            seeking = smartSeekIsSeeking,
             markerColor = markerColor
         )
     }

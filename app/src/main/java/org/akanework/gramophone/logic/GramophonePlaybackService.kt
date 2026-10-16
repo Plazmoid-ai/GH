@@ -1007,6 +1007,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     }
 
                     smartSeekSeeking = true
+                    broadcastSmartSeekState()
                     Log.i(TAG, "Smart Seek: seeking from $currentPosition to $targetPosition")
                     seekPlayer.seekTo(targetPosition)
 
@@ -1043,6 +1044,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         putLong("nextPositionMs", smartSeekNextPositionMs)
         putLong("playDurationMs", smartSeekNextPlayDurationMs)
         putLong("skipDurationMs", smartSeekNextSkipDurationMs)
+        putBoolean("seeking", smartSeekSeeking)
         putInt("playValue", smartSeekConfig.playValue)
         putInt("skipValue", smartSeekConfig.skipValue)
         putBoolean("usePercent", smartSeekConfig.usePercent)
