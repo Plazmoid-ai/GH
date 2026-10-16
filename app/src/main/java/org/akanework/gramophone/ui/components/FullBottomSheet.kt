@@ -749,13 +749,11 @@ class FullBottomSheet
 
         if (!active) return
 
-        val markerColor = when (prefs.getString("smart_seek_marker_color", "orange")) {
-            "cyan" -> Color.rgb(0, 184, 212)
-            "lime" -> Color.rgb(124, 179, 66)
-            "pink" -> Color.rgb(245, 0, 87)
-            "violet" -> Color.rgb(124, 77, 255)
-            else -> Color.rgb(255, 109, 0)
-        }
+        val markerColor = MaterialColors.getColor(
+            bottomSheetSmartSeekButton,
+            com.google.android.material.R.attr.colorPrimaryContainer,
+            Color.rgb(255, 109, 0)
+        )
         bottomSheetSmartSeekProgressOverlay.update(
             active = true,
             currentPositionMs = instance?.currentPosition ?: 0L,
