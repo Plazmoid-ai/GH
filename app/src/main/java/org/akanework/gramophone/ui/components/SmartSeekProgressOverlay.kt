@@ -13,13 +13,17 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import androidx.core.content.ContextCompat
+import org.akanework.gramophone.R
 
 /**
- * Non-interactive layer over the playback slider. It displays only the configured interval values
- * and marks the next seek point and the approximate destination after the configured skip.
+ * Non-interactive visualisation of Smart Seek's current play and skip intervals.
+ *
+ * The first MVP intentionally uses fixed 15/30-second intervals and full-width tracks.
+ * Width normalisation and pause controls are handled in later steps.
  */
 class SmartSeekProgressOverlay @JvmOverloads constructor(
     context: Context,
@@ -27,14 +31,17 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val playIcon = ContextCompat.getDrawable(context, R.drawable.outline_volume_up_24)?.mutate()
+    private val skipIcon = ContextCompat.getDrawable(context, R.drawable.outline_volume_off_24)?.mutate()
+
     private var active = false
-    private var persistent = false
-    private var durationMs = 0L
+    private var currentPositionMs = 0L
     private var nextSeekPositionMs = -1L
-    private var skipDurationMs = 0L
-    private var playLabel = ""
-    private var skipLabel = ""
     private var markerColor = Color.rgb(255, 109, 0)
+    private var playProgress = 0f
+    private var skipProgress = 0f
+
+    private val secondsUnit = context.getString(R.string.smart_seek_seconds_short)
 
     init {
         isClickable = false
@@ -44,22 +51,27 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     fun update(
         active: Boolean,
-        durationMs: Long,
+        currentPositionMs: Long,
         nextSeekPositionMs: Long,
-        skipDurationMs: Long,
-        playLabel: String,
-        skipLabel: String,
-        markerColor: Int,
-        persistent: Boolean
+        markerColor: Int
     ) {
         this.active = active
-        this.durationMs = durationMs
+        this.currentPositionMs = currentPositionMs.coerceAtLeast(0L)
         this.nextSeekPositionMs = nextSeekPositionMs
-        this.skipDurationMs = skipDurationMs
-        this.playLabel = playLabel
-        this.skipLabel = skipLabel
         this.markerColor = markerColor
-        this.persistent = persistent
+
+        if (nextSeekPositionMs >= 0L) {
+            val playStartMs = (nextSeekPositionMs - PLAY_DURATION_MS).coerceAtLeast(0L)
+            playProgress = (
+                (this.currentPositionMs - playStartMs).toFloat() / PLAY_DURATION_MS
+            ).coerceIn(0f, 1f)
+            skipProgress = 0f
+        } else {
+            // The service clears the next target while performing its seek.
+            // Show that brief transition as the skip interval being consumed.
+            playProgress = 1f
+            skipProgress = 1f
+        }
         invalidate()
     }
 
@@ -67,122 +79,110 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         super.onDraw(canvas)
         if (!active) return
 
-        drawTechnicalLabels(canvas)
+        val barLeft = dp(72f)
+        val barRight = width - dp(8f)
+        if (barRight <= barLeft) return
 
-        if (durationMs <= 0L || nextSeekPositionMs < 0L || nextSeekPositionMs >= durationMs) {
-            return
-        }
-
-        val left = dp(14f)
-        val right = width - dp(14f)
-        if (right <= left) return
-
-        fun xFor(positionMs: Long): Float {
-            val boundedPosition = positionMs.coerceIn(0L, durationMs)
-            return left + (right - left) * (boundedPosition.toFloat() / durationMs.toFloat())
-        }
-
-        val seekX = xFor(nextSeekPositionMs)
-        val destinationPosition = (nextSeekPositionMs + skipDurationMs).coerceAtMost(durationMs)
-        val destinationX = xFor(destinationPosition)
-        val trackY = height / 2f + dp(1f)
-
-        // The skipped span uses the selected color, with stronger emphasis in persistent mode.
-        paint.style = Paint.Style.STROKE
-        paint.color = markerColor
-        paint.alpha = if (persistent) 105 else 65
-        paint.strokeWidth = dp(if (persistent) 7f else 5f)
-        paint.strokeCap = Paint.Cap.ROUND
-        if (destinationX > seekX) {
-            canvas.drawLine(seekX, trackY, destinationX, trackY, paint)
-        }
-
-        paint.alpha = 255
-        paint.strokeWidth = dp(if (persistent) 3.5f else 2.2f)
-        paint.strokeCap = Paint.Cap.ROUND
-        canvas.drawLine(seekX, trackY - dp(6f), seekX, trackY + dp(6f), paint)
-        if (persistent) {
-            // A paired tick identifies persistent mode without adding text to the progress bar.
-            canvas.drawLine(
-                seekX + dp(4f),
-                trackY - dp(5f),
-                seekX + dp(4f),
-                trackY + dp(5f),
-                paint
-            )
-        }
+        val playCenterY = height * 0.34f
+        val skipCenterY = height * 0.70f
+        val trackWidth = barRight - barLeft
 
         paint.style = Paint.Style.FILL
-        canvas.drawCircle(destinationX, trackY, dp(if (persistent) 4.2f else 3.2f), paint)
+        paint.color = markerColor
+        paint.alpha = 255
+        canvas.drawRoundRect(
+            RectF(barLeft, playCenterY - dp(4f), barRight, playCenterY + dp(4f)),
+            dp(4f),
+            dp(4f),
+            paint
+        )
+
+        paint.color = markerColor
+        paint.alpha = 38
+        canvas.drawRoundRect(
+            RectF(barLeft, skipCenterY - dp(3f), barRight, skipCenterY + dp(3f)),
+            dp(3f),
+            dp(3f),
+            paint
+        )
+
+        val playCursorRadius = dp(5.5f)
+        val skipCursorRadius = dp(4f)
+        val playCursorX = barLeft + playCursorRadius +
+            (trackWidth - playCursorRadius * 2f) * playProgress
+        val skipCursorX = barLeft + skipCursorRadius +
+            (trackWidth - skipCursorRadius * 2f) * skipProgress
+
+        paint.color = Color.BLACK
+        paint.alpha = 220
+        canvas.drawRoundRect(
+            RectF(barLeft, playCenterY - dp(4f), playCursorX, playCenterY + dp(4f)),
+            dp(4f),
+            dp(4f),
+            paint
+        )
+
+        paint.color = Color.GRAY
+        paint.alpha = 153
+        canvas.drawRoundRect(
+            RectF(barLeft, skipCenterY - dp(3f), skipCursorX, skipCenterY + dp(3f)),
+            dp(3f),
+            dp(3f),
+            paint
+        )
+
+        paint.color = Color.rgb(25, 25, 25)
+        paint.alpha = 255
+        canvas.drawCircle(playCursorX, playCenterY, playCursorRadius, paint)
+
+        paint.color = Color.GRAY
+        paint.alpha = 153
+        canvas.drawCircle(skipCursorX, skipCenterY, skipCursorRadius, paint)
+
+        drawLabel(canvas, playIcon, "15$secondsUnit", playCenterY)
+        drawLabel(canvas, skipIcon, "+30$secondsUnit", skipCenterY)
     }
 
-    private fun drawTechnicalLabels(canvas: Canvas) {
+    private fun drawLabel(
+        canvas: Canvas,
+        icon: android.graphics.drawable.Drawable?,
+        text: String,
+        centerY: Float
+    ) {
         paint.style = Paint.Style.FILL
         paint.color = markerColor
         paint.alpha = 255
-        paint.textSize = sp(10f)
+        paint.textSize = sp(11f)
         paint.typeface = android.graphics.Typeface.create(
             "sans-serif-medium",
             android.graphics.Typeface.NORMAL
         )
-        paint.textAlign = Paint.Align.LEFT
+        paint.textAlign = Paint.Align.RIGHT
 
-        val playTextWidth = paint.measureText(playLabel)
-        val skipTextWidth = paint.measureText(skipLabel)
-        val playIconWidth = dp(8f)
-        val skipIconWidth = dp(12f)
-        val innerGap = dp(3f)
-        val groupGap = dp(13f)
-        val playGroupWidth = playIconWidth + innerGap + playTextWidth
-        val skipGroupWidth = skipIconWidth + innerGap + skipTextWidth
-        val totalWidth = playGroupWidth + groupGap + skipGroupWidth
-        val startX = (width - totalWidth) / 2f
-        val iconY = dp(9.5f)
-        val textY = dp(13f)
+        val textRight = dp(61f)
+        val baseline = centerY + dp(4f)
+        val textWidth = paint.measureText(text)
+        canvas.drawText(text, textRight, baseline, paint)
 
-        drawPlayIcon(canvas, startX + dp(3.5f), iconY)
-        canvas.drawText(playLabel, startX + playIconWidth + innerGap, textY, paint)
-
-        val skipStartX = startX + playGroupWidth + groupGap
-        drawSkipIcon(canvas, skipStartX + dp(5f), iconY)
-        canvas.drawText(skipLabel, skipStartX + skipIconWidth + innerGap, textY, paint)
-    }
-
-    private fun drawPlayIcon(canvas: Canvas, centerX: Float, centerY: Float) {
-        val path = Path().apply {
-            moveTo(centerX - dp(2.5f), centerY - dp(4f))
-            lineTo(centerX + dp(3.5f), centerY)
-            lineTo(centerX - dp(2.5f), centerY + dp(4f))
-            close()
+        val iconSize = dp(14f)
+        val iconRight = textRight - textWidth - dp(3f)
+        icon?.let {
+            it.setTint(markerColor)
+            it.setBounds(
+                (iconRight - iconSize).toInt(),
+                (centerY - iconSize / 2f).toInt(),
+                iconRight.toInt(),
+                (centerY + iconSize / 2f).toInt()
+            )
+            it.draw(canvas)
         }
-        canvas.drawPath(path, paint)
-    }
-
-    private fun drawSkipIcon(canvas: Canvas, centerX: Float, centerY: Float) {
-        val first = Path().apply {
-            moveTo(centerX - dp(5f), centerY - dp(4f))
-            lineTo(centerX - dp(1f), centerY)
-            lineTo(centerX - dp(5f), centerY + dp(4f))
-            close()
-        }
-        val second = Path().apply {
-            moveTo(centerX - dp(0.5f), centerY - dp(4f))
-            lineTo(centerX + dp(3.5f), centerY)
-            lineTo(centerX - dp(0.5f), centerY + dp(4f))
-            close()
-        }
-        canvas.drawPath(first, paint)
-        canvas.drawPath(second, paint)
-        canvas.drawRect(
-            centerX + dp(4f),
-            centerY - dp(4f),
-            centerX + dp(5.5f),
-            centerY + dp(4f),
-            paint
-        )
     }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
 
     private fun sp(value: Float): Float = value * resources.displayMetrics.scaledDensity
+
+    companion object {
+        private const val PLAY_DURATION_MS = 15_000L
+    }
 }

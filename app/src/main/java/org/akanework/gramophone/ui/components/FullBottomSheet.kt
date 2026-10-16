@@ -733,37 +733,20 @@ class FullBottomSheet
         updateSmartSeekProgressOverlay()
     }
 
-    private fun updateSmartSeekProgressOverlay(durationOverrideMs: Long? = null) {
-        if (!prefs.getBoolean("smart_seek_enabled", true)) {
-            bottomSheetSmartSeekProgressOverlay.visibility = GONE
-            return
-        }
-        bottomSheetSmartSeekProgressOverlay.visibility = VISIBLE
-        val config = SmartSeekConfig.load(prefs)
-        val duration = durationOverrideMs
-            ?: instance?.contentDuration?.let { if (it == C.TIME_UNSET) null else it }
-            ?: instance?.currentMediaItem?.mediaMetadata?.durationMs
-            ?: 0L
-        val configuredCycle = config.resolveCycle(duration)
-        val skipDuration = smartSeekNextSkipDurationMs.takeIf { it > 0L }
-            ?: configuredCycle.skipDurationMs
-        val secondsUnit = context.getString(R.string.smart_seek_seconds_short)
-        val playLabel: String
-        val skipLabel: String
-        when (config.inputMode) {
-            SmartSeekInputMode.ABSOLUTE -> {
-                playLabel = "${config.absolutePlaySeconds}$secondsUnit"
-                skipLabel = "+${config.absoluteSkipSeconds}$secondsUnit"
-            }
-            SmartSeekInputMode.PERCENT -> {
-                playLabel = "${config.playPercent}%"
-                skipLabel = "+${config.skipPercent}%"
-            }
-            SmartSeekInputMode.CYCLE -> {
-                playLabel = "${configuredCycle.playDurationMs / 1_000L}$secondsUnit"
-                skipLabel = "+${configuredCycle.skipDurationMs / 1_000L}$secondsUnit"
-            }
-        }
+    private fun updateSmartSeekProgressOverlay() {
+        val enabled = prefs.getBoolean("smart_seek_enabled", true)
+        val active = enabled && activity.controllerViewModel.isSmartSeekActive()
+
+        bottomSheetSmartSeekProgressOverlay.visibility = if (active) VISIBLE else GONE
+
+        // Keep the standard slider in place for touch handling, but hide its visuals while
+        // the custom Smart Seek bars are displayed.
+        val sliderAlpha = if (active) 0f else 1f
+        bottomSheetFullSeekBar.alpha = sliderAlpha
+        bottomSheetFullSlider.alpha = sliderAlpha
+
+        if (!active) return
+
         val markerColor = when (prefs.getString("smart_seek_marker_color", "orange")) {
             "cyan" -> Color.rgb(0, 184, 212)
             "lime" -> Color.rgb(124, 179, 66)
@@ -772,14 +755,10 @@ class FullBottomSheet
             else -> Color.rgb(255, 109, 0)
         }
         bottomSheetSmartSeekProgressOverlay.update(
-            active = activity.controllerViewModel.isSmartSeekActive(),
-            durationMs = duration,
+            active = true,
+            currentPositionMs = instance?.currentPosition ?: 0L,
             nextSeekPositionMs = smartSeekNextPositionMs,
-            skipDurationMs = skipDuration,
-            playLabel = playLabel,
-            skipLabel = skipLabel,
-            markerColor = markerColor,
-            persistent = prefs.getBoolean("smart_seek_persistent", false)
+            markerColor = markerColor
         )
     }
 
@@ -1339,7 +1318,7 @@ class FullBottomSheet
         if (key == null || key == "cookie_cover") {
             bottomSheetFullCover.setClip(prefs.getBooleanStrict("cookie_cover", false))
         }
-        if (key == null || key == "smart_seek_enabled" || key == "smart_seek_persistent" || key == "smart_seek_marker_color") {
+        if (key == null || key == "default_progress_bar" || key == "smart_seek_enabled" || key == "smart_seek_persistent" || key == "smart_seek_marker_color") {
             updateSmartSeekProgressOverlay()
         }
         if (key == "smart_seek_enabled") {
@@ -2114,7 +2093,7 @@ class FullBottomSheet
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
-        updateSmartSeekProgressOverlay(duration)
+        updateSmartSeekProgressOverlay()
     }
 
     override fun onCheckedChanged(button: MaterialButton?, isChecked: Boolean) {
