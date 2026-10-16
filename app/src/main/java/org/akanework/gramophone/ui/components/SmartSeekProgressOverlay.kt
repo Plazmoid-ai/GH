@@ -22,10 +22,9 @@ import android.view.View
 /**
  * Canvas-based Smart Seek progress area.
  *
- * This file is intentionally rebuilt from scratch. This first replacement uses one
- * future-only track as a temporary baseline; the segmented timeline is added in Stage 2.
- * The update() signature stays compatible with FullBottomSheet until real timeline data
- * is connected in Stage 3.
+ * Stage 2 draws a static preview of four 15-second play intervals alternating with
+ * four 30-second skip intervals. Playback position and real Smart Seek state are
+ * intentionally not connected until Stage 3.
  */
 class SmartSeekProgressOverlay @JvmOverloads constructor(
     context: Context,
@@ -57,7 +56,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     /**
      * Retains the current call-site contract so this file can be replaced independently.
-     * Position and interval values are intentionally ignored for drawing in Stage 1.
+     * Position and interval values are intentionally ignored until Stage 3.
      */
     @Suppress("UNUSED_PARAMETER")
     fun update(
@@ -97,25 +96,82 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             return
         }
 
-        if (!active) return
+        if (!active || width <= 0 || height <= 0) return
 
-        // Stage 1 baseline: one track only. Stage 2 replaces its fill with fixed segments.
         val barHeight = dp(6f)
         val top = (height - barHeight) / 2f
-        val bar = RectF(0f, top, width.toFloat(), top + barHeight)
+        val bottom = top + barHeight
+        val totalDurationMs = TOTAL_PREVIEW_DURATION_MS.toFloat()
+        val gap = dp(1f)
+        val gapCount = PREVIEW_CYCLE_COUNT * 2 - 1
+        val availableWidth = (width.toFloat() - gap * gapCount).coerceAtLeast(0f)
+        val pxPerMs = availableWidth / totalDurationMs
+        val radius = barHeight / 2f
 
+        var timelinePositionMs = 0L
+        var segmentIndex = 0
+
+        repeat(PREVIEW_CYCLE_COUNT) {
+            val playWidth = PLAY_DURATION_MS * pxPerMs
+            drawSegment(
+                canvas,
+                timelinePositionMs * pxPerMs + segmentIndex * gap,
+                playWidth,
+                top,
+                bottom,
+                radius,
+                markerColor,
+                220
+            )
+            timelinePositionMs += PLAY_DURATION_MS
+            segmentIndex++
+
+            val skipWidth = SKIP_DURATION_MS * pxPerMs
+            drawSegment(
+                canvas,
+                timelinePositionMs * pxPerMs + segmentIndex * gap,
+                skipWidth,
+                top,
+                bottom,
+                radius,
+                Color.GRAY,
+                190
+            )
+            timelinePositionMs += SKIP_DURATION_MS
+            segmentIndex++
+        }
+
+        // The cursor remains fixed at the left edge; the timeline is still a static preview.
         paint.style = Paint.Style.FILL
         paint.color = markerColor
-        paint.alpha = 153
-        canvas.drawRoundRect(bar, barHeight / 2f, barHeight / 2f, paint)
-
-        // The fixed cursor marks the left edge; it never advances across the track.
         paint.alpha = 255
         val cursorWidth = dp(2f)
         canvas.drawRoundRect(
-            RectF(0f, top - dp(1f), cursorWidth, top + barHeight + dp(1f)),
+            RectF(0f, top - dp(1f), cursorWidth, bottom + dp(1f)),
             dp(1f),
             dp(1f),
+            paint
+        )
+    }
+
+    private fun drawSegment(
+        canvas: Canvas,
+        left: Float,
+        segmentWidth: Float,
+        top: Float,
+        bottom: Float,
+        radius: Float,
+        color: Int,
+        alpha: Int
+    ) {
+        if (segmentWidth <= 0f) return
+        paint.style = Paint.Style.FILL
+        paint.color = color
+        paint.alpha = alpha
+        canvas.drawRoundRect(
+            RectF(left, top, left + segmentWidth, bottom),
+            radius,
+            radius,
             paint
         )
     }
@@ -189,4 +245,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private fun dp(value: Float): Float =
         value * resources.displayMetrics.density
+
+    private companion object {
+        const val PLAY_DURATION_MS = 15_000L
+        const val SKIP_DURATION_MS = 30_000L
+        const val PREVIEW_CYCLE_COUNT = 4
+        const val TOTAL_PREVIEW_DURATION_MS =
+            PREVIEW_CYCLE_COUNT * (PLAY_DURATION_MS + SKIP_DURATION_MS)
+    }
 }
