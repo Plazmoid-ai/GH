@@ -275,13 +275,13 @@ class FullBottomSheet
     private val bottomSheetLoopButton: MaterialButton
     private val bottomSheetPlaylistButton: MaterialButton
     private val bottomSheetTimerButton: MaterialButton
-    private val bottomSheetSmartSeekButton: MaterialButton
+    private val bottomSheetSmartSeekButton: MaterialButton?
     private val bottomSheetPlaybackSpeedButton: MaterialButton
     private val bottomSheetFavoriteButton: MaterialButton
     val bottomSheetLyricButton: MaterialButton
     private val bottomSheetFullSeekBar: SeekBar
     private val bottomSheetFullSlider: Slider
-    private val bottomSheetSmartSeekProgressOverlay: SmartSeekProgressOverlay
+    private val bottomSheetSmartSeekProgressOverlay: SmartSeekProgressOverlay?
     private var smartSeekNextPositionMs = -1L
     private var smartSeekNextSkipDurationMs = 0L
     private var smartSeekIsSeeking = false
@@ -353,7 +353,7 @@ class FullBottomSheet
         }
 
         updateSmartSeekButton()
-        bottomSheetSmartSeekButton.setOnClickListener {
+        bottomSheetSmartSeekButton?.setOnClickListener {
             if (!prefs.getBoolean("smart_seek_enabled", true)) return@setOnClickListener
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
             if (activity.controllerViewModel.isSmartSeekActive()) {
@@ -363,7 +363,7 @@ class FullBottomSheet
             }
             updateSmartSeekButton()
         }
-        bottomSheetSmartSeekButton.setOnLongClickListener {
+        bottomSheetSmartSeekButton?.setOnLongClickListener {
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
             showSmartSeekSettingsDialog()
             true
@@ -689,46 +689,48 @@ class FullBottomSheet
     }
 
     private fun updateSmartSeekButton() {
+        // Smart Seek controls are not present in every layout (for example, landscape).
+        val button = findViewById<MaterialButton>(R.id.smart_seek) ?: return
         val enabled = prefs.getBoolean("smart_seek_enabled", true)
-        bottomSheetSmartSeekButton.visibility = if (enabled) VISIBLE else GONE
+        button.visibility = if (enabled) VISIBLE else GONE
         val active = enabled && activity.controllerViewModel.isSmartSeekActive()
-        bottomSheetSmartSeekButton.isChecked = active
-        bottomSheetSmartSeekButton.isActivated = active
-        bottomSheetSmartSeekButton.contentDescription =
+        button.isChecked = active
+        button.isActivated = active
+        button.contentDescription =
             context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
 
         val backgroundColor = MaterialColors.getColor(
-            bottomSheetSmartSeekButton,
+            button,
             if (active) com.google.android.material.R.attr.colorPrimaryContainer
             else com.google.android.material.R.attr.colorSurfaceVariant,
             Color.TRANSPARENT
         )
         val iconColor = MaterialColors.getColor(
-            bottomSheetSmartSeekButton,
+            button,
             if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
             else com.google.android.material.R.attr.colorOnSurfaceVariant,
             Color.WHITE
         )
-        bottomSheetSmartSeekButton.backgroundTintList = ColorStateList.valueOf(backgroundColor)
-        bottomSheetSmartSeekButton.iconTint = ColorStateList.valueOf(iconColor)
+        button.backgroundTintList = ColorStateList.valueOf(backgroundColor)
+        button.iconTint = ColorStateList.valueOf(iconColor)
         TooltipCompat.setTooltipText(
-            bottomSheetSmartSeekButton,
+            button,
             context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
         )
 
         val previousState = lastSmartSeekButtonActive
         lastSmartSeekButtonActive = active
         if (previousState != null && previousState != active) {
-            bottomSheetSmartSeekButton.animate().cancel()
-            bottomSheetSmartSeekButton.scaleX = 0.88f
-            bottomSheetSmartSeekButton.scaleY = 0.88f
-            bottomSheetSmartSeekButton.animate()
+            button.animate().cancel()
+            button.scaleX = 0.88f
+            button.scaleY = 0.88f
+            button.animate()
                 .scaleX(1f)
                 .scaleY(1f)
                 .setDuration(180L)
                 .withEndAction {
-                    bottomSheetSmartSeekButton.scaleX = 1f
-                    bottomSheetSmartSeekButton.scaleY = 1f
+                    button.scaleX = 1f
+                    button.scaleY = 1f
                 }
                 .start()
         }
@@ -736,10 +738,16 @@ class FullBottomSheet
     }
 
     private fun updateSmartSeekProgressOverlay() {
+        val overlay = bottomSheetSmartSeekProgressOverlay ?: return
+        val button = bottomSheetSmartSeekButton
+        if (button == null) {
+            overlay.visibility = GONE
+            return
+        }
         val enabled = prefs.getBoolean("smart_seek_enabled", true)
         val active = enabled && activity.controllerViewModel.isSmartSeekActive()
 
-        bottomSheetSmartSeekProgressOverlay.visibility = if (active) VISIBLE else GONE
+        overlay.visibility = if (active) VISIBLE else GONE
 
         // Keep the standard slider in place for touch handling, but hide its visuals while
         // the custom Smart Seek bars are displayed.
@@ -750,11 +758,11 @@ class FullBottomSheet
         if (!active) return
 
         val markerColor = MaterialColors.getColor(
-            bottomSheetSmartSeekButton,
+            button,
             com.google.android.material.R.attr.colorPrimaryContainer,
             Color.rgb(255, 109, 0)
         )
-        bottomSheetSmartSeekProgressOverlay.update(
+        overlay.update(
             active = true,
             currentPositionMs = instance?.currentPosition ?: 0L,
             nextSeekPositionMs = smartSeekNextPositionMs,
