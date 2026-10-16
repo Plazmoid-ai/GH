@@ -749,13 +749,23 @@ class FullBottomSheet
 
         overlay.visibility = if (active) VISIBLE else GONE
 
-        // Keep the standard slider in place for touch handling, but hide its visuals while
-        // the custom Smart Seek bars are displayed.
-        val sliderAlpha = if (active) 0f else 1f
-        bottomSheetFullSeekBar.alpha = sliderAlpha
-        bottomSheetFullSlider.alpha = sliderAlpha
+        // Never leave an invisible, interactive stock seek control under the custom bar.
+        // Restore the user's selected stock control when Smart Seek is inactive.
+        if (active) {
+            bottomSheetFullSeekBar.visibility = GONE
+            bottomSheetFullSlider.visibility = GONE
+        } else if (prefs.getBooleanStrict("default_progress_bar", false)) {
+            bottomSheetFullSeekBar.visibility = GONE
+            bottomSheetFullSlider.visibility = VISIBLE
+        } else {
+            bottomSheetFullSlider.visibility = GONE
+            bottomSheetFullSeekBar.visibility = VISIBLE
+        }
 
-        if (!active) return
+        if (!active) {
+            overlay.setResumeButtonVisible(false)
+            return
+        }
 
         val markerColor = MaterialColors.getColor(
             button,
