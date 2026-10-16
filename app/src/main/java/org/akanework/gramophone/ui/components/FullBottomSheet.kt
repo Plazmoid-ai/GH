@@ -283,7 +283,8 @@ class FullBottomSheet
     private val bottomSheetFullSlider: Slider
     private val bottomSheetSmartSeekProgressOverlay: SmartSeekProgressOverlay?
     private var smartSeekNextPositionMs = -1L
-    private var smartSeekNextSkipDurationMs = 0L
+    private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
+    private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private var smartSeekIsSeeking = false
     private var lastSmartSeekButtonActive: Boolean? = null
     private val bottomSheetFullCoverFrame: MaterialCardView
@@ -324,7 +325,14 @@ class FullBottomSheet
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
                     activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
                     smartSeekNextPositionMs = args.getLong("nextPositionMs", -1L)
-                    smartSeekNextSkipDurationMs = args.getLong("skipDurationMs", 0L)
+                    smartSeekNextPlayDurationMs = args.getLong(
+                        "playDurationMs",
+                        SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
+                    )
+                    smartSeekNextSkipDurationMs = args.getLong(
+                        "skipDurationMs",
+                        SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
+                    )
                     smartSeekIsSeeking = args.getBoolean("seeking", false)
                     updateSmartSeekButton()
                 }
@@ -772,10 +780,19 @@ class FullBottomSheet
             com.google.android.material.R.attr.colorPrimaryContainer,
             Color.rgb(255, 109, 0)
         )
+        val player = instance
+        val durationMs = player?.contentDuration?.let {
+            if (it == C.TIME_UNSET) null else it
+        } ?: player?.currentMediaItem?.mediaMetadata?.durationMs
+            ?: player?.duration?.takeIf { it != C.TIME_UNSET }
+            ?: 0L
         overlay.update(
             active = true,
-            currentPositionMs = instance?.currentPosition ?: 0L,
+            currentPositionMs = player?.currentPosition ?: 0L,
+            durationMs = durationMs,
             nextSeekPositionMs = smartSeekNextPositionMs,
+            playDurationMs = smartSeekNextPlayDurationMs,
+            skipDurationMs = smartSeekNextSkipDurationMs,
             seeking = smartSeekIsSeeking,
             markerColor = markerColor
         )

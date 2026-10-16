@@ -22,9 +22,8 @@ import android.view.View
 /**
  * Canvas-based Smart Seek progress area.
  *
- * Stage 2 draws a static preview of four 15-second play intervals alternating with
- * four 30-second skip intervals. Playback position and real Smart Seek state are
- * intentionally not connected until Stage 3.
+ * Stage 3 renders the remaining track as a future-only timeline. Audible intervals use
+ * the Smart Seek accent color; intervals scheduled to be skipped are gray.
  */
 class SmartSeekProgressOverlay @JvmOverloads constructor(
     context: Context,
@@ -54,19 +53,33 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         setWillNotDraw(false)
     }
 
+    private var currentPositionMs = 0L
+    private var durationMs = 0L
+    private var nextSeekPositionMs = -1L
+    private var playDurationMs = 15_000L
+    private var skipDurationMs = 30_000L
+
     /**
-     * Retains the current call-site contract so this file can be replaced independently.
-     * Position and interval values are intentionally ignored until Stage 3.
+     * Updates the live timeline. The next seek position marks the end of the current
+     * audible interval; after it, the timeline alternates play and skip intervals.
      */
     @Suppress("UNUSED_PARAMETER")
     fun update(
         active: Boolean,
         currentPositionMs: Long,
+        durationMs: Long,
         nextSeekPositionMs: Long,
+        playDurationMs: Long,
+        skipDurationMs: Long,
         seeking: Boolean,
         markerColor: Int
     ) {
         this.active = active
+        this.currentPositionMs = currentPositionMs.coerceAtLeast(0L)
+        this.durationMs = durationMs.coerceAtLeast(0L)
+        this.nextSeekPositionMs = nextSeekPositionMs
+        this.playDurationMs = playDurationMs.coerceAtLeast(1L)
+        this.skipDurationMs = skipDurationMs.coerceAtLeast(1L)
         this.markerColor = markerColor
         invalidate()
     }
@@ -98,50 +111,94 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         if (!active || width <= 0 || height <= 0) return
 
+        if (durationMs <= currentPositionMs) return
+
         val barHeight = dp(6f)
         val top = (height - barHeight) / 2f
         val bottom = top + barHeight
-        val totalDurationMs = TOTAL_PREVIEW_DURATION_MS.toFloat()
-        val gap = dp(1f)
-        val gapCount = PREVIEW_CYCLE_COUNT * 2 - 1
-        val availableWidth = (width.toFloat() - gap * gapCount).coerceAtLeast(0f)
-        val pxPerMs = availableWidth / totalDurationMs
+        val remainingMs = durationMs - currentPositionMs
+        val pxPerMs = width.toFloat() / remainingMs.toFloat()
         val radius = barHeight / 2f
+        val gap = dp(1f)
+        val playMs = playDurationMs
+        val skipMs = skipDurationMs
 
-        var timelinePositionMs = 0L
-        var segmentIndex = 0
+        var timelinePositionMs = currentPositionMs
 
-        repeat(PREVIEW_CYCLE_COUNT) {
-            val playWidth = PLAY_DURATION_MS * pxPerMs
-            drawSegment(
-                canvas,
-                timelinePositionMs * pxPerMs + segmentIndex * gap,
-                playWidth,
-                top,
-                bottom,
-                radius,
-                markerColor,
-                220
+        fun drawPlayUntil(endMs: Long) {
+            drawTimelineSegment(
+                canvas, timelinePositionMs, endMs, currentPositionMs, pxPerMs,
+                top, bottom, radius, gap, markerColor, 220
             )
-            timelinePositionMs += PLAY_DURATION_MS
-            segmentIndex++
-
-            val skipWidth = SKIP_DURATION_MS * pxPerMs
-            drawSegment(
-                canvas,
-                timelinePositionMs * pxPerMs + segmentIndex * gap,
-                skipWidth,
-                top,
-                bottom,
-                radius,
-                Color.GRAY,
-                190
-            )
-            timelinePositionMs += SKIP_DURATION_MS
-            segmentIndex++
+            timelinePositionMs = endMs
         }
 
-        // The cursor remains fixed at the left edge; the timeline is still a static preview.
+        fun drawSkipUntil(endMs: Long) {
+            drawTimelineSegment(
+                canvas, timelinePositionMs, endMs, currentPositionMs, pxPerMs,
+                top, bottom, radius, gap, Color.GRAY, 190
+            )
+            timelinePositionMs = endMs
+        }
+
+        /*
+         * If the service has announced the next seek boundary, use the actual remaining
+         * audible interval instead of restarting a full play interval at the current cursor.
+         */
+        if (nextSeekPositionMs > currentPositionMs) {
+            drawPlayUntil(nextSeekPositionMs.coerceAtMost(durationMs))
+            if (timelinePositionMs < durationMs) {
+                drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
+            }
+        } else if (remainingMs <= playMs + skipMs) {
+            // The final tail is audible only when it is longer than one play interval.
+            if (remainingMs > playMs) drawPlayUntil(durationMs)
+            drawCursor(canvas, top, bottom)
+            return
+        } else {
+            drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
+            if (timelinePositionMs < durationMs) {
+                drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
+            }
+        }
+
+        // Fill the future timeline with complete play/skip cycles.
+        while (durationMs - timelinePositionMs >= playMs + skipMs) {
+            drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
+            drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
+        }
+
+        // A short final tail is omitted; a longer one remains an audible-colored segment.
+        val tailMs = durationMs - timelinePositionMs
+        if (tailMs > playMs) {
+            drawPlayUntil(durationMs)
+        }
+
+        drawCursor(canvas, top, bottom)
+    }
+
+    private fun drawTimelineSegment(
+        canvas: Canvas,
+        startMs: Long,
+        endMs: Long,
+        currentPositionMs: Long,
+        pxPerMs: Float,
+        top: Float,
+        bottom: Float,
+        radius: Float,
+        gap: Float,
+        color: Int,
+        alpha: Int
+    ) {
+        if (endMs <= startMs) return
+        val rawLeft = (startMs - currentPositionMs).toFloat() * pxPerMs
+        val rawRight = (endMs - currentPositionMs).toFloat() * pxPerMs
+        val left = if (startMs == currentPositionMs) rawLeft else rawLeft + gap / 2f
+        val right = if (endMs >= durationMs) rawRight else rawRight - gap / 2f
+        drawSegment(canvas, left, (right - left).coerceAtLeast(0f), top, bottom, radius, color, alpha)
+    }
+
+    private fun drawCursor(canvas: Canvas, top: Float, bottom: Float) {
         paint.style = Paint.Style.FILL
         paint.color = markerColor
         paint.alpha = 255
@@ -246,11 +303,5 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private fun dp(value: Float): Float =
         value * resources.displayMetrics.density
 
-    private companion object {
-        const val PLAY_DURATION_MS = 15_000L
-        const val SKIP_DURATION_MS = 30_000L
-        const val PREVIEW_CYCLE_COUNT = 4
-        const val TOTAL_PREVIEW_DURATION_MS =
-            PREVIEW_CYCLE_COUNT * (PLAY_DURATION_MS + SKIP_DURATION_MS)
-    }
+
 }
