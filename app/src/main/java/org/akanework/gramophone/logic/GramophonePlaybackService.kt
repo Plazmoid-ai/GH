@@ -1335,8 +1335,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         if (resume && smartSeekActive && isSmartSeekEnabled()) {
                             smartSeekPaused = false
                             smartSeekNextPositionMs = -1L
-                            controller?.play()
-                            if (controller?.isPlaying == true) startSmartSeekLoop()
+                            startSmartSeekLoop()
                             broadcastSmartSeekState()
                         } else if (configure && !isSmartSeekEnabled()) {
                             stopSmartSeek()
