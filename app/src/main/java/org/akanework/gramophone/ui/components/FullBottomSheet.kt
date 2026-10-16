@@ -760,15 +760,24 @@ class FullBottomSheet
         }
         val enabled = prefs.getBoolean("smart_seek_enabled", true)
         val active = enabled && activity.controllerViewModel.isSmartSeekActive()
-
-        overlay.visibility = if (active) VISIBLE else GONE
-
         val paused = active && smartSeekIsPaused
+        val player = instance
+        val durationMs = player?.contentDuration?.let {
+            if (it == C.TIME_UNSET) null else it
+        } ?: player?.currentMediaItem?.mediaMetadata?.durationMs
+            ?: player?.duration?.takeIf { it != C.TIME_UNSET }
+            ?: 0L
+        val cycleDurationMs = smartSeekNextPlayDurationMs + smartSeekNextSkipDurationMs
+        val hasUsableTimeline = durationMs > 0L && durationMs >= cycleDurationMs
+        val showCustomTimeline = active && !paused && hasUsableTimeline
+
+        // A track shorter than one complete Smart Seek cycle has no useful segmented timeline.
+        // Keep the normal seek control visible instead; while paused, retain the resume icon.
+        overlay.visibility = if (showCustomTimeline || paused) VISIBLE else GONE
 
         // During Smart Seek playback, show the custom timeline instead of the stock control.
-        // While paused, restore the normal seek control and keep only the centered resume icon
-        // interactive; taps elsewhere pass through to the standard seek control.
-        if (active && !paused) {
+        // Otherwise, keep the configured stock control available for seeking.
+        if (showCustomTimeline) {
             bottomSheetFullSeekBar.visibility = GONE
             bottomSheetFullSlider.visibility = GONE
         } else if (prefs.getBooleanStrict("default_progress_bar", false)) {
@@ -780,7 +789,7 @@ class FullBottomSheet
         }
 
         overlay.setResumeButtonVisible(paused)
-        if (!active || paused) {
+        if (!showCustomTimeline) {
             if (paused) {
                 val pausedButton = bottomSheetSmartSeekButton
                 if (pausedButton != null) {
@@ -809,12 +818,6 @@ class FullBottomSheet
             com.google.android.material.R.attr.colorPrimaryContainer,
             Color.rgb(255, 109, 0)
         )
-        val player = instance
-        val durationMs = player?.contentDuration?.let {
-            if (it == C.TIME_UNSET) null else it
-        } ?: player?.currentMediaItem?.mediaMetadata?.durationMs
-            ?: player?.duration?.takeIf { it != C.TIME_UNSET }
-            ?: 0L
         overlay.update(
             active = true,
             currentPositionMs = player?.currentPosition ?: 0L,

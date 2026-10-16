@@ -150,7 +150,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             if (timelinePositionMs < durationMs) {
                 drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
             }
-        } else if (remainingMs <= playMs + skipMs) {
+        } else if (remainingMs < playMs + skipMs) {
             // The final tail is audible only when it is longer than one play interval.
             if (remainingMs > playMs) drawPlayUntil(durationMs)
             drawCursor(canvas, top, bottom)
