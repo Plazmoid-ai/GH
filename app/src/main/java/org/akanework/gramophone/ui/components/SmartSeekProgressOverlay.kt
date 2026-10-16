@@ -61,17 +61,20 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.nextSeekPositionMs = nextSeekPositionMs
         this.markerColor = markerColor
 
-        if (!seeking && nextSeekPositionMs >= 0L && this.currentPositionMs < nextSeekPositionMs) {
+        if (seeking) {
+            // Media3 applies the seek immediately: hold play at the end and show skip complete.
+            playProgress = 1f
+            skipProgress = 1f
+        } else if (nextSeekPositionMs >= 0L) {
             val playStartMs = (nextSeekPositionMs - PLAY_DURATION_MS).coerceAtLeast(0L)
             playProgress = (
                 (this.currentPositionMs - playStartMs).toFloat() / PLAY_DURATION_MS
             ).coerceIn(0f, 1f)
             skipProgress = 0f
         } else {
-            // Once the service begins seeking, the play cursor stays at the end and the
-            // skip cursor jumps to its completed position. The next cycle resets both.
-            playProgress = 1f
-            skipProgress = 1f
+            // No pending interval: reset both cursors until the next interval is scheduled.
+            playProgress = 0f
+            skipProgress = 0f
         }
         invalidate()
     }
