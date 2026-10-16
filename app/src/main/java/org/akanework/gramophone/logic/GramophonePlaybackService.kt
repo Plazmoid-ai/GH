@@ -251,6 +251,8 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private var smartSeekConfig = SmartSeekConfig()
     @Volatile
     private var smartSeekActive = false
+    @Volatile
+    private var smartSeekPaused = false
     private var smartSeekJob: Job? = null
     private var smartSeekSeeking = false
     private var smartSeekTrackIndex = C.INDEX_UNSET
@@ -846,6 +848,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
         smartSeekConfig = SmartSeekConfig.load(prefs)
         smartSeekActive = true
+        smartSeekPaused = !player.isPlaying
         smartSeekTrackIndex = player.currentMediaItemIndex
         smartSeekNextPositionMs = -1L
         broadcastSmartSeekState()
@@ -856,6 +859,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
     private fun stopSmartSeek() {
         smartSeekActive = false
+        smartSeekPaused = false
         cancelSmartSeekJob(resetPendingSeek = true)
         smartSeekTrackIndex = C.INDEX_UNSET
         smartSeekNextPositionMs = -1L
@@ -891,7 +895,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     private fun startSmartSeekLoop() {
-        if (!isSmartSeekEnabled() || !smartSeekActive || smartSeekJob?.isActive == true) return
+        if (!isSmartSeekEnabled() || !smartSeekActive || smartSeekPaused || smartSeekJob?.isActive == true) return
         val player = controller ?: return
         if (!player.isPlaying) return
         if (player.currentMediaItem == null) {
@@ -1041,6 +1045,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
     private fun smartSeekStateBundle(): Bundle = Bundle().apply {
         putBoolean("active", smartSeekActive)
+        putBoolean("paused", smartSeekPaused)
         putLong("nextPositionMs", smartSeekNextPositionMs)
         putLong("playDurationMs", smartSeekNextPlayDurationMs)
         putLong("skipDurationMs", smartSeekNextSkipDurationMs)
@@ -1322,11 +1327,18 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         return Futures.immediateFuture(
             when (customCommand.customAction) {
                 SERVICE_SMART_SEEK -> {
+                    val resume = customCommand.customExtras.getBoolean("resume")
                     val enabled = customCommand.customExtras.getBoolean("enabled")
                     val mode = customCommand.customExtras.getString("mode")
                     val configure = customCommand.customExtras.getBoolean("configure")
                     handler.post {
-                        if (configure && !isSmartSeekEnabled()) {
+                        if (resume && smartSeekActive && isSmartSeekEnabled()) {
+                            smartSeekPaused = false
+                            smartSeekNextPositionMs = -1L
+                            controller?.play()
+                            if (controller?.isPlaying == true) startSmartSeekLoop()
+                            broadcastSmartSeekState()
+                        } else if (configure && !isSmartSeekEnabled()) {
                             stopSmartSeek()
                         } else if (configure) {
                             smartSeekConfig = SmartSeekConfig.load(prefs)
@@ -1955,11 +1967,16 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         if (isPlaying) {
-            if (smartSeekActive) startSmartSeekLoop()
+            if (smartSeekActive) {
+                smartSeekPaused = false
+                startSmartSeekLoop()
+                broadcastSmartSeekState()
+            }
         } else {
-            // MVP behavior: a pause cancels the current delay; resume starts a fresh interval.
+            // Pausing playback suspends Smart Seek and exposes the normal seek control.
             cancelSmartSeekJob()
             if (smartSeekActive) {
+                smartSeekPaused = true
                 smartSeekNextPositionMs = -1L
                 broadcastSmartSeekState()
             }

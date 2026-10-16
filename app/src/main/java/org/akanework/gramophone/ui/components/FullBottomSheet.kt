@@ -286,6 +286,7 @@ class FullBottomSheet
     private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
     private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private var smartSeekIsSeeking = false
+    private var smartSeekIsPaused = false
     private var lastSmartSeekButtonActive: Boolean? = null
     private val bottomSheetFullCoverFrame: MaterialCardView
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
@@ -306,6 +307,9 @@ class FullBottomSheet
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
         bottomSheetSmartSeekProgressOverlay = findViewById(R.id.smart_seek_progress_overlay)
+        bottomSheetSmartSeekProgressOverlay?.onResumeRequested = {
+            activity.controllerViewModel.resumeSmartSeek()
+        }
         bottomSheetFullSlideUpButton = findViewById(R.id.slide_down)
         bottomSheetShuffleButton = findViewById(R.id.sheet_random)
         bottomSheetLoopButton = findViewById(R.id.sheet_loop)
@@ -324,6 +328,8 @@ class FullBottomSheet
 
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
                     activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
+                    smartSeekIsPaused = args.getBoolean("paused", false)
+                    activity.controllerViewModel.updateSmartSeekPaused(smartSeekIsPaused)
                     smartSeekNextPositionMs = args.getLong("nextPositionMs", -1L)
                     smartSeekNextPlayDurationMs = args.getLong(
                         "playDurationMs",
@@ -757,9 +763,12 @@ class FullBottomSheet
 
         overlay.visibility = if (active) VISIBLE else GONE
 
-        // Never leave an invisible, interactive stock seek control under the custom bar.
-        // Restore the user's selected stock control when Smart Seek is inactive.
-        if (active) {
+        val paused = active && smartSeekIsPaused
+
+        // During Smart Seek playback, show the custom timeline instead of the stock control.
+        // While paused, restore the normal seek control and keep only the centered resume icon
+        // interactive; taps elsewhere pass through to the standard seek control.
+        if (active && !paused) {
             bottomSheetFullSeekBar.visibility = GONE
             bottomSheetFullSlider.visibility = GONE
         } else if (prefs.getBooleanStrict("default_progress_bar", false)) {
@@ -770,8 +779,28 @@ class FullBottomSheet
             bottomSheetFullSeekBar.visibility = VISIBLE
         }
 
-        if (!active) {
-            overlay.setResumeButtonVisible(false)
+        overlay.setResumeButtonVisible(paused)
+        if (!active || paused) {
+            if (paused) {
+                val pausedButton = bottomSheetSmartSeekButton
+                if (pausedButton != null) {
+                    val pausedMarkerColor = MaterialColors.getColor(
+                        pausedButton,
+                        com.google.android.material.R.attr.colorPrimaryContainer,
+                        Color.rgb(255, 109, 0)
+                    )
+                    overlay.update(
+                        active = false,
+                        currentPositionMs = 0L,
+                        durationMs = 0L,
+                        nextSeekPositionMs = -1L,
+                        playDurationMs = smartSeekNextPlayDurationMs,
+                        skipDurationMs = smartSeekNextSkipDurationMs,
+                        seeking = false,
+                        markerColor = pausedMarkerColor
+                    )
+                }
+            }
             return
         }
 

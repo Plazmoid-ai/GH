@@ -50,6 +50,7 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
     private var controllerLifecycle: LifecycleHost? = null
     private var controllerFuture: ListenableFuture<MediaBrowser>? = null
     private var smartSeekActive = false
+    private var smartSeekPaused = false
     private val customCommandListenersImpl = LifecycleCallbackListImpl<
                 (MediaController, SessionCommand, Bundle) -> ListenableFuture<SessionResult>>()
     private val connectionListenersImpl =
@@ -149,6 +150,7 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
         if (mode != SmartSeekMode.MANUAL) return
         val controller = get() ?: return
         smartSeekActive = true
+        smartSeekPaused = false
         controller.sendCustomCommand(
             SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
                 customExtras.putBoolean("enabled", true)
@@ -160,6 +162,7 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
 
     fun stopSmartSeek() {
         smartSeekActive = false
+        smartSeekPaused = false
         get()?.sendCustomCommand(
             SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
                 customExtras.putBoolean("enabled", false)
@@ -170,8 +173,26 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
 
     fun isSmartSeekActive(): Boolean = smartSeekActive
 
+    fun isSmartSeekPaused(): Boolean = smartSeekPaused
+
     fun updateSmartSeekActive(active: Boolean) {
         smartSeekActive = active
+        if (!active) smartSeekPaused = false
+    }
+
+    fun updateSmartSeekPaused(paused: Boolean) {
+        smartSeekPaused = smartSeekActive && paused
+    }
+
+    fun resumeSmartSeek() {
+        val controller = get() ?: return
+        if (!smartSeekActive || !smartSeekPaused) return
+        controller.sendCustomCommand(
+            SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
+                customExtras.putBoolean("resume", true)
+            },
+            Bundle.EMPTY
+        )
     }
 
     fun refreshSmartSeekConfiguration() {
