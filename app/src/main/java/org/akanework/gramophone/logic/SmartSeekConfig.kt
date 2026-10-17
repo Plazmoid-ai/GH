@@ -11,13 +11,11 @@ package org.akanework.gramophone.logic
 
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import kotlin.random.Random
 
 /**
  * Persistent user settings for Smart Seek.
  *
  * In percentage mode, both values are percentages of the current track duration.
- * Random mode varies each play and skip interval independently by about +/-25%.
  *
  * Known behavior: pausing resets the current interval. Playback resumes with a fresh interval.
  */
@@ -57,14 +55,9 @@ data class SmartSeekConfig(
         }
 
         return SmartSeekCycle(
-            playDurationMs = vary(playBase).coerceAtLeast(MIN_INTERVAL_MS),
-            skipDurationMs = vary(skipBase).coerceAtLeast(MIN_INTERVAL_MS)
+            playDurationMs = playBase.coerceAtLeast(MIN_INTERVAL_MS),
+            skipDurationMs = skipBase.coerceAtLeast(MIN_INTERVAL_MS)
         )
-    }
-
-    private fun vary(value: Long): Long {
-        if (pattern == SmartSeekPattern.STRICT) return value
-        return (value * Random.nextDouble(RANDOM_MIN_FACTOR, RANDOM_MAX_FACTOR)).toLong()
     }
 
     fun save(preferences: SharedPreferences) {
@@ -72,7 +65,7 @@ data class SmartSeekConfig(
             .putInt(PREF_PLAY_VALUE, playValue.coerceIn(1, if (inputMode == SmartSeekInputMode.PERCENT) 99 else MAX_SECONDS))
             .putInt(PREF_SKIP_VALUE, skipValue.coerceIn(1, if (inputMode == SmartSeekInputMode.PERCENT) 99 else MAX_SECONDS))
             .putBoolean(PREF_USE_PERCENT, inputMode == SmartSeekInputMode.PERCENT)
-            .putString(PREF_PATTERN, pattern.name)
+            .putString(PREF_PATTERN, SmartSeekPattern.STRICT.name)
             .putString(PREF_INPUT_MODE, inputMode.name)
             .putLong(PREF_CYCLE_DURATION_MS, cycleDurationMs.coerceIn(MIN_INTERVAL_MS, MAX_CYCLE_DURATION_MS))
             .putInt(PREF_SOUND_RATIO_PERCENT, soundRatioPercent.coerceIn(1, 99))
@@ -113,14 +106,9 @@ data class SmartSeekConfig(
         const val MAX_SECONDS = 600
         const val MIN_INTERVAL_MS = 1_000L
 
-        private const val RANDOM_MIN_FACTOR = 0.75
-        private const val RANDOM_MAX_FACTOR = 1.25001
-
         fun load(preferences: SharedPreferences): SmartSeekConfig {
-            val patternName = preferences.getString(PREF_PATTERN, SmartSeekPattern.STRICT.name)
-            val pattern = runCatching {
-                SmartSeekPattern.valueOf(patternName ?: SmartSeekPattern.STRICT.name)
-            }.getOrDefault(SmartSeekPattern.STRICT)
+            // Keep the legacy preference key readable, but use deterministic intervals only.
+            val pattern = SmartSeekPattern.STRICT
             val inputModeName = preferences.getString(PREF_INPUT_MODE, SmartSeekInputMode.CYCLE.name)
             val inputMode = runCatching {
                 SmartSeekInputMode.valueOf(inputModeName ?: SmartSeekInputMode.CYCLE.name)

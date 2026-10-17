@@ -122,7 +122,6 @@ import org.akanework.gramophone.logic.GramophonePlaybackService
 import org.akanework.gramophone.logic.SmartSeekConfig
 import org.akanework.gramophone.logic.SmartSeekMode
 import org.akanework.gramophone.logic.SmartSeekInputMode
-import org.akanework.gramophone.logic.SmartSeekPattern
 import org.akanework.gramophone.logic.clone
 import org.akanework.gramophone.logic.dpToPx
 import org.akanework.gramophone.logic.fadInAnimation
@@ -990,34 +989,6 @@ class FullBottomSheet
         addLabel(cycleSection, context.getString(R.string.smart_seek_cycle_help))
         content.addView(cycleSection)
 
-        val patternSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        addLabel(patternSection, context.getString(R.string.smart_seek_pattern))
-        val patternGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
-        val strictButton = RadioButton(context).apply {
-            id = View.generateViewId()
-            text = context.getString(R.string.smart_seek_strict)
-            isChecked = current.pattern == SmartSeekPattern.STRICT
-        }
-        val randomButton = RadioButton(context).apply {
-            id = View.generateViewId()
-            text = context.getString(R.string.smart_seek_random)
-            isChecked = current.pattern == SmartSeekPattern.RANDOM
-        }
-        patternGroup.addView(strictButton)
-        patternGroup.addView(randomButton)
-        patternSection.addView(patternGroup)
-        val randomHelp = TextView(context).apply {
-            text = context.getString(R.string.smart_seek_random_help)
-        }
-        patternSection.addView(
-            randomHelp,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = sectionGap }
-        )
-        content.addView(patternSection)
-
         fun selectedMode(): SmartSeekInputMode =
             (modeGroup.findViewById<RadioButton>(modeGroup.checkedRadioButtonId)?.tag
                 as? SmartSeekInputMode) ?: current.inputMode
@@ -1027,13 +998,8 @@ class FullBottomSheet
             absoluteSection.visibility = if (mode == SmartSeekInputMode.ABSOLUTE) View.VISIBLE else View.GONE
             percentSection.visibility = if (mode == SmartSeekInputMode.PERCENT) View.VISIBLE else View.GONE
             cycleSection.visibility = if (mode == SmartSeekInputMode.CYCLE) View.VISIBLE else View.GONE
-            patternSection.visibility = if (mode == SmartSeekInputMode.CYCLE) View.GONE else View.VISIBLE
-            randomHelp.visibility = if (
-                mode != SmartSeekInputMode.CYCLE && randomButton.isChecked
-            ) View.VISIBLE else View.GONE
         }
         modeGroup.setOnCheckedChangeListener { _, _ -> updateModeVisibility() }
-        patternGroup.setOnCheckedChangeListener { _, _ -> updateModeVisibility() }
         updateModeVisibility()
 
         val persistentCheck = CheckBox(context).apply {
@@ -1253,11 +1219,7 @@ class FullBottomSheet
                     playValue = activePlayValue,
                     skipValue = activeSkipValue,
                     usePercent = mode == SmartSeekInputMode.PERCENT,
-                    pattern = if (randomButton.isChecked) {
-                        SmartSeekPattern.RANDOM
-                    } else {
-                        SmartSeekPattern.STRICT
-                    },
+                    pattern = org.akanework.gramophone.logic.SmartSeekPattern.STRICT,
                     inputMode = mode,
                     cycleDurationMs = savedCycleDurationSeconds.toLong() * 1_000L,
                     soundRatioPercent = soundRatioSlider.value.toInt(),
