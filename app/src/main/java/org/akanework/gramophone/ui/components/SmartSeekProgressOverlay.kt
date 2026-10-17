@@ -51,6 +51,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var positionInterpolationEnabled = false
     private var durationMs = 0L
     private var nextSeekPositionMs = -1L
+    private var seekToPositionMs = -1L
     private var playDurationMs = 15_000L
     private var skipDurationMs = 30_000L
 
@@ -77,7 +78,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         markerColor: Int,
         skipColor: Int = Color.TRANSPARENT,
         isPlaying: Boolean = playWhenReady,
-        seeking: Boolean = false
+        seeking: Boolean = false,
+        seekToPositionMs: Long = -1L
     ) {
         this.active = active
         this.playWhenReady = playWhenReady
@@ -86,6 +88,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.positionInterpolationEnabled = active && playWhenReady && isPlaying && !seeking
         this.durationMs = durationMs.coerceAtLeast(0L)
         this.nextSeekPositionMs = nextSeekPositionMs
+        this.seekToPositionMs = seekToPositionMs
         this.playDurationMs = playDurationMs.coerceAtLeast(1L)
         this.skipDurationMs = skipDurationMs.coerceAtLeast(1L)
         this.markerColor = markerColor
@@ -111,6 +114,23 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val elapsed = (SystemClock.elapsedRealtime() - positionUpdateElapsedRealtimeMs)
             .coerceAtLeast(0L)
         return (currentPositionMs + elapsed).coerceAtMost(durationMs)
+    }
+
+    private fun displayedPlaybackPositionMs(): Long {
+        val estimatedPositionMs = interpolatedPositionMs()
+        // Optimistic jump: do not wait for ExoPlayer to report the new position once the
+        // current play interval has ended. The service pre-publishes this next-period target.
+        return if (
+            playWhenReady &&
+            nextSeekPositionMs > 0L &&
+            estimatedPositionMs >= nextSeekPositionMs &&
+            seekToPositionMs > nextSeekPositionMs &&
+            seekToPositionMs < durationMs
+        ) {
+            seekToPositionMs
+        } else {
+            estimatedPositionMs
+        }
     }
 
     /**
@@ -153,7 +173,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         if (playWhenReady) {
             // Interpolate between player samples while playing. During seeks the exact target
             // is drawn immediately rather than extrapolating the stale pre-seek position.
-            drawFutureTimeline(canvas, top, bottom, radius, gap, interpolatedPositionMs())
+            drawFutureTimeline(canvas, top, bottom, radius, gap, displayedPlaybackPositionMs())
             if (positionInterpolationEnabled) postInvalidateOnAnimation()
         } else {
             drawFullTrack(canvas, top, bottom, radius, gap)
@@ -173,9 +193,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         positionMs: Long
     ) {
         val narrowView = width.toFloat() < dp(100f)
-        // The cursor center is fixed at 50dp. Its left and right gaps are identical:
-        // 4dp from the rounded trail cap to the cursor, and 4dp from cursor to timeline.
-        // For very narrow layouts preserve the left-edge cursor and full-width timeline.
+        // The cursor is centered at 50dp. Both neighboring timeline regions end/start
+        // exactly 4dp from its edges, so the geometry is symmetric around the cursor.
         val cursorX = if (narrowView) 0f else dp(50f)
         val cursorWidth = dp(5f)
         val cursorLeftX = cursorX - cursorWidth / 2f
@@ -184,17 +203,27 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val timelineStartX = if (narrowView) 0f else cursorRightX + gap
         val remainingMs = durationMs - positionMs
         if (remainingMs <= 0L) {
+            drawPastTimeline(
+                canvas, trailEndX, top, bottom, radius, gap, narrowView,
+                positionMs, width.toFloat() / durationMs.toFloat()
+            )
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
             return
         }
 
         val timelineWidth = (width.toFloat() - timelineStartX).coerceAtLeast(0f)
-        if (timelineWidth <= 0f) return
+        if (timelineWidth <= 0f) {
+            drawPastTimeline(
+                canvas, trailEndX, top, bottom, radius, gap, narrowView,
+                positionMs, width.toFloat() / durationMs.toFloat()
+            )
+            drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
+            return
+        }
         val pxPerMs = timelineWidth / remainingMs.toFloat()
         val playMs = playDurationMs
         val skipMs = skipDurationMs
         var timelinePositionMs = positionMs
-
         var visualX = timelineStartX
         val minSegmentWidth = dp(MIN_SEGMENT_WIDTH_DP)
 
@@ -206,7 +235,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val calculatedWidth =
                 (endMs - timelinePositionMs).toFloat() * pxPerMs - trimsLeft - trimsRight
             val segmentWidth = calculatedWidth.coerceAtLeast(minSegmentWidth)
-            // Per-segment alpha preserves the real gaps and rounded segment edges.
+
+            // Fade each segment independently; segment width, rounding, and gaps are unchanged.
             val fadeWidth = dp(FADE_ZONE_WIDTH_DP)
             val fadeStartX = width.toFloat() - fadeWidth
             val segmentCenterX = visualX + segmentWidth / 2f
@@ -220,7 +250,6 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, fadedAlpha)
             }
             timelinePositionMs = endMs
-            // Each drawn block advances the visual timeline; minimum-width blocks do not overlap.
             if (endMs < durationMs) visualX += segmentWidth + gap
         }
 
@@ -237,7 +266,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             }
         } else if (remainingMs < playMs + skipMs) {
             if (remainingMs > playMs) drawPlayUntil(durationMs)
-            drawTrail(canvas, trailEndX, top, bottom, narrowView, positionMs)
+            drawPastTimeline(
+                canvas, trailEndX, top, bottom, radius, gap, narrowView,
+                positionMs, width.toFloat() / durationMs.toFloat()
+            )
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
             return
         } else {
@@ -248,8 +280,6 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         }
 
         while (durationMs - timelinePositionMs >= playMs + skipMs) {
-            // Once the visual timeline has crossed the viewport, more segments are clipped
-            // and need not be allocated/drawn on every animation frame.
             if (visualX >= width.toFloat()) break
             drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
             if (visualX >= width.toFloat()) break
@@ -259,7 +289,11 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val tailMs = durationMs - timelinePositionMs
         if (visualX < width.toFloat() && tailMs > playMs) drawPlayUntil(durationMs)
 
-        drawTrail(canvas, trailEndX, top, bottom, narrowView, positionMs)
+        // Draw the historical segments before drawing the cursor on top of both timelines.
+        drawPastTimeline(
+            canvas, trailEndX, top, bottom, radius, gap, narrowView,
+            positionMs, width.toFloat() / durationMs.toFloat()
+        )
         drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
     }
 
@@ -314,38 +348,65 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         drawSegment(canvas, left, (right - left).coerceAtLeast(0f), top, bottom, radius, color, alpha)
     }
 
-    private fun drawTrail(
+    /**
+     * Draw the history as separate play/skip blocks. The right edge sits the same gap
+     * away from the cursor as the future timeline; blocks fade individually toward the left.
+     */
+    private fun drawPastTimeline(
         canvas: Canvas,
         trailEndX: Float,
         top: Float,
         bottom: Float,
+        radius: Float,
+        gap: Float,
         narrowView: Boolean,
-        positionMs: Long
+        positionMs: Long,
+        pxPerMs: Float
     ) {
-        if (narrowView || trailEndX <= 0f || positionMs <= 0L) return
+        if (narrowView || trailEndX <= 0f || positionMs <= 0L || pxPerMs <= 0f) return
 
-        val trailColor = displayedTrailColor
-            ?: if (nextSeekPositionMs > positionMs) markerColor else skipColor
-        val transparentColor = Color.argb(
-            0,
-            Color.red(trailColor),
-            Color.green(trailColor),
-            Color.blue(trailColor)
-        )
-        paint.style = Paint.Style.FILL
-        paint.alpha = 255
-        paint.shader = LinearGradient(
-            0f, 0f, trailEndX, 0f,
-            transparentColor, trailColor, Shader.TileMode.CLAMP
-        )
-        // Rounded geometry gives the trail a soft right cap; the cursor gap follows it.
-        canvas.drawRoundRect(
-            RectF(0f, top, trailEndX, bottom),
-            (bottom - top) / 2f,
-            (bottom - top) / 2f,
-            paint
-        )
-        paint.shader = null
+        var rightEdge = trailEndX
+        val minSegmentWidth = dp(MIN_SEGMENT_WIDTH_DP)
+        val fadeWidth = dp(FADE_ZONE_WIDTH_DP)
+        var segmentsDrawn = 0
+
+        fun drawPastSegment(segmentDurationMs: Long, color: Int, baseAlpha: Int) {
+            if (segmentDurationMs <= 0L || rightEdge <= 0f) return
+            val segmentWidth = (segmentDurationMs.toFloat() * pxPerMs)
+                .coerceAtLeast(minSegmentWidth)
+            val left = rightEdge - segmentWidth
+            // A segment may extend past the left edge. Compute fade from its visible portion
+            // so long historical periods don't become fully transparent before being clipped.
+            val visibleCenterX = (left.coerceAtLeast(0f) + rightEdge) / 2f
+            val fadeFactor = (visibleCenterX / fadeWidth).coerceIn(0f, 1f)
+            val fadedAlpha = (baseAlpha * fadeFactor).toInt().coerceIn(0, baseAlpha)
+            if (fadedAlpha > 0) {
+                drawSegment(canvas, left, segmentWidth, top, bottom, radius, color, fadedAlpha)
+            }
+            rightEdge = left - gap
+            segmentsDrawn++
+        }
+
+        // If the play interval is in progress, draw its elapsed part first. At the beginning
+        // of a new play interval the nearest historical block is the preceding skipped section.
+        if (nextSeekPositionMs > positionMs) {
+            val currentPlayStartMs = (nextSeekPositionMs - playDurationMs).coerceAtLeast(0L)
+            val elapsedInPlayMs = (positionMs - currentPlayStartMs)
+                .coerceIn(0L, playDurationMs)
+            if (elapsedInPlayMs > 0L) {
+                drawPastSegment(elapsedInPlayMs, markerColor, 220)
+            }
+        }
+
+        var drawPlaySegment = false
+        while (rightEdge > 0f && segmentsDrawn < MAX_VISIBLE_PAST_SEGMENTS) {
+            if (drawPlaySegment) {
+                drawPastSegment(playDurationMs, markerColor, 220)
+            } else {
+                drawPastSegment(skipDurationMs, skipColor, 190)
+            }
+            drawPlaySegment = !drawPlaySegment
+        }
     }
 
     private fun drawCursor(
@@ -483,5 +544,6 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private companion object {
         const val MIN_SEGMENT_WIDTH_DP = 6f
         const val FADE_ZONE_WIDTH_DP = 45f
+        const val MAX_VISIBLE_PAST_SEGMENTS = 32
     }
 }

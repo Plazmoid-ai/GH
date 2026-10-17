@@ -969,6 +969,11 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     smartSeekNextPlayDurationMs = cycle.playDurationMs
                     smartSeekNextSkipDurationMs = cycle.skipDurationMs
                     smartSeekNextPositionMs = currentPlayer.currentPosition + cycle.playDurationMs
+                    // Publish the planned landing position before the boundary so UI can
+                    // optimistically jump when the interpolated playhead reaches nextSeekPositionMs.
+                    smartSeekSeekTargetPositionMs =
+                        (smartSeekNextPositionMs + cycle.skipDurationMs)
+                            .takeIf { it < currentPlayer.duration } ?: -1L
                     broadcastSmartSeekState()
 
                     // Known behavior: a pause cancels this delay; resume starts a fresh interval.

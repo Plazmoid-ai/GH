@@ -55,7 +55,6 @@ import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.SeekBar
@@ -365,7 +364,6 @@ class FullBottomSheet
                     smartSeekNextPositionMs = args.getLong("nextPositionMs", -1L)
                     smartSeekSeeking = args.getBoolean("seeking", false)
                     smartSeekSeekTargetPositionMs = args.getLong("seekTargetPositionMs", -1L)
-                    if (!smartSeekSeeking) smartSeekSeekTargetPositionMs = -1L
                     smartSeekNextPlayDurationMs = args.getLong(
                         "playDurationMs",
                         SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
@@ -848,7 +846,8 @@ class FullBottomSheet
             markerColor = smartSeekMarkerColor(),
             skipColor = context.getColor(R.color.smart_seek_skip),
             isPlaying = player?.isPlaying == true,
-            seeking = smartSeekSeeking
+            seeking = smartSeekSeeking,
+            seekToPositionMs = smartSeekSeekTargetPositionMs
         )
         updateSmartSeekTimePanel(active, player, durationMs)
     }
@@ -868,12 +867,17 @@ class FullBottomSheet
         player: MediaBrowser? = instance,
         durationMs: Long = currentTrackDurationMs(player)
     ) {
-        // Accumulate elapsed wall-clock time only when the previous sample was in an
-        // active play interval and Media3 reported actual playback (not pause/buffering).
         val sampleTime = SystemClock.elapsedRealtime()
-        if (smartSeekLastSampleShouldCount && smartSeekLastSampleElapsedRealtime > 0L) {
-            smartSeekAccumulatedListenMs +=
-                (sampleTime - smartSeekLastSampleElapsedRealtime).coerceAtLeast(0L)
+        val previousSampleTime = smartSeekLastSampleElapsedRealtime
+        val previousSampleShouldCount = smartSeekLastSampleShouldCount
+        val elapsedSincePreviousSample = if (previousSampleTime > 0L) {
+            (sampleTime - previousSampleTime).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+
+        if (previousSampleShouldCount && previousSampleTime > 0L) {
+            smartSeekAccumulatedListenMs += elapsedSincePreviousSample
         }
         smartSeekLastSampleElapsedRealtime = sampleTime
         smartSeekLastSampleShouldCount = false
@@ -902,8 +906,6 @@ class FullBottomSheet
         }
 
         val config = SmartSeekConfig.load(prefs)
-        // Resolve from saved settings as well as service state: Smart Seek may be activated
-        // while already paused, before the service has emitted its first live interval.
         val resolvedCycle = if (durationMs > 0L) config.resolveCycle(durationMs) else null
         val playMs = (resolvedCycle?.playDurationMs ?: smartSeekNextPlayDurationMs).coerceAtLeast(1L)
         val skipMs = (resolvedCycle?.skipDurationMs ?: smartSeekNextSkipDurationMs).coerceAtLeast(1L)
@@ -911,7 +913,7 @@ class FullBottomSheet
         val totalPeriodsLong = if (durationMs > 0L) durationMs / cycleDurationMs else 0L
         val totalPeriods = totalPeriodsLong.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val accentColor = smartSeekMarkerColor()
-        val neutralColor = context.getColor(R.color.smart_seek_skip)
+        val neutralColor = Color.rgb(136, 136, 136)
         val onSurfaceColor = MaterialColors.getColor(
             bottomSheetFullPosition,
             com.google.android.material.R.attr.colorOnSurface,
@@ -919,19 +921,54 @@ class FullBottomSheet
         )
 
         bottomSheetFullDuration.setTextColor(accentColor)
-        val totalPlayText = CalculationUtils.convertDurationToTimeStamp(totalPeriodsLong * playMs)
+        val totalPlayText =
+            CalculationUtils.convertDurationToTimeStamp(totalPeriodsLong * playMs)
         setSmartSeekDurationPanelText(
             totalPlayText,
             "smart-duration:$totalPlayText:$accentColor:$totalPeriodsLong:$playMs"
         )
 
         bottomSheetFullPosition.isClickable = totalPeriods > 0
-        val currentPositionMs = player?.currentPosition ?: 0L
-        val isPlayInterval = smartSeekNextPositionMs > currentPositionMs
-        smartSeekLastSampleShouldCount = player?.isPlaying == true && isPlayInterval
+        val playerPositionMs = (player?.currentPosition ?: 0L).coerceAtLeast(0L)
+        val allowPositionInterpolation = player?.isPlaying == true &&
+            !smartSeekSeeking && previousSampleShouldCount
+        val estimatedPositionMs = (
+            playerPositionMs + if (allowPositionInterpolation) elapsedSincePreviousSample else 0L
+        ).coerceAtMost(durationMs)
+
+        val optimisticJump = smartSeekNextPositionMs > 0L &&
+            estimatedPositionMs >= smartSeekNextPositionMs &&
+            smartSeekSeekTargetPositionMs > smartSeekNextPositionMs &&
+            smartSeekSeekTargetPositionMs > 0L && smartSeekSeekTargetPositionMs < durationMs
+        val panelPositionMs = when {
+            smartSeekSeeking && smartSeekSeekTargetPositionMs > 0L && smartSeekSeekTargetPositionMs < durationMs ->
+                smartSeekSeekTargetPositionMs
+            optimisticJump -> smartSeekSeekTargetPositionMs
+            else -> estimatedPositionMs
+        }
+
+        val atNextPeriodStart = smartSeekSeeking || optimisticJump ||
+            smartSeekNextPositionMs <= 0L ||
+            panelPositionMs >= smartSeekNextPositionMs
+        val remainingTimeMs = if (atNextPeriodStart) {
+            playMs
+        } else {
+            (smartSeekNextPositionMs - panelPositionMs).coerceIn(0L, playMs)
+        }
+        val remainingRatio = remainingTimeMs.toFloat() / playMs.toFloat()
+        val timerAlpha = when {
+            remainingRatio > 0.4f -> 1f
+            remainingRatio > 0.2f -> 0.6f
+            else -> 0.3f
+        }
+        val timerAccentColor = colorWithAlpha(accentColor, timerAlpha)
+        val passedCountColor = colorWithAlpha(accentColor, 0.4f)
+
+        smartSeekLastSampleShouldCount = player?.isPlaying == true &&
+            !smartSeekSeeking &&
+            (smartSeekNextPositionMs <= 0L || estimatedPositionMs < smartSeekNextPositionMs)
 
         if (!smartSeekShowPeriodCounter) {
-            // Compact mode: count actual elapsed wall-clock time only across play intervals.
             val playedTimeText =
                 CalculationUtils.convertDurationToTimeStamp(smartSeekAccumulatedListenMs)
             bottomSheetFullPosition.setTextColor(onSurfaceColor)
@@ -942,40 +979,39 @@ class FullBottomSheet
             return
         }
 
-        // Expanded mode: interval parameters, period counter, and total period count.
-        val playLabel: String
-        val skipLabel: String
-        if (config.inputMode == SmartSeekInputMode.ABSOLUTE) {
-            playLabel = "${(playMs + 500L) / 1_000L}с"
-            skipLabel = "+${(skipMs + 500L) / 1_000L}с"
-        } else {
-            playLabel = CalculationUtils.convertDurationToTimeStamp(playMs)
-            skipLabel = CalculationUtils.convertDurationToTimeStamp(skipMs)
-        }
-        val intervalText = SpannableStringBuilder()
-        appendColored(intervalText, playLabel, accentColor)
-        appendColored(intervalText, " / ", stockColor)
-        appendColored(intervalText, skipLabel, neutralColor)
+        val playLabel = formatSmartSeekInterval(playMs)
+        val skipLabel = formatSmartSeekInterval(skipMs)
+        val timerLabel = "[${formatSmartSeekCountdown(remainingTimeMs)}]"
+        val topLine = SpannableStringBuilder()
+        appendColored(topLine, playLabel, accentColor)
+        appendColored(topLine, " | ", neutralColor)
+        val timerStart = topLine.length
+        appendColored(topLine, timerLabel, timerAccentColor)
+        val timerEnd = topLine.length
+        appendColored(topLine, " | ", neutralColor)
+        appendColored(topLine, skipLabel, neutralColor)
 
-        val elapsedPeriods = currentPositionMs / cycleDurationMs
+        val elapsedPeriods = panelPositionMs / cycleDurationMs
         val justFinishedPlayInterval = smartSeekNextPositionMs > 0L &&
-            currentPositionMs >= smartSeekNextPositionMs &&
-            currentPositionMs - smartSeekNextPositionMs < 1_000L
+            panelPositionMs >= smartSeekNextPositionMs &&
+            panelPositionMs - smartSeekNextPositionMs < 1_000L
         val passedPeriods = (elapsedPeriods + if (justFinishedPlayInterval) 1L else 0L)
             .coerceAtMost(totalPeriodsLong)
         val remainingPeriods = (totalPeriodsLong - passedPeriods).coerceAtLeast(0L)
 
         val counterLine = SpannableStringBuilder()
-        appendColored(counterLine, passedPeriods.toString(), neutralColor)
-        appendColored(counterLine, "  ❮  ", stockColor)
-        appendColored(counterLine, remainingPeriods.toString(), accentColor)
+        appendColored(counterLine, "━━━ ", passedCountColor)
+        appendColored(counterLine, passedPeriods.toString(), passedCountColor)
+        appendColored(counterLine, "  ❮  ", neutralColor)
+        appendColored(counterLine, remainingPeriods.toString(), timerAccentColor)
+        appendColored(counterLine, " ━━━", timerAccentColor)
 
         val totalLine = SpannableStringBuilder()
         appendColored(totalLine, "— ", neutralColor)
         appendColored(totalLine, totalPeriods.toString(), accentColor)
 
         val expandedText = SpannableStringBuilder()
-        expandedText.append(intervalText)
+        expandedText.append(topLine)
         expandedText.append("\n")
         val counterStart = expandedText.length
         expandedText.append(counterLine)
@@ -983,13 +1019,19 @@ class FullBottomSheet
         val totalStart = expandedText.length
         expandedText.append(totalLine)
         expandedText.setSpan(
-            AbsoluteSizeSpan(12, true),
+            AbsoluteSizeSpan(13, true),
             0,
-            intervalText.length,
+            topLine.length,
             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
         )
         expandedText.setSpan(
-            AbsoluteSizeSpan(17, true),
+            AbsoluteSizeSpan(15, true),
+            timerStart,
+            timerEnd,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        expandedText.setSpan(
+            AbsoluteSizeSpan(16, true),
             counterStart,
             totalStart - 1,
             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -1003,7 +1045,37 @@ class FullBottomSheet
         bottomSheetFullPosition.setTextColor(onSurfaceColor)
         setSmartSeekPositionPanelText(
             expandedText,
-            "expanded:$playLabel:$skipLabel:$passedPeriods:$remainingPeriods:$totalPeriods:$accentColor:$neutralColor:$stockColor"
+            "expanded:$playLabel:$timerLabel:$skipLabel:$passedPeriods:$remainingPeriods:" +
+                "$totalPeriods:$accentColor:$timerAccentColor:$passedCountColor:$neutralColor"
+        )
+    }
+
+    private fun formatSmartSeekInterval(durationMs: Long): String {
+        val seconds = (durationMs + 500L) / 1_000L
+        return if (seconds < 60L) {
+            "${seconds.coerceAtLeast(1L)}с"
+        } else {
+            CalculationUtils.convertDurationToTimeStamp(durationMs)
+        }
+    }
+
+    private fun formatSmartSeekCountdown(remainingMs: Long): String {
+        val totalSeconds = (remainingMs.coerceAtLeast(0L) + 999L) / 1_000L
+        return String.format(
+            java.util.Locale.ROOT,
+            "%02d:%02d",
+            totalSeconds / 60L,
+            totalSeconds % 60L
+        )
+    }
+
+    private fun colorWithAlpha(color: Int, alpha: Float): Int {
+        val boundedAlpha = alpha.coerceIn(0f, 1f)
+        return Color.argb(
+            (Color.alpha(color) * boundedAlpha).toInt(),
+            Color.red(color),
+            Color.green(color),
+            Color.blue(color)
         )
     }
 
@@ -1253,11 +1325,8 @@ class FullBottomSheet
         )
 
         addLabel(content, context.getString(R.string.smart_seek_marker_color))
-        val markerColorGrid = GridLayout(context).apply {
-            columnCount = 3
-            rowCount = 2
-            useDefaultMargins = false
-            alignmentMode = GridLayout.ALIGN_BOUNDS
+        val markerColorRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
         }
         val markerColorChoices = listOf(
             Triple("blue", R.string.smart_seek_color_blue, Color.rgb(26, 79, 163)),
@@ -1270,7 +1339,7 @@ class FullBottomSheet
         val savedMarkerColor = prefs.getString("smart_seek_marker_color", "blue") ?: "blue"
         var selectedMarkerColor = savedMarkerColor
         val markerColorButtons = mutableListOf<RadioButton>()
-        markerColorChoices.forEachIndexed { index, (key, labelRes, color) ->
+        markerColorChoices.forEach { (key, labelRes, color) ->
             val cell = FrameLayout(context)
             val button = RadioButton(context).apply {
                 id = View.generateViewId()
@@ -1293,20 +1362,17 @@ class FullBottomSheet
                     Gravity.CENTER
                 )
             )
-            markerColorGrid.addView(
+            markerColorRow.addView(
                 cell,
-                GridLayout.LayoutParams(
-                    GridLayout.spec(index / 3),
-                    GridLayout.spec(index % 3, GridLayout.FILL, 1f)
-                ).apply {
-                    width = 0
-                    height = LinearLayout.LayoutParams.WRAP_CONTENT
-                    setMargins(sectionGap / 2, 0, sectionGap / 2, 0)
-                }
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
             )
         }
         content.addView(
-            markerColorGrid,
+            markerColorRow,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
