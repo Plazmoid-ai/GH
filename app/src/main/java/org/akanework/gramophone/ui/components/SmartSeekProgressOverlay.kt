@@ -36,7 +36,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private var active = false
-    private var isPlaying = false
+    private var playWhenReady = false
     private var markerColor = Color.TRANSPARENT
     private var skipColor = Color.TRANSPARENT
 
@@ -65,12 +65,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         nextSeekPositionMs: Long,
         playDurationMs: Long,
         skipDurationMs: Long,
-        isPlaying: Boolean,
+        playWhenReady: Boolean,
         markerColor: Int,
         skipColor: Int = Color.TRANSPARENT
     ) {
         this.active = active
-        this.isPlaying = isPlaying
+        this.playWhenReady = playWhenReady
         this.currentPositionMs = currentPositionMs.coerceAtLeast(0L)
         this.durationMs = durationMs.coerceAtLeast(0L)
         this.nextSeekPositionMs = nextSeekPositionMs
@@ -79,7 +79,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.markerColor = markerColor
         this.skipColor = skipColor
 
-        if (!active || isPlaying) {
+        if (!active || playWhenReady) {
             isDragging = false
             dragPositionMs = null
         }
@@ -96,7 +96,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val radius = barHeight / 2f
         val gap = dp(1f)
 
-        if (isPlaying) {
+        if (playWhenReady) {
             drawFutureTimeline(canvas, top, bottom, radius, gap)
         } else {
             drawFullTrack(canvas, top, bottom, radius, gap)
@@ -304,7 +304,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // In playback mode, deliberately return false so the overlay does not intercept touches.
-        if (!active || isPlaying || durationMs <= 0L || width <= 0) {
+        if (!active || playWhenReady || durationMs <= 0L || width <= 0) {
             if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 isDragging = false
                 dragPositionMs = null

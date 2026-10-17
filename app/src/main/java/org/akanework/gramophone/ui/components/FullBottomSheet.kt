@@ -801,7 +801,7 @@ class FullBottomSheet
             nextSeekPositionMs = smartSeekNextPositionMs,
             playDurationMs = smartSeekNextPlayDurationMs,
             skipDurationMs = smartSeekNextSkipDurationMs,
-            isPlaying = player?.isPlaying == true,
+            playWhenReady = player?.playWhenReady == true,
             markerColor = smartSeekMarkerColor(),
             skipColor = context.getColor(R.color.smart_seek_skip)
         )
@@ -2194,6 +2194,11 @@ class FullBottomSheet
                 progressDrawable.animate = false
             }
         }
+    }
+
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        // Buffering and seek transitions can change isPlaying without user intent changing.
+        // Only playWhenReady decides whether Smart Seek shows the future timeline or scrubber.
         updateSmartSeekProgressOverlay()
     }
 
