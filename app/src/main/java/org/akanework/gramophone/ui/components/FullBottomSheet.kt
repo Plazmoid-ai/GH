@@ -699,7 +699,11 @@ class FullBottomSheet
 
     private fun updateSmartSeekButton() {
         // Smart Seek controls are not present in every layout (for example, landscape).
-        val button = findViewById<MaterialButton>(R.id.smart_seek) ?: return
+        val button = findViewById<MaterialButton>(R.id.smart_seek)
+        if (button == null) {
+            updateSmartSeekProgressOverlay()
+            return
+        }
         val enabled = prefs.getBoolean("smart_seek_enabled", true)
         button.visibility = if (enabled) VISIBLE else GONE
         val active = enabled && activity.controllerViewModel.isSmartSeekActive()
@@ -1290,6 +1294,8 @@ class FullBottomSheet
                 bottomSheetFullSlider.visibility = GONE
                 bottomSheetFullSeekBar.visibility = VISIBLE
             }
+            // The preference must never re-show a stock bar over the active Smart Seek overlay.
+            updateSmartSeekProgressOverlay()
         }
         if (key == null || key == "audio_quality_info") {
             enableQualityInfo = prefs.getBooleanStrict("audio_quality_info", false)
