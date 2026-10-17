@@ -257,6 +257,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private var smartSeekSeeking = false
     private var smartSeekTrackIndex = C.INDEX_UNSET
     private var smartSeekNextPositionMs = -1L
+    private var smartSeekSeekTargetPositionMs = -1L
     private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
     private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private val lastPlaylistLoaded = CompletableDeferred<Unit>()
@@ -851,6 +852,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         smartSeekPaused = !player.isPlaying
         smartSeekTrackIndex = player.currentMediaItemIndex
         smartSeekNextPositionMs = -1L
+        smartSeekSeekTargetPositionMs = -1L
         broadcastSmartSeekState()
         if (player.isPlaying) {
             startSmartSeekLoop()
@@ -863,6 +865,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         cancelSmartSeekJob(resetPendingSeek = true)
         smartSeekTrackIndex = C.INDEX_UNSET
         smartSeekNextPositionMs = -1L
+        smartSeekSeekTargetPositionMs = -1L
         broadcastSmartSeekState()
     }
 
@@ -879,6 +882,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private fun finishSmartSeekTrack() {
         if (isSmartSeekPersistent()) {
             smartSeekNextPositionMs = -1L
+            smartSeekSeekTargetPositionMs = -1L
             smartSeekSeeking = false
             broadcastSmartSeekState()
         } else {
@@ -891,6 +895,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         smartSeekJob = null
         if (resetPendingSeek) {
             smartSeekSeeking = false
+            smartSeekSeekTargetPositionMs = -1L
         }
     }
 
@@ -902,6 +907,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
             if (isSmartSeekPersistent()) {
                 smartSeekTrackIndex = C.INDEX_UNSET
                 smartSeekNextPositionMs = -1L
+                smartSeekSeekTargetPositionMs = -1L
                 broadcastSmartSeekState()
             } else {
                 stopSmartSeek()
@@ -912,6 +918,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
             if (isSmartSeekPersistent()) {
                 smartSeekTrackIndex = player.currentMediaItemIndex
                 smartSeekNextPositionMs = -1L
+                smartSeekSeekTargetPositionMs = -1L
             } else {
                 stopSmartSeek()
                 return
@@ -1010,6 +1017,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         break
                     }
 
+                    smartSeekSeekTargetPositionMs = targetPosition
                     smartSeekSeeking = true
                     broadcastSmartSeekState()
                     Log.i(TAG, "Smart Seek: seeking from $currentPosition to $targetPosition")
@@ -1026,6 +1034,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         smartSeekSeeking = false
                     }
                     smartSeekNextPositionMs = -1L
+                    smartSeekSeekTargetPositionMs = -1L
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1047,6 +1056,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         putBoolean("active", smartSeekActive)
         putBoolean("paused", smartSeekPaused)
         putLong("nextPositionMs", smartSeekNextPositionMs)
+        putLong("seekTargetPositionMs", smartSeekSeekTargetPositionMs)
         putLong("playDurationMs", smartSeekNextPlayDurationMs)
         putLong("skipDurationMs", smartSeekNextSkipDurationMs)
         putBoolean("seeking", smartSeekSeeking)
@@ -1335,6 +1345,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         if (resume && smartSeekActive && isSmartSeekEnabled()) {
                             smartSeekPaused = false
                             smartSeekNextPositionMs = -1L
+                            smartSeekSeekTargetPositionMs = -1L
                             startSmartSeekLoop()
                             broadcastSmartSeekState()
                         } else if (configure && !isSmartSeekEnabled()) {
@@ -1343,6 +1354,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                             smartSeekConfig = SmartSeekConfig.load(prefs)
                             cancelSmartSeekJob(resetPendingSeek = true)
                             smartSeekNextPositionMs = -1L
+                            smartSeekSeekTargetPositionMs = -1L
                             if (smartSeekActive && this.controller?.isPlaying == true) {
                                 startSmartSeekLoop()
                             }
@@ -1822,6 +1834,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
             if (isSmartSeekPersistent()) {
                 cancelSmartSeekJob(resetPendingSeek = true)
                 smartSeekNextPositionMs = -1L
+                smartSeekSeekTargetPositionMs = -1L
                 broadcastSmartSeekState()
             } else {
                 stopSmartSeek()
@@ -1888,6 +1901,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     C.INDEX_UNSET
                 }
                 smartSeekNextPositionMs = -1L
+                smartSeekSeekTargetPositionMs = -1L
                 broadcastSmartSeekState()
                 if (mediaItem != null && controller?.isPlaying == true) {
                     startSmartSeekLoop()
@@ -1977,6 +1991,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
             if (smartSeekActive) {
                 smartSeekPaused = true
                 smartSeekNextPositionMs = -1L
+                smartSeekSeekTargetPositionMs = -1L
                 broadcastSmartSeekState()
             }
         }
@@ -2096,6 +2111,8 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
             oldPosition.mediaItemIndex == newPosition.mediaItemIndex
         if (smartSeekSeeking && reason == Player.DISCONTINUITY_REASON_SEEK) {
             smartSeekSeeking = false
+            smartSeekSeekTargetPositionMs = -1L
+            broadcastSmartSeekState()
         }
 
         if (isSmartSeekJump) {

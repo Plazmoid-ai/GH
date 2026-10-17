@@ -54,6 +54,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ListView
@@ -287,6 +288,8 @@ class FullBottomSheet
     private val bottomSheetFullSlider: Slider
     private val bottomSheetSmartSeekProgressOverlay: SmartSeekProgressOverlay?
     private var smartSeekNextPositionMs = -1L
+    private var smartSeekSeekTargetPositionMs = -1L
+    private var smartSeekSeeking = false
     private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
     private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private var smartSeekShowPeriodCounter = false
@@ -360,6 +363,9 @@ class FullBottomSheet
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
                     activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
                     smartSeekNextPositionMs = args.getLong("nextPositionMs", -1L)
+                    smartSeekSeeking = args.getBoolean("seeking", false)
+                    smartSeekSeekTargetPositionMs = args.getLong("seekTargetPositionMs", -1L)
+                    if (!smartSeekSeeking) smartSeekSeekTargetPositionMs = -1L
                     smartSeekNextPlayDurationMs = args.getLong(
                         "playDurationMs",
                         SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
@@ -829,14 +835,20 @@ class FullBottomSheet
         // a full-track scrubber that snaps to the nearest play-segment start on release.
         overlay.update(
             active = active,
-            currentPositionMs = player?.currentPosition ?: 0L,
+            currentPositionMs = if (smartSeekSeeking && smartSeekSeekTargetPositionMs >= 0L) {
+                smartSeekSeekTargetPositionMs
+            } else {
+                player?.currentPosition ?: 0L
+            },
             durationMs = durationMs,
             nextSeekPositionMs = smartSeekNextPositionMs,
             playDurationMs = smartSeekNextPlayDurationMs,
             skipDurationMs = smartSeekNextSkipDurationMs,
             playWhenReady = player?.playWhenReady == true,
             markerColor = smartSeekMarkerColor(),
-            skipColor = context.getColor(R.color.smart_seek_skip)
+            skipColor = context.getColor(R.color.smart_seek_skip),
+            isPlaying = player?.isPlaying == true,
+            seeking = smartSeekSeeking
         )
         updateSmartSeekTimePanel(active, player, durationMs)
     }
@@ -1259,10 +1271,12 @@ class FullBottomSheet
         var selectedMarkerColor = savedMarkerColor
         val markerColorButtons = mutableListOf<RadioButton>()
         markerColorChoices.forEachIndexed { index, (key, labelRes, color) ->
+            val cell = FrameLayout(context)
             val button = RadioButton(context).apply {
                 id = View.generateViewId()
                 tag = key
-                text = context.getString(labelRes)
+                text = ""
+                contentDescription = context.getString(labelRes)
                 buttonTintList = ColorStateList.valueOf(color)
                 isChecked = key == selectedMarkerColor
                 setOnClickListener {
@@ -1271,8 +1285,16 @@ class FullBottomSheet
                 }
             }
             markerColorButtons += button
-            markerColorGrid.addView(
+            cell.addView(
                 button,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                )
+            )
+            markerColorGrid.addView(
+                cell,
                 GridLayout.LayoutParams(
                     GridLayout.spec(index / 3),
                     GridLayout.spec(index % 3, GridLayout.FILL, 1f)
@@ -2403,6 +2425,7 @@ class FullBottomSheet
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
+        updateSmartSeekProgressOverlay()
         if (instance?.isPlaying == true) {
             if (bottomSheetFullControllerButton.getTag(R.id.play_next) as Int? != 1) {
                 bottomSheetFullControllerButton.icon =
