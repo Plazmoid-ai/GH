@@ -179,7 +179,6 @@ class FullBottomSheet
     private var runnableRunning = false
     private var firstTime = false
     private var enableQualityInfo = false
-    private var smartSeekTimelineWasActive = false
 
     private val prefs = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
     private var currentFormat: AudioFormatDetector.AudioFormats? = null
@@ -285,8 +284,6 @@ class FullBottomSheet
     private var smartSeekNextPositionMs = -1L
     private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
     private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
-    private var smartSeekIsSeeking = false
-    private var smartSeekIsPaused = false
     private var lastSmartSeekButtonActive: Boolean? = null
     private val bottomSheetFullCoverFrame: MaterialCardView
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
@@ -307,8 +304,9 @@ class FullBottomSheet
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
         bottomSheetSmartSeekProgressOverlay = findViewById(R.id.smart_seek_progress_overlay)
-        bottomSheetSmartSeekProgressOverlay?.onResumeRequested = {
-            activity.controllerViewModel.resumeSmartSeek()
+        bottomSheetSmartSeekProgressOverlay?.onSeekRequested = { positionMs ->
+            instance?.seekTo(positionMs)
+            bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
         bottomSheetFullSlideUpButton = findViewById(R.id.slide_down)
         bottomSheetShuffleButton = findViewById(R.id.sheet_random)
@@ -328,8 +326,6 @@ class FullBottomSheet
 
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
                     activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
-                    smartSeekIsPaused = args.getBoolean("paused", false)
-                    activity.controllerViewModel.updateSmartSeekPaused(smartSeekIsPaused)
                     smartSeekNextPositionMs = args.getLong("nextPositionMs", -1L)
                     smartSeekNextPlayDurationMs = args.getLong(
                         "playDurationMs",
@@ -339,7 +335,6 @@ class FullBottomSheet
                         "skipDurationMs",
                         SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
                     )
-                    smartSeekIsSeeking = args.getBoolean("seeking", false)
                     updateSmartSeekButton()
                 }
 
@@ -719,12 +714,15 @@ class FullBottomSheet
             else com.google.android.material.R.attr.colorSurfaceVariant,
             Color.TRANSPARENT
         )
-        val iconColor = MaterialColors.getColor(
-            button,
-            if (active) com.google.android.material.R.attr.colorOnPrimaryContainer
-            else com.google.android.material.R.attr.colorOnSurfaceVariant,
-            Color.WHITE
-        )
+        val iconColor = if (active) {
+            smartSeekMarkerColor()
+        } else {
+            MaterialColors.getColor(
+                button,
+                com.google.android.material.R.attr.colorOnSurface,
+                Color.WHITE
+            )
+        }
         button.backgroundTintList = ColorStateList.valueOf(backgroundColor)
         button.iconTint = ColorStateList.valueOf(iconColor)
         TooltipCompat.setTooltipText(
@@ -767,37 +765,19 @@ class FullBottomSheet
 
     private fun updateSmartSeekProgressOverlay() {
         val overlay = bottomSheetSmartSeekProgressOverlay ?: return
-        val button = bottomSheetSmartSeekButton
-        if (button == null) {
-            overlay.visibility = GONE
-            return
-        }
         val enabled = prefs.getBoolean("smart_seek_enabled", true)
-        val reportedActive = activity.controllerViewModel.isSmartSeekActive()
-        // Preserve the active timeline through the transient seek state; seekTo() must not
-        // switch the View back to the stock progress control for a frame.
-        val active = enabled && (reportedActive || (smartSeekIsSeeking && smartSeekTimelineWasActive))
-        if (!enabled || (!reportedActive && !smartSeekIsSeeking)) {
-            smartSeekTimelineWasActive = false
-        } else if (active) {
-            smartSeekTimelineWasActive = true
-        }
-        val paused = active && smartSeekIsPaused
+        val active = enabled && activity.controllerViewModel.isSmartSeekActive()
         val player = instance
         val durationMs = player?.contentDuration?.let {
             if (it == C.TIME_UNSET) null else it
         } ?: player?.currentMediaItem?.mediaMetadata?.durationMs
             ?: player?.duration?.takeIf { it != C.TIME_UNSET }
             ?: 0L
-        // Visibility follows the Smart Seek state, not transient timeline metadata.
-        // Even if duration/position briefly becomes unavailable during seekTo(), never expose
-        // the stock bar for a frame while Smart Seek is running.
-        val showCustomTimeline = active && !paused
-        setVisibilityIfChanged(overlay, if (showCustomTimeline || paused) VISIBLE else GONE)
 
-        // Keep both stock controls hard-hidden for the entire active playback state.
-        // Only restore the configured stock control when Smart Seek is stopped or paused.
-        if (showCustomTimeline) {
+        // There is no stock progress control while Smart Seek mode is active.
+        // Keeping both stock controls GONE removes the possibility of a frame-level overlap.
+        setVisibilityIfChanged(overlay, if (active) VISIBLE else GONE)
+        if (active) {
             setVisibilityIfChanged(bottomSheetFullSeekBar, GONE)
             setVisibilityIfChanged(bottomSheetFullSlider, GONE)
         } else if (prefs.getBooleanStrict("default_progress_bar", false)) {
@@ -808,38 +788,17 @@ class FullBottomSheet
             setVisibilityIfChanged(bottomSheetFullSeekBar, VISIBLE)
         }
 
-        overlay.setResumeButtonVisible(paused)
-        if (!showCustomTimeline) {
-            if (paused) {
-                val pausedButton = bottomSheetSmartSeekButton
-                if (pausedButton != null) {
-                    val pausedMarkerColor = smartSeekMarkerColor()
-                    overlay.update(
-                        active = false,
-                        currentPositionMs = 0L,
-                        durationMs = 0L,
-                        nextSeekPositionMs = -1L,
-                        playDurationMs = smartSeekNextPlayDurationMs,
-                        skipDurationMs = smartSeekNextSkipDurationMs,
-                        seeking = false,
-                        markerColor = pausedMarkerColor,
-                        skipColor = context.getColor(R.color.smart_seek_skip)
-                    )
-                }
-            }
-            return
-        }
-
-        val markerColor = smartSeekMarkerColor()
+        // Playback mode uses a fixed future-only timeline; when paused, the overlay becomes
+        // a full-track scrubber that snaps to the nearest play-segment start on release.
         overlay.update(
-            active = true,
+            active = active,
             currentPositionMs = player?.currentPosition ?: 0L,
             durationMs = durationMs,
             nextSeekPositionMs = smartSeekNextPositionMs,
             playDurationMs = smartSeekNextPlayDurationMs,
             skipDurationMs = smartSeekNextSkipDurationMs,
-            seeking = smartSeekIsSeeking,
-            markerColor = markerColor,
+            isPlaying = player?.isPlaying == true,
+            markerColor = smartSeekMarkerColor(),
             skipColor = context.getColor(R.color.smart_seek_skip)
         )
     }
@@ -2229,6 +2188,7 @@ class FullBottomSheet
                 progressDrawable.animate = false
             }
         }
+        updateSmartSeekProgressOverlay()
     }
 
     // https://developer.android.com/media/implement/surfaces/pause-and-resume-media-playback-with-spacebar

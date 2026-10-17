@@ -2,9 +2,9 @@
  *     Copyright (C) 2026 Plazmoid-ai
  *
  *     Gramophone is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU General Public License as published by
- *     the Free Software Foundation, either version 3 of the License, or
- *     (at your option) any later version.
+ *     it under the terms of the GNU General Public License
+ *     as published by the Free Software Foundation, either version 3
+ *     of the License, or (at your option) any later version.
  */
 
 package org.akanework.gramophone.ui.components
@@ -14,7 +14,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
@@ -23,10 +22,10 @@ import android.view.View
 import com.google.android.material.color.MaterialColors
 
 /**
- * Canvas-based Smart Seek progress area.
+ * Smart Seek progress renderer.
  *
- * The fixed cursor anchors the future-only timeline. Audible intervals use the configured
- * accent color and skipped intervals use the neutral Smart Seek skip color.
+ * During playback it shows the future-only timeline with a fixed cursor.
+ * While paused it shows the entire track and lets the user seek to the closest play interval.
  */
 class SmartSeekProgressOverlay @JvmOverloads constructor(
     context: Context,
@@ -35,20 +34,11 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val resumeButtonBounds = RectF()
-    private val resumeIconPath = Path()
 
     private var active = false
+    private var isPlaying = false
     private var markerColor = Color.TRANSPARENT
     private var skipColor = Color.TRANSPARENT
-
-    private var resumeButtonVisible = false
-    private var resumeTouchActive = false
-
-    /**
-     * Invoked when the user taps the centered play button while Smart Seek is paused.
-     */
-    var onResumeRequested: (() -> Unit)? = null
 
     private var currentPositionMs = 0L
     private var durationMs = 0L
@@ -56,17 +46,18 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var playDurationMs = 15_000L
     private var skipDurationMs = 30_000L
 
+    private var isDragging = false
+    private var dragPositionMs: Long? = null
+
+    /** Called when a paused-track drag/tap is released at the snapped play-segment start. */
+    var onSeekRequested: ((Long) -> Unit)? = null
+
     init {
         isClickable = true
         isFocusable = false
         setWillNotDraw(false)
     }
 
-    /**
-     * Updates the live timeline. The next seek position marks the end of the current
-     * audible interval; after it, the timeline alternates play and skip intervals.
-     */
-    @Suppress("UNUSED_PARAMETER")
     fun update(
         active: Boolean,
         currentPositionMs: Long,
@@ -74,11 +65,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         nextSeekPositionMs: Long,
         playDurationMs: Long,
         skipDurationMs: Long,
-        seeking: Boolean,
+        isPlaying: Boolean,
         markerColor: Int,
         skipColor: Int = Color.TRANSPARENT
     ) {
         this.active = active
+        this.isPlaying = isPlaying
         this.currentPositionMs = currentPositionMs.coerceAtLeast(0L)
         this.durationMs = durationMs.coerceAtLeast(0L)
         this.nextSeekPositionMs = nextSeekPositionMs
@@ -86,51 +78,55 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.skipDurationMs = skipDurationMs.coerceAtLeast(1L)
         this.markerColor = markerColor
         this.skipColor = skipColor
-        invalidate()
-    }
 
-    /**
-     * Keeps the View available for the play button while paused. In that state, only the
-     * icon is drawn; the custom timeline itself is hidden.
-     */
-    fun setResumeButtonVisible(visible: Boolean) {
-        if (resumeButtonVisible == visible) return
-        resumeButtonVisible = visible
-        resumeTouchActive = false
-        updateResumeButtonBounds()
+        if (!active || isPlaying) {
+            isDragging = false
+            dragPositionMs = null
+        }
         invalidate()
-    }
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        updateResumeButtonBounds()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
-        if (resumeButtonVisible) {
-            drawResumeButton(canvas)
-            return
-        }
-
-        if (!active || width <= 0 || height <= 0 || durationMs <= currentPositionMs) return
+        if (!active || width <= 0 || height <= 0 || durationMs <= 0L) return
 
         val barHeight = dp(6f)
         val top = (height - barHeight) / 2f
         val bottom = top + barHeight
-        val remainingMs = durationMs - currentPositionMs
-        val narrowView = width.toFloat() < dp(100f)
-        val cursorX = if (narrowView) 0f else dp(50f)
-        val timelineWidth = (width.toFloat() - cursorX).coerceAtLeast(0f)
-        if (timelineWidth <= 0f) return
-
-        val pxPerMs = timelineWidth / remainingMs.toFloat()
         val radius = barHeight / 2f
         val gap = dp(1f)
+
+        if (isPlaying) {
+            drawFutureTimeline(canvas, top, bottom, radius, gap)
+        } else {
+            drawFullTrack(canvas, top, bottom, radius, gap)
+            val selectedPosition = dragPositionMs ?: currentPositionMs
+            val cursorX = (selectedPosition.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
+            drawCursor(canvas, cursorX, top, bottom)
+        }
+    }
+
+    /** Playback mode: the timeline starts at a fixed x-position and represents only the future. */
+    private fun drawFutureTimeline(
+        canvas: Canvas,
+        top: Float,
+        bottom: Float,
+        radius: Float,
+        gap: Float
+    ) {
+        val narrowView = width.toFloat() < dp(100f)
+        val cursorX = if (narrowView) 0f else dp(50f)
+        val remainingMs = durationMs - currentPositionMs
+        if (remainingMs <= 0L) {
+            drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
+            return
+        }
+
+        val timelineWidth = (width.toFloat() - cursorX).coerceAtLeast(0f)
+        if (timelineWidth <= 0f) return
+        val pxPerMs = timelineWidth / remainingMs.toFloat()
         val playMs = playDurationMs
         val skipMs = skipDurationMs
-
         var timelinePositionMs = currentPositionMs
 
         fun drawPlayUntil(endMs: Long) {
@@ -149,20 +145,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             timelinePositionMs = endMs
         }
 
-        /*
-         * If the service has announced the next seek boundary, use the actual remaining
-         * audible interval instead of restarting a full play interval at the current cursor.
-         */
         if (nextSeekPositionMs > currentPositionMs) {
             drawPlayUntil(nextSeekPositionMs.coerceAtMost(durationMs))
             if (timelinePositionMs < durationMs) {
                 drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
             }
         } else if (remainingMs < playMs + skipMs) {
-            // The final tail is audible only when it is longer than one play interval.
             if (remainingMs > playMs) drawPlayUntil(durationMs)
             drawTrail(canvas, cursorX, top, bottom, narrowView)
-            drawCursor(canvas, cursorX, top, bottom)
+            drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
             return
         } else {
             drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
@@ -171,20 +162,45 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             }
         }
 
-        // Fill the future timeline with complete play/skip cycles.
         while (durationMs - timelinePositionMs >= playMs + skipMs) {
             drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
             drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
         }
 
-        // A short final tail is omitted; a longer one remains an audible-colored segment.
         val tailMs = durationMs - timelinePositionMs
-        if (tailMs > playMs) {
-            drawPlayUntil(durationMs)
-        }
+        if (tailMs > playMs) drawPlayUntil(durationMs)
 
         drawTrail(canvas, cursorX, top, bottom, narrowView)
-        drawCursor(canvas, cursorX, top, bottom)
+        drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
+    }
+
+    /** Paused mode: draw all play/skip segments from 0 through the track duration. */
+    private fun drawFullTrack(
+        canvas: Canvas,
+        top: Float,
+        bottom: Float,
+        radius: Float,
+        gap: Float
+    ) {
+        val pxPerMs = width.toFloat() / durationMs.toFloat()
+        var timelinePositionMs = 0L
+
+        while (timelinePositionMs < durationMs) {
+            val playEndMs = (timelinePositionMs + playDurationMs).coerceAtMost(durationMs)
+            drawTimelineSegment(
+                canvas, timelinePositionMs, playEndMs, 0L, pxPerMs,
+                0f, top, bottom, radius, gap, markerColor, 220
+            )
+            timelinePositionMs = playEndMs
+            if (timelinePositionMs >= durationMs) break
+
+            val skipEndMs = (timelinePositionMs + skipDurationMs).coerceAtMost(durationMs)
+            drawTimelineSegment(
+                canvas, timelinePositionMs, skipEndMs, 0L, pxPerMs,
+                0f, top, bottom, radius, gap, skipColor, 190
+            )
+            timelinePositionMs = skipEndMs
+        }
     }
 
     private fun drawTimelineSegment(
@@ -216,11 +232,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         bottom: Float,
         narrowView: Boolean
     ) {
-        // A narrow View uses a left-edge cursor and deliberately has no trail.
         if (narrowView || cursorX <= 0f || currentPositionMs <= 0L) return
 
         val trailColor = if (nextSeekPositionMs > currentPositionMs) markerColor else skipColor
-        val transparentColor = Color.argb(0, Color.red(trailColor), Color.green(trailColor), Color.blue(trailColor))
+        val transparentColor = Color.argb(
+            0,
+            Color.red(trailColor),
+            Color.green(trailColor),
+            Color.blue(trailColor)
+        )
         paint.style = Paint.Style.FILL
         paint.alpha = 255
         paint.shader = LinearGradient(
@@ -231,10 +251,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         paint.shader = null
     }
 
-    private fun drawCursor(canvas: Canvas, cursorX: Float, top: Float, bottom: Float) {
+    private fun drawCursor(
+        canvas: Canvas,
+        cursorX: Float,
+        top: Float,
+        bottom: Float,
+        leftEdge: Boolean = false
+    ) {
         paint.style = Paint.Style.FILL
         paint.shader = null
-        // Use the theme's foreground color, independent of the play/skip accent.
         paint.color = MaterialColors.getColor(
             this,
             com.google.android.material.R.attr.colorOnSurface
@@ -243,7 +268,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         val cursorWidth = dp(5f)
         val cursorExtension = dp(5f)
-        val left = if (width.toFloat() < dp(100f)) cursorX else cursorX - cursorWidth / 2f
+        val rawLeft = if (leftEdge) 0f else cursorX - cursorWidth / 2f
+        val left = rawLeft.coerceIn(0f, (width.toFloat() - cursorWidth).coerceAtLeast(0f))
         val right = left + cursorWidth
         canvas.drawRoundRect(
             RectF(left, top - cursorExtension, right, bottom + cursorExtension),
@@ -276,72 +302,80 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         )
     }
 
-    private fun drawResumeButton(canvas: Canvas) {
-        updateResumeButtonBounds()
-
-        val centerX = width / 2f
-        val centerY = height / 2f
-        val halfHeight = dp(9f)
-
-        resumeIconPath.reset()
-        resumeIconPath.moveTo(centerX - dp(5f), centerY - halfHeight)
-        resumeIconPath.lineTo(centerX - dp(5f), centerY + halfHeight)
-        resumeIconPath.lineTo(centerX + dp(9f), centerY)
-        resumeIconPath.close()
-
-        paint.style = Paint.Style.FILL
-        paint.shader = null
-        paint.color = markerColor
-        paint.alpha = 255
-        canvas.drawPath(resumeIconPath, paint)
-    }
-
-    private fun updateResumeButtonBounds() {
-        val touchSize = dp(48f)
-        val left = (width - touchSize) / 2f
-        val top = (height - touchSize) / 2f
-        resumeButtonBounds.set(left, top, left + touchSize, top + touchSize)
-    }
-
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // In playback mode, deliberately return false so the overlay does not intercept touches.
+        if (!active || isPlaying || durationMs <= 0L || width <= 0) {
+            if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                isDragging = false
+                dragPositionMs = null
+            }
+            return false
+        }
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // Only the centered resume-button target is handled. All other DOWN events
-                // return false so the visible standard SeekBar/Slider underneath can receive them.
-                resumeTouchActive = resumeButtonVisible &&
-                    resumeButtonBounds.contains(event.x, event.y)
-                return resumeTouchActive
+                isDragging = true
+                dragPositionMs = positionFromX(event.x)
+                parent?.requestDisallowInterceptTouchEvent(true)
+                invalidate()
+                return true
             }
 
             MotionEvent.ACTION_MOVE -> {
-                return resumeTouchActive
+                if (!isDragging) return false
+                dragPositionMs = positionFromX(event.x)
+                invalidate()
+                return true
             }
 
             MotionEvent.ACTION_UP -> {
-                if (!resumeTouchActive) return false
-
-                val shouldResume = resumeButtonVisible &&
-                    resumeButtonBounds.contains(event.x, event.y)
-                resumeTouchActive = false
-
-                if (shouldResume) performClick()
+                if (!isDragging) return false
+                val newPositionMs = positionFromX(event.x)
+                val snappedPositionMs = nearestPlaySegmentStart(newPositionMs)
+                isDragging = false
+                dragPositionMs = snappedPositionMs
+                currentPositionMs = snappedPositionMs
+                parent?.requestDisallowInterceptTouchEvent(false)
+                invalidate()
+                onSeekRequested?.invoke(snappedPositionMs)
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                val wasHandlingTouch = resumeTouchActive
-                resumeTouchActive = false
-                return wasHandlingTouch
+                if (!isDragging) return false
+                isDragging = false
+                dragPositionMs = null
+                parent?.requestDisallowInterceptTouchEvent(false)
+                invalidate()
+                return true
             }
 
-            else -> return resumeTouchActive
+            else -> return isDragging
         }
     }
 
-    override fun performClick(): Boolean {
-        super.performClick()
-        if (resumeButtonVisible) onResumeRequested?.invoke()
-        return true
+    private fun positionFromX(x: Float): Long {
+        if (width <= 0) return 0L
+        return (x.coerceIn(0f, width.toFloat()) / width.toFloat() * durationMs.toFloat())
+            .toLong()
+            .coerceIn(0L, durationMs)
+    }
+
+    /** Finds the closest cycle origin, i.e. the start of a play segment. */
+    private fun nearestPlaySegmentStart(positionMs: Long): Long {
+        if (durationMs <= 0L) return 0L
+        val maxStart = (durationMs - 1L).coerceAtLeast(0L)
+        val safePosition = positionMs.coerceIn(0L, maxStart)
+        val cycleDurationMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
+        val previousStart = (safePosition / cycleDurationMs) * cycleDurationMs
+        val nextStart = previousStart + cycleDurationMs
+
+        if (nextStart <= maxStart &&
+            nextStart - safePosition < safePosition - previousStart
+        ) {
+            return nextStart
+        }
+        return previousStart.coerceAtMost(maxStart)
     }
 
     private fun dp(value: Float): Float =
