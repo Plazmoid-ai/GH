@@ -278,11 +278,9 @@ class FullBottomSheet
     private val smartSeekSkipLabel: TextView
     private val smartSeekPassedPeriods: TextView
     private val smartSeekRemainingPeriods: TextView
-    private val smartSeekTotalPeriods: TextView
     private val smartSeekPastBar: View
     private val smartSeekFutureBar: View
     private val smartSeekCounterRow: View
-    private val smartSeekTotalRow: View
     private var bottomSheetFullQualityDetails: TextView
     private val bottomSheetFullSlideUpButton: MaterialButton
     private val bottomSheetShuffleButton: MaterialButton
@@ -328,13 +326,11 @@ class FullBottomSheet
         smartSeekSkipLabel = findViewById(R.id.smart_seek_skip_label)
         smartSeekPassedPeriods = findViewById(R.id.smart_seek_passed_periods)
         smartSeekRemainingPeriods = findViewById(R.id.smart_seek_remaining_periods)
-        smartSeekTotalPeriods = findViewById(R.id.smart_seek_total_periods)
         smartSeekPastBar = findViewById(R.id.smart_seek_past_bar)
         smartSeekFutureBar = findViewById(R.id.smart_seek_future_bar)
         smartSeekCounterRow = findViewById(R.id.smart_seek_counter_row)
-        smartSeekTotalRow = findViewById(R.id.smart_seek_total_row)
         smartSeekTimePanel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            alignSmartSeekCounterRows()
+            alignSmartSeekCounterRow()
         }
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
@@ -898,7 +894,6 @@ class FullBottomSheet
             smartSeekPlayLabel.visibility = GONE
             smartSeekSkipLabel.visibility = GONE
             smartSeekCounterRow.visibility = GONE
-            smartSeekTotalRow.visibility = GONE
             bottomSheetFullPosition.isClickable = false
             bottomSheetFullPosition.setTextColor(stockColor)
             bottomSheetFullDuration.setTextColor(stockColor)
@@ -948,7 +943,6 @@ class FullBottomSheet
             smartSeekPlayLabel.visibility = GONE
             smartSeekSkipLabel.visibility = GONE
             smartSeekCounterRow.visibility = GONE
-            smartSeekTotalRow.visibility = GONE
             val playedTimeText =
                 CalculationUtils.convertDurationToTimeStamp(smartSeekAccumulatedListenMs)
             bottomSheetFullPosition.setTextColor(onSurfaceColor)
@@ -964,7 +958,6 @@ class FullBottomSheet
         smartSeekPlayLabel.visibility = VISIBLE
         smartSeekSkipLabel.visibility = VISIBLE
         smartSeekCounterRow.visibility = VISIBLE
-        smartSeekTotalRow.visibility = VISIBLE
 
         val playLabel: String
         val skipLabel: String
@@ -1014,11 +1007,6 @@ class FullBottomSheet
         smartSeekRemainingPeriods.setTextColor(accentColor)
         smartSeekPastBar.setBackgroundColor(colorWithAlpha(accentColor, 0.4f))
         smartSeekFutureBar.setBackgroundColor(accentColor)
-        smartSeekTotalPeriods.text = SpannableStringBuilder().apply {
-            appendColored(this, "— ", stockColor)
-            appendColored(this, totalPeriods.toString(), accentColor)
-        }
-        smartSeekTotalPeriods.setTextColor(onSurfaceColor)
     }
 
     private fun colorWithAlpha(color: Int, alpha: Float): Int =
@@ -1029,13 +1017,12 @@ class FullBottomSheet
             Color.blue(color)
         )
 
-    private fun alignSmartSeekCounterRows() {
+    private fun alignSmartSeekCounterRow() {
         if (smartSeekTimePanel.width <= 0 || bottomSheetFullPosition.width <= 0) return
         val timerCenterX =
             smartSeekTopRow.left + bottomSheetFullPosition.left + bottomSheetFullPosition.width / 2f
         val offset = timerCenterX - smartSeekTimePanel.width / 2f
         smartSeekCounterRow.translationX = offset
-        smartSeekTotalRow.translationX = offset
     }
 
     private fun setSmartSeekPositionPanelText(value: CharSequence, cacheKey: String) {
