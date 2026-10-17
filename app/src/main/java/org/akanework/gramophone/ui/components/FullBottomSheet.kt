@@ -272,6 +272,8 @@ class FullBottomSheet
     private val bottomSheetFullPreviousButton: MaterialButton
     private val bottomSheetFullDuration: TextView
     private val bottomSheetFullPosition: TextView
+    private val smartSeekTimePanel: View
+    private val smartSeekTopRow: View
     private val smartSeekPlayLabel: TextView
     private val smartSeekSkipLabel: TextView
     private val smartSeekPassedPeriods: TextView
@@ -320,6 +322,8 @@ class FullBottomSheet
         bottomSheetFullNextButton = findViewById(R.id.sheet_next_song)
         bottomSheetFullPosition = findViewById(R.id.position)
         bottomSheetFullDuration = findViewById(R.id.duration)
+        smartSeekTimePanel = findViewById(R.id.smart_seek_time_panel)
+        smartSeekTopRow = findViewById(R.id.smart_seek_top_row)
         smartSeekPlayLabel = findViewById(R.id.smart_seek_play_label)
         smartSeekSkipLabel = findViewById(R.id.smart_seek_skip_label)
         smartSeekPassedPeriods = findViewById(R.id.smart_seek_passed_periods)
@@ -329,6 +333,9 @@ class FullBottomSheet
         smartSeekFutureBar = findViewById(R.id.smart_seek_future_bar)
         smartSeekCounterRow = findViewById(R.id.smart_seek_counter_row)
         smartSeekTotalRow = findViewById(R.id.smart_seek_total_row)
+        smartSeekTimePanel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            alignSmartSeekCounterRows()
+        }
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
         bottomSheetSmartSeekProgressOverlay = findViewById(R.id.smart_seek_progress_overlay)
@@ -1021,6 +1028,15 @@ class FullBottomSheet
             Color.green(color),
             Color.blue(color)
         )
+
+    private fun alignSmartSeekCounterRows() {
+        if (smartSeekTimePanel.width <= 0 || bottomSheetFullPosition.width <= 0) return
+        val timerCenterX =
+            smartSeekTopRow.left + bottomSheetFullPosition.left + bottomSheetFullPosition.width / 2f
+        val offset = timerCenterX - smartSeekTimePanel.width / 2f
+        smartSeekCounterRow.translationX = offset
+        smartSeekTotalRow.translationX = offset
+    }
 
     private fun setSmartSeekPositionPanelText(value: CharSequence, cacheKey: String) {
         if (smartSeekPositionPanelCacheKey != cacheKey ||
