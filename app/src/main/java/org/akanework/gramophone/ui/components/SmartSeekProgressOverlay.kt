@@ -9,6 +9,8 @@
 
 package org.akanework.gramophone.ui.components
 
+import android.animation.ArgbEvaluator
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -39,6 +41,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var playWhenReady = false
     private var markerColor = Color.TRANSPARENT
     private var skipColor = Color.TRANSPARENT
+    private var displayedTrailColor: Int? = null
+    private var trailTargetColor: Int? = null
+    private var trailColorAnimator: ValueAnimator? = null
 
     private var currentPositionMs = 0L
     private var durationMs = 0L
@@ -79,11 +84,45 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.markerColor = markerColor
         this.skipColor = skipColor
 
+        val desiredTrailColor = if (this.nextSeekPositionMs > this.currentPositionMs) {
+            this.markerColor
+        } else {
+            this.skipColor
+        }
+        updateTrailColor(desiredTrailColor, active && playWhenReady)
+
         if (!active || playWhenReady) {
             isDragging = false
             dragPositionMs = null
         }
-        invalidate()
+        postInvalidateOnAnimation()
+    }
+
+    /**
+     * Smoothly blends the trail color when the current interval changes from play to skip
+     * or back. Updates received during the same interval do not restart the animator.
+     */
+    private fun updateTrailColor(targetColor: Int, animate: Boolean) {
+        if (trailTargetColor == null || !animate) {
+            trailColorAnimator?.cancel()
+            trailColorAnimator = null
+            trailTargetColor = targetColor
+            displayedTrailColor = targetColor
+            return
+        }
+        if (trailTargetColor == targetColor) return
+
+        val startColor = displayedTrailColor ?: trailTargetColor ?: targetColor
+        trailTargetColor = targetColor
+        trailColorAnimator?.cancel()
+        trailColorAnimator = ValueAnimator.ofObject(ArgbEvaluator(), startColor, targetColor).apply {
+            duration = 150L
+            addUpdateListener { animator ->
+                displayedTrailColor = animator.animatedValue as Int
+                postInvalidateOnAnimation()
+            }
+            start()
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -94,7 +133,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val top = (height - barHeight) / 2f
         val bottom = top + barHeight
         val radius = barHeight / 2f
-        val gap = dp(1f)
+        val gap = dp(4f)
 
         if (playWhenReady) {
             drawFutureTimeline(canvas, top, bottom, radius, gap)
@@ -115,14 +154,19 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         gap: Float
     ) {
         val narrowView = width.toFloat() < dp(100f)
+        // In normal layouts the cursor sits between separate left/right timeline shapes.
+        // For very narrow layouts preserve the left-edge cursor and full-width timeline.
         val cursorX = if (narrowView) 0f else dp(50f)
+        val cursorWidth = dp(5f)
+        val trailEndX = (cursorX - cursorWidth / 2f - gap).coerceAtLeast(0f)
+        val timelineStartX = if (narrowView) 0f else cursorX + cursorWidth / 2f + gap
         val remainingMs = durationMs - currentPositionMs
         if (remainingMs <= 0L) {
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
             return
         }
 
-        val timelineWidth = (width.toFloat() - cursorX).coerceAtLeast(0f)
+        val timelineWidth = (width.toFloat() - timelineStartX).coerceAtLeast(0f)
         if (timelineWidth <= 0f) return
         val pxPerMs = timelineWidth / remainingMs.toFloat()
         val playMs = playDurationMs
@@ -132,7 +176,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         fun drawPlayUntil(endMs: Long) {
             drawTimelineSegment(
                 canvas, timelinePositionMs, endMs, currentPositionMs, pxPerMs,
-                cursorX, top, bottom, radius, gap, markerColor, 220
+                timelineStartX, top, bottom, radius, gap, markerColor, 220
             )
             timelinePositionMs = endMs
         }
@@ -140,7 +184,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         fun drawSkipUntil(endMs: Long) {
             drawTimelineSegment(
                 canvas, timelinePositionMs, endMs, currentPositionMs, pxPerMs,
-                cursorX, top, bottom, radius, gap, skipColor, 190
+                timelineStartX, top, bottom, radius, gap, skipColor, 190
             )
             timelinePositionMs = endMs
         }
@@ -152,7 +196,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             }
         } else if (remainingMs < playMs + skipMs) {
             if (remainingMs > playMs) drawPlayUntil(durationMs)
-            drawTrail(canvas, cursorX, top, bottom, narrowView)
+            drawTrail(canvas, trailEndX, top, bottom, narrowView)
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
             return
         } else {
@@ -170,7 +214,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val tailMs = durationMs - timelinePositionMs
         if (tailMs > playMs) drawPlayUntil(durationMs)
 
-        drawTrail(canvas, cursorX, top, bottom, narrowView)
+        drawTrail(canvas, trailEndX, top, bottom, narrowView)
         drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
     }
 
@@ -227,14 +271,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private fun drawTrail(
         canvas: Canvas,
-        cursorX: Float,
+        trailEndX: Float,
         top: Float,
         bottom: Float,
         narrowView: Boolean
     ) {
-        if (narrowView || cursorX <= 0f || currentPositionMs <= 0L) return
+        if (narrowView || trailEndX <= 0f || currentPositionMs <= 0L) return
 
-        val trailColor = if (nextSeekPositionMs > currentPositionMs) markerColor else skipColor
+        val trailColor = displayedTrailColor
+            ?: if (nextSeekPositionMs > currentPositionMs) markerColor else skipColor
         val transparentColor = Color.argb(
             0,
             Color.red(trailColor),
@@ -244,10 +289,16 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
         paint.alpha = 255
         paint.shader = LinearGradient(
-            0f, 0f, cursorX, 0f,
+            0f, 0f, trailEndX, 0f,
             transparentColor, trailColor, Shader.TileMode.CLAMP
         )
-        canvas.drawRect(0f, top, cursorX, bottom, paint)
+        // Rounded geometry gives the trail a soft right cap; the cursor gap follows it.
+        canvas.drawRoundRect(
+            RectF(0f, top, trailEndX, bottom),
+            (bottom - top) / 2f,
+            (bottom - top) / 2f,
+            paint
+        )
         paint.shader = null
     }
 
@@ -317,14 +368,14 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 isDragging = true
                 dragPositionMs = positionFromX(event.x)
                 parent?.requestDisallowInterceptTouchEvent(true)
-                invalidate()
+                postInvalidateOnAnimation()
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
                 if (!isDragging) return false
                 dragPositionMs = positionFromX(event.x)
-                invalidate()
+                postInvalidateOnAnimation()
                 return true
             }
 
@@ -336,7 +387,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 dragPositionMs = snappedPositionMs
                 currentPositionMs = snappedPositionMs
                 parent?.requestDisallowInterceptTouchEvent(false)
-                invalidate()
+                postInvalidateOnAnimation()
                 onSeekRequested?.invoke(snappedPositionMs)
                 return true
             }
@@ -346,7 +397,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 isDragging = false
                 dragPositionMs = null
                 parent?.requestDisallowInterceptTouchEvent(false)
-                invalidate()
+                postInvalidateOnAnimation()
                 return true
             }
 
