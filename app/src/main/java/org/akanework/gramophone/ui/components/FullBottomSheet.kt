@@ -179,6 +179,7 @@ class FullBottomSheet
     private var runnableRunning = false
     private var firstTime = false
     private var enableQualityInfo = false
+    private var smartSeekTimelineWasActive = false
 
     private val prefs = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
     private var currentFormat: AudioFormatDetector.AudioFormats? = null
@@ -750,6 +751,16 @@ class FullBottomSheet
         updateSmartSeekProgressOverlay()
     }
 
+    private fun smartSeekMarkerColor(): Int =
+        when (prefs.getString("smart_seek_marker_color", "blue")) {
+            "orange" -> Color.rgb(255, 109, 0)
+            "cyan" -> Color.rgb(0, 184, 212)
+            "lime" -> Color.rgb(124, 179, 66)
+            "pink" -> Color.rgb(245, 0, 87)
+            "violet" -> Color.rgb(124, 77, 255)
+            else -> Color.rgb(26, 79, 163)
+        }
+
     private fun updateSmartSeekProgressOverlay() {
         val overlay = bottomSheetSmartSeekProgressOverlay ?: return
         val button = bottomSheetSmartSeekButton
@@ -758,7 +769,15 @@ class FullBottomSheet
             return
         }
         val enabled = prefs.getBoolean("smart_seek_enabled", true)
-        val active = enabled && activity.controllerViewModel.isSmartSeekActive()
+        val reportedActive = activity.controllerViewModel.isSmartSeekActive()
+        // Preserve the active timeline through the transient seek state; seekTo() must not
+        // switch the View back to the stock progress control for a frame.
+        val active = enabled && (reportedActive || (smartSeekIsSeeking && smartSeekTimelineWasActive))
+        if (!enabled || (!reportedActive && !smartSeekIsSeeking)) {
+            smartSeekTimelineWasActive = false
+        } else if (active) {
+            smartSeekTimelineWasActive = true
+        }
         val paused = active && smartSeekIsPaused
         val player = instance
         val durationMs = player?.contentDuration?.let {
@@ -792,11 +811,7 @@ class FullBottomSheet
             if (paused) {
                 val pausedButton = bottomSheetSmartSeekButton
                 if (pausedButton != null) {
-                    val pausedMarkerColor = MaterialColors.getColor(
-                        pausedButton,
-                        com.google.android.material.R.attr.colorPrimaryContainer,
-                        Color.rgb(255, 109, 0)
-                    )
+                    val pausedMarkerColor = smartSeekMarkerColor()
                     overlay.update(
                         active = false,
                         currentPositionMs = 0L,
@@ -805,18 +820,15 @@ class FullBottomSheet
                         playDurationMs = smartSeekNextPlayDurationMs,
                         skipDurationMs = smartSeekNextSkipDurationMs,
                         seeking = false,
-                        markerColor = pausedMarkerColor
+                        markerColor = pausedMarkerColor,
+                        skipColor = context.getColor(R.color.smart_seek_skip)
                     )
                 }
             }
             return
         }
 
-        val markerColor = MaterialColors.getColor(
-            button,
-            com.google.android.material.R.attr.colorPrimaryContainer,
-            Color.rgb(255, 109, 0)
-        )
+        val markerColor = smartSeekMarkerColor()
         overlay.update(
             active = true,
             currentPositionMs = player?.currentPosition ?: 0L,
@@ -825,7 +837,8 @@ class FullBottomSheet
             playDurationMs = smartSeekNextPlayDurationMs,
             skipDurationMs = smartSeekNextSkipDurationMs,
             seeking = smartSeekIsSeeking,
-            markerColor = markerColor
+            markerColor = markerColor,
+            skipColor = context.getColor(R.color.smart_seek_skip)
         )
     }
 
@@ -1046,13 +1059,14 @@ class FullBottomSheet
             orientation = RadioGroup.VERTICAL
         }
         val markerColorChoices = listOf(
+            Triple("blue", R.string.smart_seek_color_blue, Color.rgb(26, 79, 163)),
             Triple("orange", R.string.smart_seek_color_orange, Color.rgb(255, 109, 0)),
             Triple("cyan", R.string.smart_seek_color_cyan, Color.rgb(0, 184, 212)),
             Triple("lime", R.string.smart_seek_color_lime, Color.rgb(124, 179, 66)),
             Triple("pink", R.string.smart_seek_color_pink, Color.rgb(245, 0, 87)),
             Triple("violet", R.string.smart_seek_color_violet, Color.rgb(124, 77, 255))
         )
-        val savedMarkerColor = prefs.getString("smart_seek_marker_color", "orange")
+        val savedMarkerColor = prefs.getString("smart_seek_marker_color", "blue")
         markerColorChoices.forEach { (key, labelRes, color) ->
             markerColorGroup.addView(
                 RadioButton(context).apply {
@@ -1232,7 +1246,7 @@ class FullBottomSheet
 
                 val selectedMarkerColor = markerColorGroup
                     .findViewById<RadioButton>(markerColorGroup.checkedRadioButtonId)
-                    ?.tag as? String ?: "orange"
+                    ?.tag as? String ?: "blue"
                 prefs.edit {
                     putBoolean("smart_seek_persistent", persistentCheck.isChecked)
                     putString("smart_seek_marker_color", selectedMarkerColor)
