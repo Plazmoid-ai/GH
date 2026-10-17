@@ -12,9 +12,11 @@ package org.akanework.gramophone.ui.components
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -22,8 +24,8 @@ import android.view.View
 /**
  * Canvas-based Smart Seek progress area.
  *
- * Stage 3 renders the remaining track as a future-only timeline. Audible intervals use
- * the Smart Seek accent color; intervals scheduled to be skipped are gray.
+ * The fixed cursor anchors the future-only timeline. Audible intervals use the configured
+ * accent color and skipped intervals use the neutral Smart Seek skip color.
  */
 class SmartSeekProgressOverlay @JvmOverloads constructor(
     context: Context,
@@ -36,22 +38,16 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private val resumeIconPath = Path()
 
     private var active = false
-    private var markerColor = Color.rgb(255, 109, 0)
+    private var markerColor = Color.TRANSPARENT
+    private var skipColor = Color.TRANSPARENT
 
     private var resumeButtonVisible = false
     private var resumeTouchActive = false
 
     /**
      * Invoked when the user taps the centered play button while Smart Seek is paused.
-     * The callback is wired to the controller in Stage 4.
      */
     var onResumeRequested: (() -> Unit)? = null
-
-    init {
-        isClickable = true
-        isFocusable = false
-        setWillNotDraw(false)
-    }
 
     private var currentPositionMs = 0L
     private var durationMs = 0L
@@ -72,7 +68,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         playDurationMs: Long,
         skipDurationMs: Long,
         seeking: Boolean,
-        markerColor: Int
+        markerColor: Int,
+        skipColor: Int = Color.TRANSPARENT
     ) {
         this.active = active
         this.currentPositionMs = currentPositionMs.coerceAtLeast(0L)
@@ -81,12 +78,13 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.playDurationMs = playDurationMs.coerceAtLeast(1L)
         this.skipDurationMs = skipDurationMs.coerceAtLeast(1L)
         this.markerColor = markerColor
+        this.skipColor = skipColor
         invalidate()
     }
 
     /**
-     * Stage 4 will use this to keep the View available for the play button while paused.
-     * In that state, only the icon is drawn; the custom timeline itself is hidden.
+     * Keeps the View available for the play button while paused. In that state, only the
+     * icon is drawn; the custom timeline itself is hidden.
      */
     fun setResumeButtonVisible(visible: Boolean) {
         if (resumeButtonVisible == visible) return
@@ -109,15 +107,19 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             return
         }
 
-        if (!active || width <= 0 || height <= 0) return
+        if (!active || width <= 0 || height <= 0 || durationMs <= currentPositionMs) return
 
-        if (durationMs <= currentPositionMs) return
-
+        val density = resources.displayMetrics.density
         val barHeight = dp(6f)
         val top = (height - barHeight) / 2f
         val bottom = top + barHeight
         val remainingMs = durationMs - currentPositionMs
-        val pxPerMs = width.toFloat() / remainingMs.toFloat()
+        val narrowView = width.toFloat() < dp(100f)
+        val cursorX = if (narrowView) 0f else dp(50f)
+        val timelineWidth = (width.toFloat() - cursorX).coerceAtLeast(0f)
+        if (timelineWidth <= 0f) return
+
+        val pxPerMs = timelineWidth / remainingMs.toFloat()
         val radius = barHeight / 2f
         val gap = dp(1f)
         val playMs = playDurationMs
@@ -128,7 +130,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         fun drawPlayUntil(endMs: Long) {
             drawTimelineSegment(
                 canvas, timelinePositionMs, endMs, currentPositionMs, pxPerMs,
-                top, bottom, radius, gap, markerColor, 220
+                cursorX, top, bottom, radius, gap, markerColor, 220
             )
             timelinePositionMs = endMs
         }
@@ -136,7 +138,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         fun drawSkipUntil(endMs: Long) {
             drawTimelineSegment(
                 canvas, timelinePositionMs, endMs, currentPositionMs, pxPerMs,
-                top, bottom, radius, gap, Color.GRAY, 190
+                cursorX, top, bottom, radius, gap, skipColor, 190
             )
             timelinePositionMs = endMs
         }
@@ -153,7 +155,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         } else if (remainingMs < playMs + skipMs) {
             // The final tail is audible only when it is longer than one play interval.
             if (remainingMs > playMs) drawPlayUntil(durationMs)
-            drawCursor(canvas, top, bottom)
+            drawTrail(canvas, cursorX, top, bottom, narrowView)
+            drawCursor(canvas, cursorX, top, bottom)
             return
         } else {
             drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
@@ -174,7 +177,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             drawPlayUntil(durationMs)
         }
 
-        drawCursor(canvas, top, bottom)
+        drawTrail(canvas, cursorX, top, bottom, narrowView)
+        drawCursor(canvas, cursorX, top, bottom)
     }
 
     private fun drawTimelineSegment(
@@ -183,6 +187,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         endMs: Long,
         currentPositionMs: Long,
         pxPerMs: Float,
+        timelineStartX: Float,
         top: Float,
         bottom: Float,
         radius: Float,
@@ -191,20 +196,43 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         alpha: Int
     ) {
         if (endMs <= startMs) return
-        val rawLeft = (startMs - currentPositionMs).toFloat() * pxPerMs
-        val rawRight = (endMs - currentPositionMs).toFloat() * pxPerMs
+        val rawLeft = timelineStartX + (startMs - currentPositionMs).toFloat() * pxPerMs
+        val rawRight = timelineStartX + (endMs - currentPositionMs).toFloat() * pxPerMs
         val left = if (startMs == currentPositionMs) rawLeft else rawLeft + gap / 2f
         val right = if (endMs >= durationMs) rawRight else rawRight - gap / 2f
         drawSegment(canvas, left, (right - left).coerceAtLeast(0f), top, bottom, radius, color, alpha)
     }
 
-    private fun drawCursor(canvas: Canvas, top: Float, bottom: Float) {
+    private fun drawTrail(
+        canvas: Canvas,
+        cursorX: Float,
+        top: Float,
+        bottom: Float,
+        narrowView: Boolean
+    ) {
+        // A narrow View uses a left-edge cursor and deliberately has no trail.
+        if (narrowView || cursorX <= 0f || currentPositionMs <= 0L) return
+
+        val trailColor = if (nextSeekPositionMs > currentPositionMs) markerColor else skipColor
+        val transparentColor = Color.argb(0, Color.red(trailColor), Color.green(trailColor), Color.blue(trailColor))
         paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.shader = LinearGradient(
+            0f, 0f, cursorX, 0f,
+            transparentColor, trailColor, Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, top, cursorX, bottom, paint)
+        paint.shader = null
+    }
+
+    private fun drawCursor(canvas: Canvas, cursorX: Float, top: Float, bottom: Float) {
+        paint.style = Paint.Style.FILL
+        paint.shader = null
         paint.color = markerColor
         paint.alpha = 255
-        val cursorWidth = dp(2f)
+        val cursorWidth = dp(3f)
         canvas.drawRoundRect(
-            RectF(0f, top - dp(1f), cursorWidth, bottom + dp(1f)),
+            RectF(cursorX, top - dp(1f), cursorX + cursorWidth, bottom + dp(1f)),
             dp(1f),
             dp(1f),
             paint
@@ -223,6 +251,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     ) {
         if (segmentWidth <= 0f) return
         paint.style = Paint.Style.FILL
+        paint.shader = null
         paint.color = color
         paint.alpha = alpha
         canvas.drawRoundRect(
@@ -247,6 +276,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         resumeIconPath.close()
 
         paint.style = Paint.Style.FILL
+        paint.shader = null
         paint.color = markerColor
         paint.alpha = 255
         canvas.drawPath(resumeIconPath, paint)
@@ -302,6 +332,4 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private fun dp(value: Float): Float =
         value * resources.displayMetrics.density
-
-
 }
