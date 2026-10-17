@@ -54,6 +54,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.SeekBar
@@ -1200,8 +1201,11 @@ class FullBottomSheet
         )
 
         addLabel(content, context.getString(R.string.smart_seek_marker_color))
-        val markerColorGroup = RadioGroup(context).apply {
-            orientation = RadioGroup.VERTICAL
+        val markerColorGrid = GridLayout(context).apply {
+            columnCount = 3
+            rowCount = 2
+            useDefaultMargins = false
+            alignmentMode = GridLayout.ALIGN_BOUNDS
         }
         val markerColorChoices = listOf(
             Triple("blue", R.string.smart_seek_color_blue, Color.rgb(26, 79, 163)),
@@ -1211,19 +1215,41 @@ class FullBottomSheet
             Triple("pink", R.string.smart_seek_color_pink, Color.rgb(245, 0, 87)),
             Triple("violet", R.string.smart_seek_color_violet, Color.rgb(124, 77, 255))
         )
-        val savedMarkerColor = prefs.getString("smart_seek_marker_color", "blue")
-        markerColorChoices.forEach { (key, labelRes, color) ->
-            markerColorGroup.addView(
-                RadioButton(context).apply {
-                    id = View.generateViewId()
-                    tag = key
-                    text = context.getString(labelRes)
-                    buttonTintList = ColorStateList.valueOf(color)
-                    isChecked = key == savedMarkerColor
+        val savedMarkerColor = prefs.getString("smart_seek_marker_color", "blue") ?: "blue"
+        var selectedMarkerColor = savedMarkerColor
+        val markerColorButtons = mutableListOf<RadioButton>()
+        markerColorChoices.forEachIndexed { index, (key, labelRes, color) ->
+            val button = RadioButton(context).apply {
+                id = View.generateViewId()
+                tag = key
+                text = context.getString(labelRes)
+                buttonTintList = ColorStateList.valueOf(color)
+                isChecked = key == selectedMarkerColor
+                setOnClickListener {
+                    selectedMarkerColor = key
+                    markerColorButtons.forEach { it.isChecked = it.tag == key }
+                }
+            }
+            markerColorButtons += button
+            markerColorGrid.addView(
+                button,
+                GridLayout.LayoutParams(
+                    GridLayout.spec(index / 3),
+                    GridLayout.spec(index % 3, GridLayout.FILL, 1f)
+                ).apply {
+                    width = 0
+                    height = LinearLayout.LayoutParams.WRAP_CONTENT
+                    setMargins(sectionGap / 2, 0, sectionGap / 2, 0)
                 }
             )
         }
-        content.addView(markerColorGroup)
+        content.addView(
+            markerColorGrid,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
 
         val scroll = ScrollView(context).apply {
             isFillViewport = true
@@ -1389,9 +1415,6 @@ class FullBottomSheet
                     boostBuffer = boostBufferCheck.isChecked
                 ).save(prefs)
 
-                val selectedMarkerColor = markerColorGroup
-                    .findViewById<RadioButton>(markerColorGroup.checkedRadioButtonId)
-                    ?.tag as? String ?: "blue"
                 prefs.edit {
                     putBoolean("smart_seek_persistent", persistentCheck.isChecked)
                     putString("smart_seek_marker_color", selectedMarkerColor)
