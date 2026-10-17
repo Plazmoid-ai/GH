@@ -761,6 +761,10 @@ class FullBottomSheet
             else -> Color.rgb(26, 79, 163)
         }
 
+    private fun setVisibilityIfChanged(view: View, visibility: Int) {
+        if (view.visibility != visibility) view.visibility = visibility
+    }
+
     private fun updateSmartSeekProgressOverlay() {
         val overlay = bottomSheetSmartSeekProgressOverlay ?: return
         val button = bottomSheetSmartSeekButton
@@ -785,25 +789,23 @@ class FullBottomSheet
         } ?: player?.currentMediaItem?.mediaMetadata?.durationMs
             ?: player?.duration?.takeIf { it != C.TIME_UNSET }
             ?: 0L
-        val cycleDurationMs = smartSeekNextPlayDurationMs + smartSeekNextSkipDurationMs
-        val hasUsableTimeline = durationMs > 0L && durationMs >= cycleDurationMs
-        val showCustomTimeline = active && !paused && hasUsableTimeline
+        // Visibility follows the Smart Seek state, not transient timeline metadata.
+        // Even if duration/position briefly becomes unavailable during seekTo(), never expose
+        // the stock bar for a frame while Smart Seek is running.
+        val showCustomTimeline = active && !paused
+        setVisibilityIfChanged(overlay, if (showCustomTimeline || paused) VISIBLE else GONE)
 
-        // A track shorter than one complete Smart Seek cycle has no useful segmented timeline.
-        // Keep the normal seek control visible instead; while paused, retain the resume icon.
-        overlay.visibility = if (showCustomTimeline || paused) VISIBLE else GONE
-
-        // During Smart Seek playback, show the custom timeline instead of the stock control.
-        // Otherwise, keep the configured stock control available for seeking.
+        // Keep both stock controls hard-hidden for the entire active playback state.
+        // Only restore the configured stock control when Smart Seek is stopped or paused.
         if (showCustomTimeline) {
-            bottomSheetFullSeekBar.visibility = GONE
-            bottomSheetFullSlider.visibility = GONE
+            setVisibilityIfChanged(bottomSheetFullSeekBar, GONE)
+            setVisibilityIfChanged(bottomSheetFullSlider, GONE)
         } else if (prefs.getBooleanStrict("default_progress_bar", false)) {
-            bottomSheetFullSeekBar.visibility = GONE
-            bottomSheetFullSlider.visibility = VISIBLE
+            setVisibilityIfChanged(bottomSheetFullSeekBar, GONE)
+            setVisibilityIfChanged(bottomSheetFullSlider, VISIBLE)
         } else {
-            bottomSheetFullSlider.visibility = GONE
-            bottomSheetFullSeekBar.visibility = VISIBLE
+            setVisibilityIfChanged(bottomSheetFullSlider, GONE)
+            setVisibilityIfChanged(bottomSheetFullSeekBar, VISIBLE)
         }
 
         overlay.setResumeButtonVisible(paused)
