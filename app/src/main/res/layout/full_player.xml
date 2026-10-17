@@ -340,14 +340,6 @@
                         android:background="?colorPrimary" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/smart_seek_total_periods"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="0dp"
-                    android:textColor="?colorOnSurfaceVariant"
-                    android:textSize="11sp" />
-
             </LinearLayout>
 
             <TextView
