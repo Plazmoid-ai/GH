@@ -325,7 +325,7 @@
                 app:layout_constrainedWidth="true"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toStartOf="@id/duration"
-                app:layout_constraintStart_toEndOf="@id/position"
+                app:layout_constraintStart_toEndOf="@id/smart_seek_time_panel"
                 app:layout_constraintTop_toTopOf="parent"
                 app:textFontWeight="600"
                 tools:text="16-bit / 44.1KHz / 2ch" />
