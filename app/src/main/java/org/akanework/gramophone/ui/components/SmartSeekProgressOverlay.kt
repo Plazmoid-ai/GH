@@ -20,6 +20,7 @@ import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.google.android.material.color.MaterialColors
 
 /**
  * Canvas-based Smart Seek progress area.
@@ -233,13 +234,21 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private fun drawCursor(canvas: Canvas, cursorX: Float, top: Float, bottom: Float) {
         paint.style = Paint.Style.FILL
         paint.shader = null
-        paint.color = markerColor
+        // Use the theme's foreground color, independent of the play/skip accent.
+        paint.color = MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOnSurface
+        )
         paint.alpha = 255
-        val cursorWidth = dp(3f)
+
+        val cursorWidth = dp(5f)
+        val cursorExtension = dp(5f)
+        val left = if (width.toFloat() < dp(100f)) cursorX else cursorX - cursorWidth / 2f
+        val right = left + cursorWidth
         canvas.drawRoundRect(
-            RectF(cursorX, top - dp(1f), cursorX + cursorWidth, bottom + dp(1f)),
-            dp(1f),
-            dp(1f),
+            RectF(left, top - cursorExtension, right, bottom + cursorExtension),
+            cursorWidth / 2f,
+            cursorWidth / 2f,
             paint
         )
     }
