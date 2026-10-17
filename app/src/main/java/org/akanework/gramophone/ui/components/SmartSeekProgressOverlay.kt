@@ -55,6 +55,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var playDurationMs = 15_000L
     private var skipDurationMs = 30_000L
 
+    init {
+        isClickable = true
+        isFocusable = false
+        setWillNotDraw(false)
+    }
+
     /**
      * Updates the live timeline. The next seek position marks the end of the current
      * audible interval; after it, the timeline alternates play and skip intervals.
@@ -109,7 +115,6 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         if (!active || width <= 0 || height <= 0 || durationMs <= currentPositionMs) return
 
-        val density = resources.displayMetrics.density
         val barHeight = dp(6f)
         val top = (height - barHeight) / 2f
         val bottom = top + barHeight
