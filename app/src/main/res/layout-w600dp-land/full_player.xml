@@ -201,6 +201,17 @@
 
         </FrameLayout>
 
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/duration_frame"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="28dp"
+            app:layout_constraintBottom_toTopOf="@id/sheet_mid_button"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/slider"
+            app:layout_constraintVertical_bias="0.0">
+
             <TextView
                 android:id="@+id/smart_seek_listened_time"
                 android:layout_width="wrap_content"
@@ -214,17 +225,6 @@
                 app:layout_constraintTop_toTopOf="parent"
                 app:textFontWeight="600"
                 tools:text="1:12" />
-
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/duration_frame"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="28dp"
-            app:layout_constraintBottom_toTopOf="@id/sheet_mid_button"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/slider"
-            app:layout_constraintVertical_bias="0.0">
 
             <LinearLayout
                 android:id="@+id/smart_seek_time_panel"
