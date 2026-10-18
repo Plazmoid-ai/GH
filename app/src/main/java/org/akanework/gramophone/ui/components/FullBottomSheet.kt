@@ -675,10 +675,10 @@ class FullBottomSheet
                         } else {
                             when {
                                 dx >= swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
-                                    instance?.seekToPrevious()
+                                    instance?.seekToPreviousMediaItem()
                                 }
                                 dx <= -swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
-                                    instance?.seekToNext()
+                                    instance?.seekToNextMediaItem()
                                 }
                                 dy <= -swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
                                     ViewCompat.performHapticFeedback(
@@ -1600,6 +1600,11 @@ class FullBottomSheet
     }
 
     private fun refreshSettings(key: String?) {
+        if (key == null || key == "hide_track_buttons") {
+            val visibility = if (prefs.getBoolean("hide_track_buttons", false)) GONE else VISIBLE
+            bottomSheetFullNextButton.visibility = visibility
+            bottomSheetFullPreviousButton.visibility = visibility
+        }
         if (key == null || key == "default_progress_bar") {
             if (prefs.getBooleanStrict("default_progress_bar", false)) {
                 bottomSheetFullSlider.visibility = VISIBLE

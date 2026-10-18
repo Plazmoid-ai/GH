@@ -64,6 +64,15 @@
             app:showSeekBarValue="true" />
 
         <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="hide_track_buttons"
+            android:layout="@layout/preference_switch"
+            android:summary="@string/settings_hide_track_buttons_summary"
+            android:title="@string/settings_hide_track_buttons"
+            android:widgetLayout="@layout/preference_switch_widget"
+            app:iconSpaceReserved="false" />
+
+        <SwitchPreferenceCompat
             android:defaultValue="true"
             android:key="lyric_ui_v2"
             android:layout="@layout/preference_switch"

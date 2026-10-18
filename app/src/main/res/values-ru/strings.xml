@@ -121,6 +121,8 @@
     <string name="settings_player_swipes">Свайпы на кнопке Play</string>
     <string name="settings_player_swipes_summary">Вправо/влево — предыдущий/следующий трек, вверх — открыть очередь</string>
     <string name="settings_player_swipe_sensitivity">Чувствительность свайпа (dp)</string>
+    <string name="settings_hide_track_buttons">Скрыть кнопки переключения (Свайп-режим)</string>
+    <string name="settings_hide_track_buttons_summary">Убирает кнопки «Вперед/Назад», оставляя управление только свайпами по главной кнопке</string>
     <string name="settings_color_accuracy_summary">Более точная генерация цветов</string>
     <string name="settings_experimental_settings_summary">Тестирование функций, разное</string>
     <string name="settings_blacklist">Чёрный список</string>

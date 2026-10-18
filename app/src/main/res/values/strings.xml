@@ -257,6 +257,8 @@
     <string name="settings_player_swipes_summary">Swipe right/left to change tracks, or up to open the queue</string>
     <!-- Minimum swipe distance for player swipe controls, in dp. -->
     <string name="settings_player_swipe_sensitivity">Swipe sensitivity (dp)</string>
+    <string name="settings_hide_track_buttons">Hide track buttons (Swipe mode)</string>
+    <string name="settings_hide_track_buttons_summary">Hides the Next/Previous buttons, leaving swipe controls on the main button only</string>
     <!-- Sort songs by date created (of file) -->
     <string name="sort_by_add_date">Add date</string>
     <!-- Sort songs by date modified (of file) -->
