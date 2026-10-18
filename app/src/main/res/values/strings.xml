@@ -251,6 +251,12 @@
     <!-- Toggle which makes color detection for album cover based color use more CPU to detect the
     color, which improves accuracy but causes some lags on old devices. Title -->
     <string name="settings_color_accuracy">Color accuracy</string>
+    <!-- Toggle for swipe gestures on the full player's Play/Pause button. Title -->
+    <string name="settings_player_swipes">Swipes on Play button</string>
+    <!-- Toggle for swipe gestures on the full player's Play/Pause button. Summary -->
+    <string name="settings_player_swipes_summary">Swipe right/left to change tracks, or up to open the queue</string>
+    <!-- Minimum swipe distance for player swipe controls, in dp. -->
+    <string name="settings_player_swipe_sensitivity">Swipe sensitivity (dp)</string>
     <!-- Sort songs by date created (of file) -->
     <string name="sort_by_add_date">Add date</string>
     <!-- Sort songs by date modified (of file) -->
