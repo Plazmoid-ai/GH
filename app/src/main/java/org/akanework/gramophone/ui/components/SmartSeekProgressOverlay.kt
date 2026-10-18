@@ -18,10 +18,12 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import com.google.android.material.color.MaterialColors
+import org.akanework.gramophone.logic.utils.CalculationUtils
 
 /**
  * Smart Seek progress renderer.
@@ -36,6 +38,14 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        textSize = sp(12f)
+    }
+    private val hudCounterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        textSize = sp(17f)
+    }
 
     private var active = false
     private var playWhenReady = false
@@ -50,6 +60,14 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var nextSeekPositionMs = -1L
     private var playDurationMs = 15_000L
     private var skipDurationMs = 30_000L
+    private var hudPlayLabel = "15"
+    private var hudSkipLabel = "30"
+    private var hudRemainingMs = 15_000L
+    private var hudPassedPeriods = 0
+    private var hudRemainingPeriods = 0
+    private var hudAccentColor = Color.rgb(124, 77, 255)
+    private var hudPassedColor = Color.rgb(166, 139, 255)
+    private var hudOnSurfaceColor = Color.rgb(51, 51, 51)
 
     private var isDragging = false
     private var dragPositionMs: Long? = null
@@ -72,7 +90,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         skipDurationMs: Long,
         playWhenReady: Boolean,
         markerColor: Int,
-        skipColor: Int = Color.TRANSPARENT
+        skipColor: Int = Color.TRANSPARENT,
+        hudPlayLabel: String = "15",
+        hudSkipLabel: String = "30",
+        hudRemainingMs: Long = 15_000L,
+        hudPassedPeriods: Int = 0,
+        hudRemainingPeriods: Int = 0,
+        hudAccentColor: Int = Color.rgb(124, 77, 255),
+        hudPassedColor: Int = Color.rgb(166, 139, 255),
+        hudOnSurfaceColor: Int = Color.rgb(51, 51, 51)
     ) {
         this.active = active
         this.playWhenReady = playWhenReady
@@ -83,6 +109,14 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.skipDurationMs = skipDurationMs.coerceAtLeast(1L)
         this.markerColor = markerColor
         this.skipColor = skipColor
+        this.hudPlayLabel = hudPlayLabel
+        this.hudSkipLabel = hudSkipLabel
+        this.hudRemainingMs = hudRemainingMs.coerceAtLeast(0L)
+        this.hudPassedPeriods = hudPassedPeriods.coerceAtLeast(0)
+        this.hudRemainingPeriods = hudRemainingPeriods.coerceAtLeast(0)
+        this.hudAccentColor = hudAccentColor
+        this.hudPassedColor = hudPassedColor
+        this.hudOnSurfaceColor = hudOnSurfaceColor
 
         val desiredTrailColor = if (this.nextSeekPositionMs > this.currentPositionMs) {
             this.markerColor
@@ -135,18 +169,115 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val radius = barHeight / 2f
         val gap = dp(4f)
 
+        val narrowView = width.toFloat() < dp(100f)
+        val cursorX = if (playWhenReady) {
+            if (narrowView) 0f else dp(50f)
+        } else {
+            val selectedPosition = dragPositionMs ?: currentPositionMs
+            (selectedPosition.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
+        }
+
         if (playWhenReady) {
             drawFutureTimeline(canvas, top, bottom, radius, gap)
             drawHorizon(canvas)
-            // Keep the fixed cursor crisp and centered over the symmetric 4dp gaps.
-            val narrowView = width.toFloat() < dp(100f)
-            drawCursor(canvas, if (narrowView) 0f else dp(50f), top, bottom, leftEdge = narrowView)
+            // The HUD follows the same fixed cursor as the future-only playback timeline.
+            drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
         } else {
             drawFullTrack(canvas, top, bottom, radius, gap)
-            val selectedPosition = dragPositionMs ?: currentPositionMs
-            val cursorX = (selectedPosition.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
             drawCursor(canvas, cursorX, top, bottom)
         }
+        drawHud(canvas, cursorX, top, bottom)
+    }
+
+    /**
+     * Draws the HUD around the current cursor. The timer and counters are opaque and use
+     * independent colors so the configured accent never recolors the entire line.
+     */
+    private fun drawHud(canvas: Canvas, cursorX: Float, barTop: Float, barBottom: Float) {
+        val gray = Color.rgb(158, 158, 158)
+        val margin = dp(4f)
+        val centerY = (barTop + barBottom) / 2f
+        val topBaseline = centerY - dp(17f)
+        val counterBaseline = centerY + dp(32f)
+        val spacing = dp(5f)
+
+        hudTextPaint.textSize = sp(12f)
+        val skip = hudSkipLabel
+        val openBracket = "["
+        val timer = CalculationUtils.convertDurationToTimeStamp(hudRemainingMs)
+        val closeBracket = "]"
+        val play = hudPlayLabel
+        val topParts = listOf(
+            skip to gray,
+            openBracket to gray,
+            timer to hudOnSurfaceColor,
+            closeBracket to gray,
+            play to hudAccentColor
+        )
+        val topWidth = topParts.sumOf { hudTextPaint.measureText(it.first).toDouble() }.toFloat() +
+            spacing * (topParts.size - 1)
+        val topX = (cursorX - topWidth / 2f).coerceIn(
+            margin,
+            (width.toFloat() - margin - topWidth).coerceAtLeast(margin)
+        )
+        var x = topX
+        topParts.forEachIndexed { index, (text, color) ->
+            hudTextPaint.color = color
+            hudTextPaint.alpha = 255
+            canvas.drawText(text, x, topBaseline, hudTextPaint)
+            x += hudTextPaint.measureText(text)
+            if (index != topParts.lastIndex) x += spacing
+        }
+
+        // The chevron's glyph center is always on cursorX. Values are fitted into their
+        // respective half of the view, so they cannot be clipped by the screen edges.
+        hudCounterPaint.textSize = sp(17f)
+        hudCounterPaint.color = gray
+        hudCounterPaint.alpha = 255
+        val arrow = "<"
+        val arrowWidth = hudCounterPaint.measureText(arrow)
+        val sideGap = dp(5f)
+        val arrowLeft = cursorX - arrowWidth / 2f
+        canvas.drawText(arrow, arrowLeft, counterBaseline, hudCounterPaint)
+
+        val passed = hudPassedPeriods.toString()
+        val remaining = hudRemainingPeriods.toString()
+        val leftAvailable = (arrowLeft - sideGap - margin).coerceAtLeast(0f)
+        val rightStart = cursorX + arrowWidth / 2f + sideGap
+        val rightAvailable = (width.toFloat() - margin - rightStart).coerceAtLeast(0f)
+        drawFittedCounterText(
+            canvas, passed, leftAvailable, counterBaseline, hudPassedColor, alignRight = true
+        )
+        drawFittedCounterText(
+            canvas, remaining, rightAvailable, counterBaseline, hudAccentColor, alignRight = false,
+            startX = rightStart
+        )
+    }
+
+    private fun drawFittedCounterText(
+        canvas: Canvas,
+        text: String,
+        availableWidth: Float,
+        baseline: Float,
+        color: Int,
+        alignRight: Boolean,
+        startX: Float = 0f
+    ) {
+        if (availableWidth <= 0f) return
+        val measuredWidth = hudCounterPaint.measureText(text)
+        val scale = (availableWidth / measuredWidth.coerceAtLeast(1f)).coerceAtMost(1f)
+        hudCounterPaint.color = color
+        hudCounterPaint.alpha = 255
+        val oldScaleX = hudCounterPaint.textScaleX
+        hudCounterPaint.textScaleX = oldScaleX * scale
+        val scaledWidth = measuredWidth * scale
+        val x = if (alignRight) {
+            (startX + availableWidth - scaledWidth).coerceAtLeast(0f)
+        } else {
+            startX
+        }
+        canvas.drawText(text, x, baseline, hudCounterPaint)
+        hudCounterPaint.textScaleX = oldScaleX
     }
 
     /** Playback mode: the timeline starts at a fixed x-position and represents only the future. */
@@ -480,6 +611,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private fun dp(value: Float): Float =
         value * resources.displayMetrics.density
+
+    private fun sp(value: Float): Float =
+        value * resources.displayMetrics.scaledDensity
 
     private companion object {
         const val MIN_SEGMENT_WIDTH_DP = 6f
