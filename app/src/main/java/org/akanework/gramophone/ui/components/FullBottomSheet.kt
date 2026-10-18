@@ -335,6 +335,7 @@ class FullBottomSheet
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
         bottomSheetSmartSeekProgressOverlay = findViewById(R.id.smart_seek_progress_overlay)
         bottomSheetSmartSeekProgressOverlay?.onSeekRequested = { positionMs ->
+            smartSeekNextPositionMs = -1L
             instance?.seekTo(positionMs)
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
@@ -853,6 +854,11 @@ class FullBottomSheet
         } else {
             (playMs - (currentPositionMs % cycleMs)).coerceIn(0L, playMs)
         }
+        val resolvedNextSeekPositionMs = if (smartSeekNextPositionMs > currentPositionMs) {
+            smartSeekNextPositionMs
+        } else {
+            (currentPositionMs + remainingMs).coerceAtMost(durationMs)
+        }
         val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
         val elapsedPeriods = currentPositionMs / cycleMs
         val justFinishedPlayInterval = smartSeekNextPositionMs > 0L &&
@@ -887,7 +893,7 @@ class FullBottomSheet
             active = active,
             currentPositionMs = currentPositionMs,
             durationMs = durationMs,
-            nextSeekPositionMs = smartSeekNextPositionMs,
+            nextSeekPositionMs = resolvedNextSeekPositionMs,
             playDurationMs = playMs,
             skipDurationMs = skipMs,
             playWhenReady = player?.playWhenReady == true,
@@ -902,7 +908,8 @@ class FullBottomSheet
             hudPassedColor = passedColor,
             hudOnSurfaceColor = onSurfaceColor
         )
-        updateSmartSeekTimePanel(active, player, durationMs)
+        val totalPlayMs = totalPeriods * playMs
+        updateSmartSeekTimePanel(active, player, durationMs, totalPlayMs)
     }
 
     private fun isSmartSeekTimePanelActive(): Boolean =
@@ -918,7 +925,8 @@ class FullBottomSheet
     private fun updateSmartSeekTimePanel(
         active: Boolean = isSmartSeekTimePanelActive(),
         player: MediaBrowser? = instance,
-        durationMs: Long = currentTrackDurationMs(player)
+        durationMs: Long = currentTrackDurationMs(player),
+        totalPlayDurationMs: Long = durationMs
     ) {
         // Accumulate only actual playback time spent inside a Smart Seek play interval.
         val sampleTime = SystemClock.elapsedRealtime()
@@ -941,7 +949,8 @@ class FullBottomSheet
             Color.DKGRAY
         )
         val accentColor = smartSeekMarkerColor()
-        val durationText = CalculationUtils.convertDurationToTimeStamp(durationMs)
+        val displayedDurationMs = if (active) totalPlayDurationMs else durationMs
+        val durationText = CalculationUtils.convertDurationToTimeStamp(displayedDurationMs)
         setSmartSeekDurationPanelText(
             durationText,
             "duration:$durationText:${if (active) accentColor else stockColor}"

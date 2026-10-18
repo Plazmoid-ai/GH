@@ -125,7 +125,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         }
         updateTrailColor(desiredTrailColor, active && playWhenReady)
 
-        if (!active || playWhenReady) {
+        if (!active) {
             isDragging = false
             dragPositionMs = null
         }
@@ -170,11 +170,13 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val gap = dp(4f)
 
         val narrowView = width.toFloat() < dp(100f)
-        val rawCursorX = if (playWhenReady) {
+        val selectedPositionMs = dragPositionMs ?: currentPositionMs
+        val rawCursorX = if (isDragging) {
+            (selectedPositionMs.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
+        } else if (playWhenReady) {
             if (narrowView) 0f else dp(50f)
         } else {
-            val selectedPosition = dragPositionMs ?: currentPositionMs
-            (selectedPosition.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
+            (currentPositionMs.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
         }
         // Match the visual center of the 5dp cursor even at the track's extreme edges.
         val halfCursorWidth = dp(2.5f)
@@ -183,10 +185,13 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             (width.toFloat() - halfCursorWidth).coerceAtLeast(halfCursorWidth)
         )
 
-        if (playWhenReady) {
+        if (isDragging) {
+            // While scrubbing, show the full segmented timeline and move the cursor with the finger.
+            drawFullTrack(canvas, top, bottom, radius, gap)
+            drawCursor(canvas, cursorX, top, bottom)
+        } else if (playWhenReady) {
             drawFutureTimeline(canvas, top, bottom, radius, gap)
             drawHorizon(canvas)
-            // The HUD follows the same fixed cursor as the future-only playback timeline.
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
         } else {
             drawFullTrack(canvas, top, bottom, radius, gap)
@@ -237,7 +242,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         // The chevron's glyph center is always on cursorX. Values are fitted into their
         // respective half of the view, so they cannot be clipped by the screen edges.
-        hudCounterPaint.textSize = sp(17f)
+        hudCounterPaint.textSize = sp(12f)
         hudCounterPaint.color = gray
         hudCounterPaint.alpha = 255
         val arrow = "<"
@@ -347,7 +352,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             }
         } else if (remainingMs < playMs + skipMs) {
             if (remainingMs > playMs) drawPlayUntil(durationMs)
-            drawTrail(canvas, trailEndX, top, bottom, narrowView)
+            drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, narrowView)
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
             return
         } else {
@@ -369,7 +374,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val tailMs = durationMs - timelinePositionMs
         if (visualX < width.toFloat() && tailMs > playMs) drawPlayUntil(durationMs)
 
-        drawTrail(canvas, trailEndX, top, bottom, narrowView)
+        drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, narrowView)
         drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
     }
 
@@ -455,34 +460,88 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         paint.shader = null
     }
 
-    private fun drawTrail(
+    /**
+     * Draw recent elapsed play/skip intervals as separate segments. Each segment has
+     * its own left-to-right fade; no continuous gradient is painted behind the cursor.
+     */
+    private fun drawPastTimeline(
         canvas: Canvas,
         trailEndX: Float,
         top: Float,
         bottom: Float,
+        radius: Float,
+        gap: Float,
         narrowView: Boolean
     ) {
         if (narrowView || trailEndX <= 0f || currentPositionMs <= 0L) return
 
-        val trailColor = displayedTrailColor
-            ?: if (nextSeekPositionMs > currentPositionMs) markerColor else skipColor
-        val transparentColor = Color.argb(
-            0,
-            Color.red(trailColor),
-            Color.green(trailColor),
-            Color.blue(trailColor)
-        )
+        data class PastSegment(val startMs: Long, val endMs: Long, val color: Int, val alpha: Int)
+        val playMs = playDurationMs.coerceAtLeast(1L)
+        val skipMs = skipDurationMs.coerceAtLeast(1L)
+        val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
+        val minSegmentWidth = dp(3f)
+        val maxSegments = ((trailEndX + gap) / (minSegmentWidth + gap))
+            .toInt().coerceIn(1, 10)
+        val segmentsNewestFirst = mutableListOf<PastSegment>()
+        var cursorMs = currentPositionMs.coerceAtMost(durationMs)
+
+        while (cursorMs > 0L && segmentsNewestFirst.size < maxSegments) {
+            val cycleIndex = (cursorMs - 1L) / cycleMs
+            val cycleStart = cycleIndex * cycleMs
+            val playEnd = (cycleStart + playMs).coerceAtMost(durationMs)
+            val segment = if (cursorMs > playEnd) {
+                val start = (cycleStart + playMs).coerceAtMost(cursorMs)
+                PastSegment(start, cursorMs, skipColor, 190)
+            } else {
+                PastSegment(cycleStart, cursorMs.coerceAtMost(playEnd), markerColor, 220)
+            }
+            if (segment.endMs <= segment.startMs) break
+            segmentsNewestFirst += segment
+            cursorMs = segment.startMs
+        }
+
+        val segments = segmentsNewestFirst.asReversed()
+        if (segments.isEmpty()) return
+        val totalTimeMs = segments.sumOf { (it.endMs - it.startMs).coerceAtLeast(0L) }
+        if (totalTimeMs <= 0L) return
+
+        val gapsWidth = gap * (segments.size - 1)
+        val segmentsWidth = (trailEndX - gapsWidth).coerceAtLeast(0f)
+        val pxPerMs = segmentsWidth / totalTimeMs.toFloat()
+        var x = 0f
+        segments.forEachIndexed { index, segment ->
+            val segmentWidth = (segment.endMs - segment.startMs).toFloat() * pxPerMs
+            drawFadedSegment(
+                canvas, x, segmentWidth, top, bottom, radius, segment.color, segment.alpha
+            )
+            x += segmentWidth
+            if (index != segments.lastIndex) x += gap
+        }
+    }
+
+    private fun drawFadedSegment(
+        canvas: Canvas,
+        left: Float,
+        segmentWidth: Float,
+        top: Float,
+        bottom: Float,
+        radius: Float,
+        color: Int,
+        alpha: Int
+    ) {
+        if (segmentWidth <= 0f) return
+        val transparentColor = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
+        val opaqueColor = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
         paint.style = Paint.Style.FILL
         paint.alpha = 255
         paint.shader = LinearGradient(
-            0f, 0f, trailEndX, 0f,
-            transparentColor, trailColor, Shader.TileMode.CLAMP
+            left, 0f, left + segmentWidth, 0f,
+            transparentColor, opaqueColor, Shader.TileMode.CLAMP
         )
-        // Rounded geometry gives the trail a soft right cap; the cursor gap follows it.
         canvas.drawRoundRect(
-            RectF(0f, top, trailEndX, bottom),
-            (bottom - top) / 2f,
-            (bottom - top) / 2f,
+            RectF(left, top, left + segmentWidth, bottom),
+            radius,
+            radius,
             paint
         )
         paint.shader = null
@@ -540,17 +599,27 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // In playback mode, deliberately return false so the overlay does not intercept touches.
-        if (!active || playWhenReady || durationMs <= 0L || width <= 0) {
+        if (!active || durationMs <= 0L || width <= 0) {
             if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 isDragging = false
                 dragPositionMs = null
+                parent?.requestDisallowInterceptTouchEvent(false)
             }
             return false
         }
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                val narrowView = width.toFloat() < dp(100f)
+                val cursorX = if (playWhenReady) {
+                    if (narrowView) 0f else dp(50f)
+                } else {
+                    (currentPositionMs.toFloat() / durationMs.toFloat() * width)
+                        .coerceIn(0f, width.toFloat())
+                }
+                val inCursorZone = kotlin.math.abs(event.x - cursorX) <= dp(18f) &&
+                    kotlin.math.abs(event.y - height / 2f) <= dp(22f)
+                if (!inCursorZone) return false
                 isDragging = true
                 dragPositionMs = positionFromX(event.x)
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -568,13 +637,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 if (!isDragging) return false
                 val newPositionMs = positionFromX(event.x)
-                val snappedPositionMs = nearestPlaySegmentStart(newPositionMs)
                 isDragging = false
-                dragPositionMs = snappedPositionMs
-                currentPositionMs = snappedPositionMs
+                dragPositionMs = null
+                currentPositionMs = newPositionMs
                 parent?.requestDisallowInterceptTouchEvent(false)
                 postInvalidateOnAnimation()
-                onSeekRequested?.invoke(snappedPositionMs)
+                onSeekRequested?.invoke(newPositionMs)
                 return true
             }
 
@@ -596,23 +664,6 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         return (x.coerceIn(0f, width.toFloat()) / width.toFloat() * durationMs.toFloat())
             .toLong()
             .coerceIn(0L, durationMs)
-    }
-
-    /** Finds the closest cycle origin, i.e. the start of a play segment. */
-    private fun nearestPlaySegmentStart(positionMs: Long): Long {
-        if (durationMs <= 0L) return 0L
-        val maxStart = (durationMs - 1L).coerceAtLeast(0L)
-        val safePosition = positionMs.coerceIn(0L, maxStart)
-        val cycleDurationMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
-        val previousStart = (safePosition / cycleDurationMs) * cycleDurationMs
-        val nextStart = previousStart + cycleDurationMs
-
-        if (nextStart <= maxStart &&
-            nextStart - safePosition < safePosition - previousStart
-        ) {
-            return nextStart
-        }
-        return previousStart.coerceAtMost(maxStart)
     }
 
     private fun dp(value: Float): Float =
