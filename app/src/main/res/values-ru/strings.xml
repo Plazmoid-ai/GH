@@ -567,6 +567,7 @@
     <string name="smart_seek_save">Сохранить</string>
     <string name="smart_seek_invalid_value">Введите значение от 1 до %1$d.</string>
     <string name="smart_seek_marker_color">Цвет меток Smart Seek</string>
+    <string name="smart_seek_disable_custom_accent">Отключить свой цвет</string>
     <string name="smart_seek_color_orange">Оранжевый</string>
     <string name="smart_seek_color_cyan">Голубой</string>
     <string name="smart_seek_color_lime">Зелёный</string>

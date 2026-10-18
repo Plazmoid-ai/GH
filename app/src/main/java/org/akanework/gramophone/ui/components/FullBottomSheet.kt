@@ -193,6 +193,8 @@ class FullBottomSheet
         const val BACKGROUND_COLOR_TRANSITION_SEC: Long = 300
         const val FOREGROUND_COLOR_TRANSITION_SEC: Long = 150
         const val LYRIC_FADE_TRANSITION_SEC: Long = 125
+        private const val SWIPE_SENSITIVITY_MIN_VALUE = 30
+        private const val SWIPE_SENSITIVITY_MAX_VALUE = 120
         private const val TAG = "FullBottomSheet"
     }
 
@@ -668,17 +670,20 @@ class FullBottomSheet
                         swipeGestureHandled = true
                         val dx = event.x - swipeStartX
                         val dy = event.y - swipeStartY
-                        val swipeThreshold = prefs.getInt("player_swipe_sensitivity", 60)
-                            .coerceIn(30, 120) * resources.displayMetrics.density
+                        val savedValue = prefs.getInt("player_swipe_sensitivity", 60)
+                            .coerceIn(SWIPE_SENSITIVITY_MIN_VALUE, SWIPE_SENSITIVITY_MAX_VALUE)
+                        val actualThreshold = SWIPE_SENSITIVITY_MAX_VALUE - savedValue +
+                            SWIPE_SENSITIVITY_MIN_VALUE
+                        val swipeThreshold = actualThreshold * resources.displayMetrics.density
                         if (!isSwiping) {
                             view.performClick()
                         } else {
                             when {
                                 dx >= swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
-                                    instance?.seekToPreviousMediaItem()
+                                    instance?.seekToNextMediaItem()
                                 }
                                 dx <= -swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
-                                    instance?.seekToNextMediaItem()
+                                    instance?.seekToPreviousMediaItem()
                                 }
                                 dy <= -swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
                                     ViewCompat.performHapticFeedback(
@@ -904,8 +909,15 @@ class FullBottomSheet
         updateSmartSeekProgressOverlay()
     }
 
-    private fun smartSeekMarkerColor(): Int =
-        when (prefs.getString("smart_seek_marker_color", "blue")) {
+    private fun smartSeekMarkerColor(): Int {
+        if (!prefs.getBoolean("smart_seek_custom_accent_enabled", true)) {
+            return MaterialColors.getColor(
+                this,
+                androidx.appcompat.R.attr.colorPrimary,
+                Color.rgb(26, 79, 163)
+            )
+        }
+        return when (prefs.getString("smart_seek_marker_color", "blue")) {
             "orange" -> Color.rgb(255, 109, 0)
             "cyan" -> Color.rgb(0, 184, 212)
             "lime" -> Color.rgb(124, 179, 66)
@@ -913,6 +925,7 @@ class FullBottomSheet
             "violet" -> Color.rgb(124, 77, 255)
             else -> Color.rgb(26, 79, 163)
         }
+    }
 
     private fun setVisibilityIfChanged(view: View, visibility: Int) {
         if (view.visibility != visibility) view.visibility = visibility
@@ -965,27 +978,26 @@ class FullBottomSheet
         val passedPeriods = (elapsedPeriods + if (justFinishedPlayInterval) 1L else 0L)
             .coerceAtMost(totalPeriods)
         val remainingPeriods = (totalPeriods - passedPeriods).coerceAtLeast(0L)
-        val playLabel: String
-        val skipLabel: String
-        if (config.inputMode == SmartSeekInputMode.ABSOLUTE) {
-            playLabel = "${(playMs + 500L) / 1_000L}"
-            skipLabel = "${(skipMs + 500L) / 1_000L}"
-        } else {
-            playLabel = CalculationUtils.convertDurationToTimeStamp(playMs)
-            skipLabel = CalculationUtils.convertDurationToTimeStamp(skipMs)
-        }
+        // The HUD shows interval lengths in seconds, independent of the configuration input mode.
+        val playLabel = "${(playMs + 500L) / 1_000L}"
+        val skipLabel = "${(skipMs + 500L) / 1_000L}"
         val accentColor = smartSeekMarkerColor()
         val surfaceColor = MaterialColors.getColor(
             this,
             com.google.android.material.R.attr.colorSurface,
             Color.WHITE
         )
-        val passedColor = MaterialColors.layer(surfaceColor, accentColor, 0.5f)
         val onSurfaceColor = MaterialColors.getColor(
             this,
             com.google.android.material.R.attr.colorOnSurface,
             Color.DKGRAY
         )
+        val customAccentEnabled = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
+        val passedColor = if (customAccentEnabled) {
+            MaterialColors.layer(surfaceColor, accentColor, 0.5f)
+        } else {
+            onSurfaceColor
+        }
 
         overlay.update(
             active = active,
@@ -1004,7 +1016,8 @@ class FullBottomSheet
             hudRemainingPeriods = remainingPeriods.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             hudAccentColor = accentColor,
             hudPassedColor = passedColor,
-            hudOnSurfaceColor = onSurfaceColor
+            hudOnSurfaceColor = onSurfaceColor,
+            hudCustomAccentEnabled = customAccentEnabled
         )
         val totalPlayMs = totalPeriods * playMs
         updateSmartSeekTimePanel(active, player, durationMs, totalPlayMs)
@@ -1312,7 +1325,44 @@ class FullBottomSheet
             }
         )
 
-        addLabel(content, context.getString(R.string.smart_seek_marker_color))
+        val markerColorButtons = mutableListOf<RadioButton>()
+        var customAccentEnabled = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
+        val markerColorHeader = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        markerColorHeader.addView(
+            TextView(context).apply {
+                text = context.getString(R.string.smart_seek_marker_color)
+            },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        val disableCustomAccentButton = MaterialButton(context).apply {
+            text = "⊘"
+            contentDescription = context.getString(R.string.smart_seek_disable_custom_accent)
+            isAllCaps = false
+            minWidth = (40 * density).toInt()
+            minimumWidth = minWidth
+            setPadding(0, 0, 0, 0)
+        }
+        markerColorHeader.addView(
+            disableCustomAccentButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        content.addView(
+            markerColorHeader,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = sectionGap
+                bottomMargin = sectionGap
+            }
+        )
+
         val markerColorRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -1327,7 +1377,19 @@ class FullBottomSheet
         )
         val savedMarkerColor = prefs.getString("smart_seek_marker_color", "blue") ?: "blue"
         var selectedMarkerColor = savedMarkerColor
-        val markerColorButtons = mutableListOf<RadioButton>()
+        fun updateMarkerColorControls() {
+            markerColorButtons.forEach { button ->
+                button.isEnabled = customAccentEnabled
+                button.alpha = if (customAccentEnabled) 1f else 0.4f
+            }
+        }
+        disableCustomAccentButton.setOnClickListener {
+            customAccentEnabled = false
+            prefs.edit { putBoolean("smart_seek_custom_accent_enabled", false) }
+            updateMarkerColorControls()
+            updateSmartSeekButton()
+            updateSmartSeekProgressOverlay()
+        }
         markerColorChoices.forEach { (key, labelRes, color) ->
             val button = RadioButton(context).apply {
                 id = View.generateViewId()
@@ -1339,7 +1401,15 @@ class FullBottomSheet
                 isChecked = key == selectedMarkerColor
                 setOnClickListener {
                     selectedMarkerColor = key
+                    customAccentEnabled = true
+                    prefs.edit {
+                        putBoolean("smart_seek_custom_accent_enabled", true)
+                        putString("smart_seek_marker_color", key)
+                    }
                     markerColorButtons.forEach { it.isChecked = it.tag == key }
+                    updateMarkerColorControls()
+                    updateSmartSeekButton()
+                    updateSmartSeekProgressOverlay()
                 }
             }
             markerColorButtons += button
@@ -1361,6 +1431,7 @@ class FullBottomSheet
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         )
+        updateMarkerColorControls()
 
         val scroll = ScrollView(context).apply {
             isFillViewport = true
@@ -1528,6 +1599,7 @@ class FullBottomSheet
 
                 prefs.edit {
                     putBoolean("smart_seek_persistent", persistentCheck.isChecked)
+                    putBoolean("smart_seek_custom_accent_enabled", customAccentEnabled)
                     putString("smart_seek_marker_color", selectedMarkerColor)
                 }
                 activity.controllerViewModel.refreshSmartSeekConfiguration()
@@ -1648,7 +1720,7 @@ class FullBottomSheet
         if (key == null || key == "cookie_cover") {
             bottomSheetFullCover.setClip(prefs.getBooleanStrict("cookie_cover", false))
         }
-        if (key == null || key == "default_progress_bar" || key == "smart_seek_enabled" || key == "smart_seek_persistent" || key == "smart_seek_marker_color") {
+        if (key == null || key == "default_progress_bar" || key == "smart_seek_enabled" || key == "smart_seek_persistent" || key == "smart_seek_marker_color" || key == "smart_seek_custom_accent_enabled") {
             updateSmartSeekProgressOverlay()
         }
         if (key == "smart_seek_enabled") {

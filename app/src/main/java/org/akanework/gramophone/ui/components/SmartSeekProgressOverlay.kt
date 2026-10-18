@@ -68,6 +68,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var hudAccentColor = Color.rgb(124, 77, 255)
     private var hudPassedColor = Color.rgb(166, 139, 255)
     private var hudOnSurfaceColor = Color.rgb(51, 51, 51)
+    private var hudCustomAccentEnabled = true
 
     private var isDragging = false
     private var dragPositionMs: Long? = null
@@ -98,7 +99,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         hudRemainingPeriods: Int = 0,
         hudAccentColor: Int = Color.rgb(124, 77, 255),
         hudPassedColor: Int = Color.rgb(166, 139, 255),
-        hudOnSurfaceColor: Int = Color.rgb(51, 51, 51)
+        hudOnSurfaceColor: Int = Color.rgb(51, 51, 51),
+        hudCustomAccentEnabled: Boolean = true
     ) {
         this.active = active
         this.playWhenReady = playWhenReady
@@ -117,6 +119,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.hudAccentColor = hudAccentColor
         this.hudPassedColor = hudPassedColor
         this.hudOnSurfaceColor = hudOnSurfaceColor
+        this.hudCustomAccentEnabled = hudCustomAccentEnabled
 
         val desiredTrailColor = if (this.nextSeekPositionMs > this.currentPositionMs) {
             this.markerColor
@@ -201,94 +204,66 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     }
 
     /**
-     * Draws the HUD around the current cursor. The timer and counters are opaque and use
-     * independent colors so the configured accent never recolors the entire line.
+     * Draws the two-line HUD centered around the cursor. Every fragment has its own color:
+     * gray delimiters, a subdued left label, a readable timer, and a bright right accent.
      */
     private fun drawHud(canvas: Canvas, cursorX: Float, barTop: Float, barBottom: Float) {
         val gray = Color.rgb(158, 158, 158)
         val margin = dp(4f)
         val centerY = (barTop + barBottom) / 2f
         val topBaseline = centerY - dp(17f)
-        val counterBaseline = centerY + dp(32f)
-        val spacing = dp(5f)
+        val bottomBaseline = centerY + dp(32f)
+        val spacing = dp(2.5f)
 
         hudTextPaint.textSize = sp(12f)
-        val skip = hudSkipLabel
-        val openBracket = "["
         val timer = CalculationUtils.convertDurationToTimeStamp(hudRemainingMs)
-        val closeBracket = "]"
-        val play = hudPlayLabel
+        val subduedAlpha = if (hudCustomAccentEnabled) 230 else 255
         val topParts = listOf(
-            skip to gray,
-            openBracket to gray,
-            timer to hudOnSurfaceColor,
-            closeBracket to gray,
-            play to hudAccentColor
+            Triple("<", gray, 255),
+            Triple(hudPassedPeriods.toString(), hudPassedColor, subduedAlpha),
+            Triple("[", gray, 255),
+            Triple(timer, hudOnSurfaceColor, 255),
+            Triple("]", gray, 255),
+            Triple(hudRemainingPeriods.toString(), hudAccentColor, 255),
+            Triple("<", gray, 255)
         )
-        val topWidth = topParts.sumOf { hudTextPaint.measureText(it.first).toDouble() }.toFloat() +
-            spacing * (topParts.size - 1)
-        val topX = (cursorX - topWidth / 2f).coerceIn(
-            margin,
-            (width.toFloat() - margin - topWidth).coerceAtLeast(margin)
-        )
-        var x = topX
-        topParts.forEachIndexed { index, (text, color) ->
-            hudTextPaint.color = color
-            hudTextPaint.alpha = 255
-            canvas.drawText(text, x, topBaseline, hudTextPaint)
-            x += hudTextPaint.measureText(text)
-            if (index != topParts.lastIndex) x += spacing
-        }
+        drawHudLine(canvas, cursorX, topBaseline, hudTextPaint, topParts, spacing, margin)
 
-        // The chevron's glyph center is always on cursorX. Values are fitted into their
-        // respective half of the view, so they cannot be clipped by the screen edges.
         hudCounterPaint.textSize = sp(12f)
-        hudCounterPaint.color = gray
-        hudCounterPaint.alpha = 255
-        val arrow = "<"
-        val arrowWidth = hudCounterPaint.measureText(arrow)
-        val sideGap = dp(5f)
-        val arrowLeft = cursorX - arrowWidth / 2f
-        canvas.drawText(arrow, arrowLeft, counterBaseline, hudCounterPaint)
-
-        val passed = hudPassedPeriods.toString()
-        val remaining = hudRemainingPeriods.toString()
-        val leftAvailable = (arrowLeft - sideGap - margin).coerceAtLeast(0f)
-        val rightStart = cursorX + arrowWidth / 2f + sideGap
-        val rightAvailable = (width.toFloat() - margin - rightStart).coerceAtLeast(0f)
-        drawFittedCounterText(
-            canvas, passed, leftAvailable, counterBaseline, hudPassedColor, alignRight = true
+        val bottomParts = listOf(
+            Triple("[", gray, 255),
+            Triple(hudSkipLabel, gray, 255),
+            Triple(":", gray, 255),
+            Triple(hudPlayLabel, hudAccentColor, 255),
+            Triple("]", gray, 255)
         )
-        drawFittedCounterText(
-            canvas, remaining, rightAvailable, counterBaseline, hudAccentColor, alignRight = false,
-            startX = rightStart
-        )
+        drawHudLine(canvas, cursorX, bottomBaseline, hudCounterPaint, bottomParts, 0f, margin)
     }
 
-    private fun drawFittedCounterText(
+    private fun drawHudLine(
         canvas: Canvas,
-        text: String,
-        availableWidth: Float,
+        cursorX: Float,
         baseline: Float,
-        color: Int,
-        alignRight: Boolean,
-        startX: Float = 0f
+        textPaint: Paint,
+        parts: List<Triple<String, Int, Int>>,
+        spacing: Float,
+        margin: Float
     ) {
-        if (availableWidth <= 0f) return
-        val measuredWidth = hudCounterPaint.measureText(text)
-        val scale = (availableWidth / measuredWidth.coerceAtLeast(1f)).coerceAtMost(1f)
-        hudCounterPaint.color = color
-        hudCounterPaint.alpha = 255
-        val oldScaleX = hudCounterPaint.textScaleX
-        hudCounterPaint.textScaleX = oldScaleX * scale
-        val scaledWidth = measuredWidth * scale
-        val x = if (alignRight) {
-            (startX + availableWidth - scaledWidth).coerceAtLeast(0f)
-        } else {
-            startX
+        val textWidth = parts.sumOf { textPaint.measureText(it.first).toDouble() }.toFloat()
+        val lineWidth = textWidth + spacing * (parts.size - 1)
+        val xStart = (cursorX - lineWidth / 2f).coerceIn(
+            margin,
+            (width.toFloat() - margin - lineWidth).coerceAtLeast(margin)
+        )
+        var x = xStart
+        parts.forEachIndexed { index, (text, color, alpha) ->
+            textPaint.color = color
+            textPaint.alpha = alpha
+            canvas.drawText(text, x, baseline, textPaint)
+            x += textPaint.measureText(text)
+            if (index != parts.lastIndex) x += spacing
         }
-        canvas.drawText(text, x, baseline, hudCounterPaint)
-        hudCounterPaint.textScaleX = oldScaleX
+        textPaint.alpha = 255
     }
 
     /** Playback mode: the timeline starts at a fixed x-position and represents only the future. */
