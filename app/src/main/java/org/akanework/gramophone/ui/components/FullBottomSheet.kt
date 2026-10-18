@@ -2169,7 +2169,7 @@ class FullBottomSheet
                 ColorStateList.valueOf(colorOnSurfaceVariant)
             )
             bottomSheetFullQualityDetails.setTextColor(
-                colorOnSurfaceVariant
+                colorOnSurface
             )
             bottomSheetFullLyricView.updateTextColor(
                 lyricsTextColor,
