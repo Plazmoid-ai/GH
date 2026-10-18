@@ -643,17 +643,18 @@ class FullBottomSheet
                     if (swipeGestureHandled) return@setOnTouchListener true
                     val dx = event.x - swipeStartX
                     val dy = event.y - swipeStartY
+                    if (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop) {
+                        isSwiping = true
+                    }
                     if (kotlin.math.abs(dx) > kotlin.math.abs(dy) &&
                         kotlin.math.abs(dx) > touchSlop
                     ) {
-                        isSwiping = true
                         parent?.requestDisallowInterceptTouchEvent(true)
                         view.translationX = swipeStartTranslationX + dx * 0.5f
                     } else if (dy < -touchSlop &&
                         kotlin.math.abs(dy) > kotlin.math.abs(dx)
                     ) {
                         // Claim upward swipes so the queue can open instead of collapsing the sheet.
-                        isSwiping = true
                         parent?.requestDisallowInterceptTouchEvent(true)
                     } else if (dy > touchSlop) {
                         // Keep downward gestures available to the BottomSheet.
@@ -669,27 +670,27 @@ class FullBottomSheet
                         val dy = event.y - swipeStartY
                         val swipeThreshold = prefs.getInt("player_swipe_sensitivity", 60)
                             .coerceIn(30, 120) * resources.displayMetrics.density
-                        when {
-                            dx >= swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
-                                instance?.seekToPrevious()
-                            }
-                            dx <= -swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
-                                instance?.seekToNext()
-                            }
-                            dy <= -swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
-                                ViewCompat.performHapticFeedback(
-                                    view, HapticFeedbackConstantsCompat.CONTEXT_CLICK
-                                )
-                                if (instance != null) {
-                                    pqs = PlaylistQueueSheet(wrappedContext ?: context, activity).also { it.show() }
+                        if (!isSwiping) {
+                            view.performClick()
+                        } else {
+                            when {
+                                dx >= swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
+                                    instance?.seekToPrevious()
                                 }
-                            }
-                            dy >= swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
-                                // Ignore: let the parent BottomSheet handle downward movement.
-                            }
-                            kotlin.math.abs(dx) < swipeThreshold &&
-                                kotlin.math.abs(dy) < swipeThreshold -> {
-                                view.performClick()
+                                dx <= -swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
+                                    instance?.seekToNext()
+                                }
+                                dy <= -swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
+                                    ViewCompat.performHapticFeedback(
+                                        view, HapticFeedbackConstantsCompat.CONTEXT_CLICK
+                                    )
+                                    if (instance != null) {
+                                        pqs = PlaylistQueueSheet(wrappedContext ?: context, activity).also { it.show() }
+                                    }
+                                }
+                                dy >= swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
+                                    // Ignore: let the parent BottomSheet handle downward movement.
+                                }
                             }
                         }
                     }
