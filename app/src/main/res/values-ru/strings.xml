@@ -118,6 +118,9 @@
     <string name="settings_title_bold_summary">Использует жирный заголовок для плеера</string>
     <string name="settings_experimental_settings">Экспериментальные</string>
     <string name="settings_color_accuracy">Точность цветопередачи</string>
+    <string name="settings_player_swipes">Свайпы на кнопке Play</string>
+    <string name="settings_player_swipes_summary">Вправо/влево — предыдущий/следующий трек, вверх — открыть очередь</string>
+    <string name="settings_player_swipe_sensitivity">Чувствительность свайпа (dp)</string>
     <string name="settings_color_accuracy_summary">Более точная генерация цветов</string>
     <string name="settings_experimental_settings_summary">Тестирование функций, разное</string>
     <string name="settings_blacklist">Чёрный список</string>

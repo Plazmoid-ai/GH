@@ -36,6 +36,7 @@ import android.util.AttributeSet
 import android.view.AbsSavedState
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewPropertyAnimator
@@ -504,6 +505,102 @@ class FullBottomSheet
         bottomSheetFullControllerButton.setOnClickListener {
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
             instance?.playOrPause()
+        }
+
+        // Optional gesture controls on the main Play/Pause button.
+        var swipeStartX = 0f
+        var swipeStartY = 0f
+        var swipeStartTranslationX = 0f
+        var isSwiping = false
+        var swipeGestureHandled = false
+        val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+
+        bottomSheetFullControllerButton.setOnTouchListener { view, event ->
+            if (!prefs.getBoolean("enable_player_swipes", false)) {
+                view.translationX = 0f
+                return@setOnTouchListener false
+            }
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    swipeStartX = event.x
+                    swipeStartY = event.y
+                    swipeStartTranslationX = view.translationX
+                    isSwiping = false
+                    swipeGestureHandled = false
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (swipeGestureHandled) return@setOnTouchListener true
+                    val dx = event.x - swipeStartX
+                    val dy = event.y - swipeStartY
+                    if (kotlin.math.abs(dx) > kotlin.math.abs(dy) &&
+                        kotlin.math.abs(dx) > touchSlop
+                    ) {
+                        isSwiping = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        view.translationX = swipeStartTranslationX + dx * 0.5f
+                    } else if (dy < -touchSlop &&
+                        kotlin.math.abs(dy) > kotlin.math.abs(dx)
+                    ) {
+                        // Claim upward swipes so the queue can open instead of collapsing the sheet.
+                        isSwiping = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                    } else if (dy > touchSlop) {
+                        // Keep downward gestures available to the BottomSheet.
+                        parent?.requestDisallowInterceptTouchEvent(false)
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (!swipeGestureHandled) {
+                        swipeGestureHandled = true
+                        val dx = event.x - swipeStartX
+                        val dy = event.y - swipeStartY
+                        val swipeThreshold = prefs.getInt("player_swipe_sensitivity", 60)
+                            .coerceIn(30, 120) * resources.displayMetrics.density
+                        when {
+                            dx >= swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
+                                instance?.seekToPrevious()
+                            }
+                            dx <= -swipeThreshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) -> {
+                                instance?.seekToNext()
+                            }
+                            dy <= -swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
+                                ViewCompat.performHapticFeedback(
+                                    view, HapticFeedbackConstantsCompat.CONTEXT_CLICK
+                                )
+                                if (instance != null) {
+                                    pqs = PlaylistQueueSheet(wrappedContext ?: context, activity).also { it.show() }
+                                }
+                            }
+                            dy >= swipeThreshold && kotlin.math.abs(dy) > kotlin.math.abs(dx) -> {
+                                // Ignore: let the parent BottomSheet handle downward movement.
+                            }
+                            kotlin.math.abs(dx) < swipeThreshold &&
+                                kotlin.math.abs(dy) < swipeThreshold -> {
+                                view.performClick()
+                            }
+                        }
+                    }
+                    view.animate().translationX(0f).setDuration(120).start()
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    isSwiping = false
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    view.animate().translationX(0f).setDuration(120).start()
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    isSwiping = false
+                    swipeGestureHandled = true
+                    true
+                }
+
+                else -> isSwiping
+            }
         }
         bottomSheetFullPreviousButton.setOnClickListener {
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)

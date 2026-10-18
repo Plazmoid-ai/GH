@@ -46,6 +46,24 @@
             app:iconSpaceReserved="false" />
 
         <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="enable_player_swipes"
+            android:layout="@layout/preference_switch"
+            android:summary="@string/settings_player_swipes_summary"
+            android:title="@string/settings_player_swipes"
+            android:widgetLayout="@layout/preference_switch_widget"
+            app:iconSpaceReserved="false" />
+
+        <SeekBarPreference
+            android:defaultValue="60"
+            android:key="player_swipe_sensitivity"
+            android:layout="@layout/preference_seekbar"
+            android:max="120"
+            android:title="@string/settings_player_swipe_sensitivity"
+            app:min="30"
+            app:showSeekBarValue="true" />
+
+        <SwitchPreferenceCompat
             android:defaultValue="true"
             android:key="lyric_ui_v2"
             android:layout="@layout/preference_switch"
