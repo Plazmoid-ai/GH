@@ -220,6 +220,7 @@ class FullBottomSheet
                 if (mediaId != null) {
                     if (seekBar != null) {
                         instance?.seekTo((seekBar.progress.toLong()))
+                        updateSmartSeekProgressOverlay()
                         bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
                     }
                 }
@@ -236,6 +237,7 @@ class FullBottomSheet
                 val mediaId = instance?.currentMediaItem
                 if (mediaId != null) {
                     instance?.seekTo((slider.value.toLong()))
+                    updateSmartSeekProgressOverlay()
                     bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
                 }
                 isUserTracking = false
@@ -303,8 +305,6 @@ class FullBottomSheet
     private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private var smartSeekShowPeriodCounter = false
     private var smartSeekAccumulatedListenMs = 0L
-    private var smartSeekLastSampleElapsedRealtime = 0L
-    private var smartSeekLastSampleShouldCount = false
     private var smartSeekPositionPanelCacheKey: String? = null
     private var smartSeekDurationPanelCacheKey: String? = null
     private var lastSmartSeekButtonActive: Boolean? = null
@@ -340,6 +340,7 @@ class FullBottomSheet
         bottomSheetSmartSeekProgressOverlay?.onSeekRequested = { positionMs ->
             smartSeekNextPositionMs = -1L
             instance?.seekTo(positionMs)
+            updateSmartSeekProgressOverlay()
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
         bottomSheetFullSlideUpButton = findViewById(R.id.slide_down)
@@ -994,9 +995,10 @@ class FullBottomSheet
         )
         val customAccentEnabled = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
         val passedColor = if (customAccentEnabled) {
-            MaterialColors.layer(surfaceColor, accentColor, 0.5f)
+            // Lighten the accent itself; blending with a dark surface made this counter too dim.
+            MaterialColors.layer(accentColor, Color.WHITE, 0.25f)
         } else {
-            onSurfaceColor
+            MaterialColors.layer(onSurfaceColor, Color.WHITE, 0.15f)
         }
 
         overlay.update(
@@ -1039,16 +1041,23 @@ class FullBottomSheet
         durationMs: Long = currentTrackDurationMs(player),
         totalPlayDurationMs: Long = durationMs
     ) {
-        // Accumulate only actual playback time spent inside a Smart Seek play interval.
-        val sampleTime = SystemClock.elapsedRealtime()
-        if (smartSeekLastSampleShouldCount && smartSeekLastSampleElapsedRealtime > 0L) {
-            smartSeekAccumulatedListenMs +=
-                (sampleTime - smartSeekLastSampleElapsedRealtime).coerceAtLeast(0L)
+        // Derive listened play-time from track position, so seeking or jumping backward
+        // recalculates the value instead of accumulating elapsed wall-clock time.
+        val resolvedCycle = if (durationMs > 0L) {
+            SmartSeekConfig.load(prefs).resolveCycle(durationMs)
+        } else {
+            null
         }
-        smartSeekLastSampleElapsedRealtime = sampleTime
-        smartSeekLastSampleShouldCount = active &&
-            player?.isPlaying == true &&
-            smartSeekNextPositionMs > (player?.currentPosition ?: 0L)
+        val playMs = (resolvedCycle?.playDurationMs ?: smartSeekNextPlayDurationMs).coerceAtLeast(1L)
+        val skipMs = (resolvedCycle?.skipDurationMs ?: smartSeekNextSkipDurationMs).coerceAtLeast(1L)
+        val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
+        val currentPosMs = (player?.currentPosition ?: 0L)
+            .coerceAtLeast(0L)
+            .let { if (durationMs > 0L) it.coerceAtMost(durationMs) else it }
+        val fullPlayCycles = currentPosMs / cycleMs
+        val positionWithinCycleMs = currentPosMs % cycleMs
+        smartSeekAccumulatedListenMs =
+            fullPlayCycles * playMs + min(positionWithinCycleMs, playMs)
 
         // The canvas owns the moving HUD; this row stays fixed beneath the progress bar.
         setVisibilityIfChanged(smartSeekTimePanel, GONE)
@@ -1384,8 +1393,8 @@ class FullBottomSheet
             }
         }
         disableCustomAccentButton.setOnClickListener {
-            customAccentEnabled = false
-            prefs.edit { putBoolean("smart_seek_custom_accent_enabled", false) }
+            customAccentEnabled = !customAccentEnabled
+            prefs.edit { putBoolean("smart_seek_custom_accent_enabled", customAccentEnabled) }
             updateMarkerColorControls()
             updateSmartSeekButton()
             updateSmartSeekProgressOverlay()
@@ -2410,8 +2419,6 @@ class FullBottomSheet
         reason: Int
     ) {
         smartSeekAccumulatedListenMs = 0L
-        smartSeekLastSampleElapsedRealtime = 0L
-        smartSeekLastSampleShouldCount = false
         smartSeekPositionPanelCacheKey = null
         smartSeekDurationPanelCacheKey = null
         if (instance?.mediaItemCount != 0) {

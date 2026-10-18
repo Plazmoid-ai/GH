@@ -217,7 +217,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         hudTextPaint.textSize = sp(12f)
         val timer = CalculationUtils.convertDurationToTimeStamp(hudRemainingMs)
-        val subduedAlpha = if (hudCustomAccentEnabled) 230 else 255
+        // Keep the left counter softer than the right counter without losing contrast.
+        val subduedAlpha = 220
         val topParts = listOf(
             Triple("<", gray, 255),
             Triple(hudPassedPeriods.toString(), hudPassedColor, subduedAlpha),
