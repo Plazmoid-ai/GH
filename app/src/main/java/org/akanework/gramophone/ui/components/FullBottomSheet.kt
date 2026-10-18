@@ -272,6 +272,7 @@ class FullBottomSheet
     private val bottomSheetFullPreviousButton: MaterialButton
     private val bottomSheetFullDuration: TextView
     private val bottomSheetFullPosition: TextView
+    private val smartSeekListenedTime: TextView
     private val smartSeekTimePanel: View
     private val smartSeekTopRow: View
     private val smartSeekPlayLabel: TextView
@@ -319,6 +320,7 @@ class FullBottomSheet
         bottomSheetFullControllerButton = findViewById(R.id.sheet_mid_button)
         bottomSheetFullNextButton = findViewById(R.id.sheet_next_song)
         bottomSheetFullPosition = findViewById(R.id.position)
+        smartSeekListenedTime = findViewById(R.id.smart_seek_listened_time)
         bottomSheetFullDuration = findViewById(R.id.duration)
         smartSeekTimePanel = findViewById(R.id.smart_seek_time_panel)
         smartSeekTopRow = findViewById(R.id.smart_seek_top_row)
@@ -831,8 +833,6 @@ class FullBottomSheet
             ?: player?.duration?.takeIf { it != C.TIME_UNSET }
             ?: 0L
 
-        // There is no stock progress control while Smart Seek mode is active.
-        // Keeping both stock controls GONE removes the possibility of a frame-level overlap.
         setVisibilityIfChanged(overlay, if (active) VISIBLE else GONE)
         if (active) {
             setVisibilityIfChanged(bottomSheetFullSeekBar, GONE)
@@ -845,18 +845,65 @@ class FullBottomSheet
             setVisibilityIfChanged(bottomSheetFullSeekBar, VISIBLE)
         }
 
-        // Playback mode uses a fixed future-only timeline; when paused, the overlay becomes
-        // a full-track scrubber that snaps to the nearest play-segment start on release.
+        val config = SmartSeekConfig.load(prefs)
+        val resolvedCycle = if (durationMs > 0L) config.resolveCycle(durationMs) else null
+        val playMs = (resolvedCycle?.playDurationMs ?: smartSeekNextPlayDurationMs).coerceAtLeast(1L)
+        val skipMs = (resolvedCycle?.skipDurationMs ?: smartSeekNextSkipDurationMs).coerceAtLeast(1L)
+        val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
+        val currentPositionMs = player?.currentPosition ?: 0L
+        val remainingMs = if (smartSeekNextPositionMs > currentPositionMs) {
+            smartSeekNextPositionMs - currentPositionMs
+        } else {
+            (playMs - (currentPositionMs % cycleMs)).coerceIn(0L, playMs)
+        }
+        val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
+        val elapsedPeriods = currentPositionMs / cycleMs
+        val justFinishedPlayInterval = smartSeekNextPositionMs > 0L &&
+            currentPositionMs >= smartSeekNextPositionMs &&
+            currentPositionMs - smartSeekNextPositionMs < 1_000L
+        val passedPeriods = (elapsedPeriods + if (justFinishedPlayInterval) 1L else 0L)
+            .coerceAtMost(totalPeriods)
+        val remainingPeriods = (totalPeriods - passedPeriods).coerceAtLeast(0L)
+        val playLabel: String
+        val skipLabel: String
+        if (config.inputMode == SmartSeekInputMode.ABSOLUTE) {
+            playLabel = "${(playMs + 500L) / 1_000L}"
+            skipLabel = "${(skipMs + 500L) / 1_000L}"
+        } else {
+            playLabel = CalculationUtils.convertDurationToTimeStamp(playMs)
+            skipLabel = CalculationUtils.convertDurationToTimeStamp(skipMs)
+        }
+        val accentColor = smartSeekMarkerColor()
+        val surfaceColor = MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorSurface,
+            Color.WHITE
+        )
+        val passedColor = MaterialColors.layer(surfaceColor, accentColor, 0.5f)
+        val onSurfaceColor = MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOnSurface,
+            Color.DKGRAY
+        )
+
         overlay.update(
             active = active,
-            currentPositionMs = player?.currentPosition ?: 0L,
+            currentPositionMs = currentPositionMs,
             durationMs = durationMs,
             nextSeekPositionMs = smartSeekNextPositionMs,
-            playDurationMs = smartSeekNextPlayDurationMs,
-            skipDurationMs = smartSeekNextSkipDurationMs,
+            playDurationMs = playMs,
+            skipDurationMs = skipMs,
             playWhenReady = player?.playWhenReady == true,
-            markerColor = smartSeekMarkerColor(),
-            skipColor = context.getColor(R.color.smart_seek_skip)
+            markerColor = accentColor,
+            skipColor = context.getColor(R.color.smart_seek_skip),
+            hudPlayLabel = playLabel,
+            hudSkipLabel = skipLabel,
+            hudRemainingMs = remainingMs,
+            hudPassedPeriods = passedPeriods.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            hudRemainingPeriods = remainingPeriods.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            hudAccentColor = accentColor,
+            hudPassedColor = passedColor,
+            hudOnSurfaceColor = onSurfaceColor
         )
         updateSmartSeekTimePanel(active, player, durationMs)
     }
@@ -876,153 +923,56 @@ class FullBottomSheet
         player: MediaBrowser? = instance,
         durationMs: Long = currentTrackDurationMs(player)
     ) {
-        // Count only real playback time spent in a play interval.
+        // Accumulate only actual playback time spent inside a Smart Seek play interval.
         val sampleTime = SystemClock.elapsedRealtime()
         if (smartSeekLastSampleShouldCount && smartSeekLastSampleElapsedRealtime > 0L) {
             smartSeekAccumulatedListenMs +=
                 (sampleTime - smartSeekLastSampleElapsedRealtime).coerceAtLeast(0L)
         }
         smartSeekLastSampleElapsedRealtime = sampleTime
-        smartSeekLastSampleShouldCount = false
+        smartSeekLastSampleShouldCount = active &&
+            player?.isPlaying == true &&
+            smartSeekNextPositionMs > (player?.currentPosition ?: 0L)
 
         val stockColor = MaterialColors.getColor(
             bottomSheetFullPosition,
             com.google.android.material.R.attr.colorOnSurfaceVariant,
             Color.DKGRAY
         )
-        if (!active) {
-            smartSeekPlayLabel.visibility = GONE
-            smartSeekSkipLabel.visibility = GONE
-            smartSeekCounterRow.visibility = GONE
-            bottomSheetFullPosition.isClickable = false
-            bottomSheetFullPosition.setTextColor(stockColor)
-            bottomSheetFullDuration.setTextColor(stockColor)
-            val positionText =
-                CalculationUtils.convertDurationToTimeStamp(player?.currentPosition ?: 0L)
-            val durationText = CalculationUtils.convertDurationToTimeStamp(durationMs)
-            setSmartSeekPositionPanelText(
-                positionText,
-                "stock-position:$positionText:$stockColor"
-            )
-            setSmartSeekDurationPanelText(
-                durationText,
-                "stock-duration:$durationText:$stockColor"
-            )
-            return
-        }
-
-        val config = SmartSeekConfig.load(prefs)
-        val resolvedCycle = if (durationMs > 0L) config.resolveCycle(durationMs) else null
-        val playMs = (resolvedCycle?.playDurationMs ?: smartSeekNextPlayDurationMs).coerceAtLeast(1L)
-        val skipMs = (resolvedCycle?.skipDurationMs ?: smartSeekNextSkipDurationMs).coerceAtLeast(1L)
-        val cycleDurationMs = (playMs + skipMs).coerceAtLeast(1L)
-        val totalPeriodsLong = if (durationMs > 0L) durationMs / cycleDurationMs else 0L
-        val totalPeriods = totalPeriodsLong.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         val accentColor = smartSeekMarkerColor()
-        val onSurfaceColor = MaterialColors.getColor(
-            bottomSheetFullPosition,
-            com.google.android.material.R.attr.colorOnSurface,
-            Color.BLACK
-        )
-
-        // The right-hand value remains the full track duration.
         val durationText = CalculationUtils.convertDurationToTimeStamp(durationMs)
-        bottomSheetFullDuration.setTextColor(accentColor)
         setSmartSeekDurationPanelText(
             durationText,
-            "smart-duration:$durationText:$accentColor:$durationMs"
+            "duration:$durationText:${if (active) accentColor else stockColor}"
         )
+        bottomSheetFullDuration.setTextColor(if (active) accentColor else stockColor)
 
-        bottomSheetFullPosition.isClickable = totalPeriods > 0
-        val currentPositionMs = player?.currentPosition ?: 0L
-        val isPlayInterval = smartSeekNextPositionMs > currentPositionMs
-        smartSeekLastSampleShouldCount = player?.isPlaying == true && isPlayInterval
-
-        if (!smartSeekShowPeriodCounter) {
-            // Compact mode preserves the accumulated listening-time display.
-            smartSeekPlayLabel.visibility = GONE
-            smartSeekSkipLabel.visibility = GONE
-            smartSeekCounterRow.visibility = GONE
-            val playedTimeText =
+        if (active) {
+            setVisibilityIfChanged(smartSeekTimePanel, GONE)
+            setVisibilityIfChanged(smartSeekListenedTime, VISIBLE)
+            val listenedText =
                 CalculationUtils.convertDurationToTimeStamp(smartSeekAccumulatedListenMs)
-            bottomSheetFullPosition.setTextColor(onSurfaceColor)
-            setSmartSeekPositionPanelText(
-                playedTimeText,
-                "compact:$playedTimeText:$onSurfaceColor"
-            )
+            smartSeekListenedTime.setTextColor(accentColor)
+            if (smartSeekListenedTime.text.toString() != listenedText) {
+                smartSeekListenedTime.text = listenedText
+            }
+            bottomSheetFullPosition.isClickable = false
             return
         }
 
-        // Expanded mode: compact interval labels on one row and the counter directly below
-        // the countdown timer. No separators or units are added to the interval values.
-        smartSeekPlayLabel.visibility = VISIBLE
-        smartSeekSkipLabel.visibility = VISIBLE
-        smartSeekCounterRow.visibility = VISIBLE
-
-        val playLabel: String
-        val skipLabel: String
-        if (config.inputMode == SmartSeekInputMode.ABSOLUTE) {
-            playLabel = "${(playMs + 500L) / 1_000L}"
-            skipLabel = "${(skipMs + 500L) / 1_000L}"
-        } else {
-            playLabel = CalculationUtils.convertDurationToTimeStamp(playMs)
-            skipLabel = CalculationUtils.convertDurationToTimeStamp(skipMs)
-        }
-        smartSeekPlayLabel.text = playLabel
-        smartSeekPlayLabel.setTextColor(accentColor)
-        smartSeekSkipLabel.text = skipLabel
-        smartSeekSkipLabel.setTextColor(accentColor)
-
-        val remainingMs = if (smartSeekNextPositionMs > currentPositionMs) {
-            smartSeekNextPositionMs - currentPositionMs
-        } else {
-            (playMs - (currentPositionMs % cycleDurationMs)).coerceIn(0L, playMs)
-        }
-        val remainingRatio = (remainingMs.toFloat() / playMs.toFloat()).coerceIn(0f, 1f)
-        val timerAlpha = when {
-            remainingRatio > 0.65f -> 1.0f
-            remainingRatio > 0.45f -> 0.75f
-            remainingRatio > 0.20f -> 0.5f
-            else -> 0.25f
-        }
-        val timerText = "[${CalculationUtils.convertDurationToTimeStamp(remainingMs)}]"
-        bottomSheetFullPosition.setTextColor(colorWithAlpha(accentColor, timerAlpha))
+        setVisibilityIfChanged(smartSeekListenedTime, GONE)
+        setVisibilityIfChanged(smartSeekTimePanel, VISIBLE)
+        smartSeekPlayLabel.visibility = GONE
+        smartSeekSkipLabel.visibility = GONE
+        smartSeekCounterRow.visibility = GONE
+        bottomSheetFullPosition.isClickable = false
+        bottomSheetFullPosition.setTextColor(stockColor)
+        val positionText =
+            CalculationUtils.convertDurationToTimeStamp(player?.currentPosition ?: 0L)
         setSmartSeekPositionPanelText(
-            timerText,
-            "expanded:$timerText:$timerAlpha:$accentColor"
+            positionText,
+            "stock-position:$positionText:$stockColor"
         )
-
-        val elapsedPeriods = currentPositionMs / cycleDurationMs
-        val justFinishedPlayInterval = smartSeekNextPositionMs > 0L &&
-            currentPositionMs >= smartSeekNextPositionMs &&
-            currentPositionMs - smartSeekNextPositionMs < 1_000L
-        val passedPeriods = (elapsedPeriods + if (justFinishedPlayInterval) 1L else 0L)
-            .coerceAtMost(totalPeriodsLong)
-        val remainingPeriods = (totalPeriodsLong - passedPeriods).coerceAtLeast(0L)
-
-        // Only the timer fades. The interval labels and counter remain at stable opacity.
-        smartSeekPassedPeriods.text = passedPeriods.toString()
-        smartSeekPassedPeriods.setTextColor(colorWithAlpha(accentColor, 0.4f))
-        smartSeekRemainingPeriods.text = remainingPeriods.toString()
-        smartSeekRemainingPeriods.setTextColor(accentColor)
-        smartSeekPastBar.setBackgroundColor(colorWithAlpha(accentColor, 0.4f))
-        smartSeekFutureBar.setBackgroundColor(accentColor)
-    }
-
-    private fun colorWithAlpha(color: Int, alpha: Float): Int =
-        Color.argb(
-            (alpha.coerceIn(0f, 1f) * 255f).toInt(),
-            Color.red(color),
-            Color.green(color),
-            Color.blue(color)
-        )
-
-    private fun alignSmartSeekCounterRow() {
-        if (smartSeekTimePanel.width <= 0 || bottomSheetFullPosition.width <= 0) return
-        val timerCenterX =
-            smartSeekTopRow.left + bottomSheetFullPosition.left + bottomSheetFullPosition.width / 2f
-        val offset = timerCenterX - smartSeekTimePanel.width / 2f
-        smartSeekCounterRow.translationX = offset
     }
 
     private fun setSmartSeekPositionPanelText(value: CharSequence, cacheKey: String) {
@@ -1877,40 +1827,7 @@ class FullBottomSheet
     }
 
     private fun applyQualityInfo(info: AudioFormatInfo) {
-        val icon = when (info.spatialFormat) {
-            SpatialFormat.SURROUND_5_0,
-            SpatialFormat.SURROUND_5_1,
-            SpatialFormat.SURROUND_6_1,
-            SpatialFormat.SURROUND_7_1 -> R.drawable.ic_surround_sound
-
-            SpatialFormat.DOLBY_AC3,
-            SpatialFormat.DOLBY_EAC3,
-            SpatialFormat.DOLBY_EAC3_JOC,
-            SpatialFormat.DOLBY_AC4,
-            SpatialFormat.DOLBY_TRUEHD -> R.drawable.ic_dolby
-
-            SpatialFormat.DTS,
-            SpatialFormat.DTS_EXPRESS,
-            SpatialFormat.DTS_HD,
-            SpatialFormat.DTS_UHD -> R.drawable.ic_dts
-
-            else -> when (info.quality) {
-                AudioQuality.HIRES -> R.drawable.ic_high_res
-                AudioQuality.HD -> R.drawable.ic_hd
-                AudioQuality.CD -> R.drawable.ic_cd
-                AudioQuality.HQ -> R.drawable.ic_hq
-                // The lossy-quality glyph is a music note; omit it before technical details.
-                AudioQuality.LOSSY -> null
-                else -> null
-            }
-        }
-
-        val drawable = icon?.let { iconRes ->
-            AppCompatResources.getDrawable(context, iconRes)?.apply {
-                setBounds(0, 0, 18.dpToPx(context), 18.dpToPx(context))
-            }
-        }
-        bottomSheetFullQualityDetails.setCompoundDrawablesRelative(drawable, null, null, null)
+        bottomSheetFullQualityDetails.setCompoundDrawablesRelative(null, null, null, null)
 
         bottomSheetFullQualityDetails.text = buildString {
             var hadFirst = false
