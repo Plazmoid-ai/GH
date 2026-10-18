@@ -149,7 +149,7 @@
         <FrameLayout
             android:id="@+id/slider"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="92dp"
             android:layout_marginHorizontal="15dp"
             android:layout_marginBottom="0.5dp"
             app:layout_constraintBottom_toTopOf="@id/duration_frame"
@@ -200,6 +200,20 @@
                 android:importantForAccessibility="no" />
 
         </FrameLayout>
+
+            <TextView
+                android:id="@+id/smart_seek_listened_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif"
+                android:textColor="?colorPrimary"
+                android:textSize="12sp"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:textFontWeight="600"
+                tools:text="1:12" />
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/duration_frame"
@@ -325,7 +339,7 @@
                 app:layout_constrainedWidth="true"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toStartOf="@id/duration"
-                app:layout_constraintStart_toEndOf="@id/smart_seek_time_panel"
+                app:layout_constraintStart_toEndOf="@id/smart_seek_listened_time"
                 app:layout_constraintTop_toTopOf="parent"
                 app:textFontWeight="600"
                 tools:text="16-bit / 44.1KHz / 2ch" />
