@@ -352,7 +352,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             }
         } else if (remainingMs < playMs + skipMs) {
             if (remainingMs > playMs) drawPlayUntil(durationMs)
-            drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, narrowView)
+            drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, narrowView)
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
             return
         } else {
@@ -374,7 +374,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val tailMs = durationMs - timelinePositionMs
         if (visualX < width.toFloat() && tailMs > playMs) drawPlayUntil(durationMs)
 
-        drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, narrowView)
+        drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, narrowView)
         drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
     }
 
@@ -431,7 +431,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     /**
      * Softly dissolves the far-right timeline into the player's surface color.
-     * The background overlay fades from transparent to opaque over the final 45dp,
+     * The background overlay fades from transparent to opaque over the final 24dp,
      * causing the timeline underneath to fade from fully visible to fully hidden.
      */
     private fun drawHorizon(canvas: Canvas) {
@@ -471,17 +471,18 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         bottom: Float,
         radius: Float,
         gap: Float,
+        pxPerMs: Float,
         narrowView: Boolean
     ) {
-        if (narrowView || trailEndX <= 0f || currentPositionMs <= 0L) return
+        if (narrowView || trailEndX <= 0f || currentPositionMs <= 0L || pxPerMs <= 0f) return
 
         data class PastSegment(val startMs: Long, val endMs: Long, val color: Int, val alpha: Int)
         val playMs = playDurationMs.coerceAtLeast(1L)
         val skipMs = skipDurationMs.coerceAtLeast(1L)
         val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
-        val minSegmentWidth = dp(3f)
-        val maxSegments = ((trailEndX + gap) / (minSegmentWidth + gap))
-            .toInt().coerceIn(1, 10)
+        // Keep a small, bounded history. Its geometry uses the same px/ms scale as
+        // the future timeline; older segments are clipped naturally by the Canvas.
+        val maxSegments = 10
         val segmentsNewestFirst = mutableListOf<PastSegment>()
         var cursorMs = currentPositionMs.coerceAtMost(durationMs)
 
@@ -502,20 +503,24 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         val segments = segmentsNewestFirst.asReversed()
         if (segments.isEmpty()) return
-        val totalTimeMs = segments.sumOf { (it.endMs - it.startMs).coerceAtLeast(0L) }
-        if (totalTimeMs <= 0L) return
 
-        val gapsWidth = gap * (segments.size - 1)
-        val segmentsWidth = (trailEndX - gapsWidth).coerceAtLeast(0f)
-        val pxPerMs = segmentsWidth / totalTimeMs.toFloat()
-        var x = 0f
         segments.forEachIndexed { index, segment ->
-            val segmentWidth = (segment.endMs - segment.startMs).toFloat() * pxPerMs
+            // Anchor the newest segment to the end of the trail. A long segment may
+            // begin left of x=0; do not compress it to fit the 50dp trail.
+            val left = trailEndX - (currentPositionMs - segment.startMs).toFloat() * pxPerMs
+            val right = trailEndX - (currentPositionMs - segment.endMs).toFloat() * pxPerMs
+            val segmentWidth = right - left
+            if (segmentWidth <= 0f) return@forEachIndexed
+
+            val gapAtBoundary = minOf(gap / 2f, segmentWidth * 0.15f)
+            val trimmedLeft = if (index == 0) left else left + gapAtBoundary
+            val trimmedRight = if (index == segments.lastIndex) right else right - gapAtBoundary
             drawFadedSegment(
-                canvas, x, segmentWidth, top, bottom, radius, segment.color, segment.alpha
+                canvas,
+                trimmedLeft,
+                (trimmedRight - trimmedLeft).coerceAtLeast(0f),
+                top, bottom, radius, segment.color, segment.alpha
             )
-            x += segmentWidth
-            if (index != segments.lastIndex) x += gap
         }
     }
 
@@ -532,10 +537,11 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         if (segmentWidth <= 0f) return
         val transparentColor = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
         val opaqueColor = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        val fadeWidth = dp(EDGE_FADE_WIDTH_DP).coerceAtMost(segmentWidth)
         paint.style = Paint.Style.FILL
         paint.alpha = 255
         paint.shader = LinearGradient(
-            left, 0f, left + segmentWidth, 0f,
+            left, 0f, left + fadeWidth, 0f,
             transparentColor, opaqueColor, Shader.TileMode.CLAMP
         )
         canvas.drawRoundRect(
@@ -674,6 +680,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private companion object {
         const val MIN_SEGMENT_WIDTH_DP = 6f
-        const val HORIZON_WIDTH_DP = 45f
+        const val EDGE_FADE_WIDTH_DP = 24f
+        const val HORIZON_WIDTH_DP = 24f
     }
 }
