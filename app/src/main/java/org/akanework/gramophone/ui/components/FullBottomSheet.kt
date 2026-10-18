@@ -35,7 +35,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
 import android.os.Process
-import android.os.SystemClock
 import android.text.InputType
 import android.text.Spannable
 import android.text.SpannableStringBuilder
@@ -94,6 +93,7 @@ import androidx.media3.common.util.Log
 import androidx.media3.session.MediaBrowser
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
+import androidx.palette.graphics.Palette
 import androidx.preference.PreferenceManager
 import coil3.asDrawable
 import coil3.dispose
@@ -220,7 +220,6 @@ class FullBottomSheet
                 if (mediaId != null) {
                     if (seekBar != null) {
                         instance?.seekTo((seekBar.progress.toLong()))
-                        updateSmartSeekProgressOverlay()
                         bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
                     }
                 }
@@ -237,7 +236,6 @@ class FullBottomSheet
                 val mediaId = instance?.currentMediaItem
                 if (mediaId != null) {
                     instance?.seekTo((slider.value.toLong()))
-                    updateSmartSeekProgressOverlay()
                     bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
                 }
                 isUserTracking = false
@@ -305,6 +303,13 @@ class FullBottomSheet
     private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private var smartSeekShowPeriodCounter = false
     private var smartSeekAccumulatedListenMs = 0L
+    private var smartSeekPositionOverrideMs: Long? = null
+    private var smartSeekDynamicAccentColor: Int? = null
+    private var smartSeekDynamicAccentArtworkUri: Uri? = null
+    private var smartSeekDynamicAccentPaletteResolved = false
+    private var smartSeekDynamicAccentScope: CoroutineScope? = null
+    private var smartSeekDynamicAccentDisposable: Disposable? = null
+    private var smartSeekCustomAccentToggleButton: MaterialButton? = null
     private var smartSeekPositionPanelCacheKey: String? = null
     private var smartSeekDurationPanelCacheKey: String? = null
     private var lastSmartSeekButtonActive: Boolean? = null
@@ -340,7 +345,6 @@ class FullBottomSheet
         bottomSheetSmartSeekProgressOverlay?.onSeekRequested = { positionMs ->
             smartSeekNextPositionMs = -1L
             instance?.seekTo(positionMs)
-            updateSmartSeekProgressOverlay()
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
         bottomSheetFullSlideUpButton = findViewById(R.id.slide_down)
@@ -419,6 +423,7 @@ class FullBottomSheet
         }
 
         updateSmartSeekButton()
+        requestSmartSeekDynamicAccent()
         bottomSheetSmartSeekButton?.setOnClickListener {
             if (!prefs.getBoolean("smart_seek_enabled", true)) return@setOnClickListener
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
@@ -910,13 +915,31 @@ class FullBottomSheet
         updateSmartSeekProgressOverlay()
     }
 
+    private fun smartSeekThemeAccentColor(): Int =
+        MaterialColors.getColor(
+            this,
+            androidx.appcompat.R.attr.colorPrimary,
+            Color.rgb(26, 79, 163)
+        )
+
+    private fun smartSeekContrastColor(): Int {
+        // The view's resolved surface also accounts for Gramophone's Pure Dark appearance.
+        val surfaceColor = (background as? ColorDrawable)?.color
+            ?: MaterialColors.getColor(
+                this,
+                com.google.android.material.R.attr.colorSurface,
+                Color.WHITE
+            )
+        return if (androidx.core.graphics.ColorUtils.calculateLuminance(surfaceColor) < 0.5) {
+            Color.WHITE
+        } else {
+            Color.BLACK
+        }
+    }
+
     private fun smartSeekMarkerColor(): Int {
         if (!prefs.getBoolean("smart_seek_custom_accent_enabled", true)) {
-            return MaterialColors.getColor(
-                this,
-                androidx.appcompat.R.attr.colorPrimary,
-                Color.rgb(26, 79, 163)
-            )
+            return smartSeekThemeAccentColor()
         }
         return when (prefs.getString("smart_seek_marker_color", "blue")) {
             "orange" -> Color.rgb(255, 109, 0)
@@ -924,15 +947,105 @@ class FullBottomSheet
             "lime" -> Color.rgb(124, 179, 66)
             "pink" -> Color.rgb(245, 0, 87)
             "violet" -> Color.rgb(124, 77, 255)
+            "dynamic" -> smartSeekDynamicAccentColor ?: smartSeekThemeAccentColor()
+            "contrast" -> smartSeekContrastColor()
             else -> Color.rgb(26, 79, 163)
         }
+    }
+
+    private fun updateSmartSeekCustomAccentToggleButton() {
+        val button = smartSeekCustomAccentToggleButton ?: return
+        val enabled = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
+        val color = if (enabled) smartSeekMarkerColor() else Color.GRAY
+        val surfaceColor = MaterialColors.getColor(
+            button,
+            com.google.android.material.R.attr.colorSurface,
+            Color.BLACK
+        )
+        button.alpha = if (enabled) 1f else 0.4f
+        button.setTextColor(ColorStateList.valueOf(color))
+        button.strokeWidth = (resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        button.strokeColor = ColorStateList.valueOf(color)
+        button.backgroundTintList = ColorStateList.valueOf(
+            if (enabled) MaterialColors.layer(surfaceColor, color, 0.16f)
+            else MaterialColors.getColor(
+                button,
+                com.google.android.material.R.attr.colorSurfaceVariant,
+                Color.DKGRAY
+            )
+        )
+        button.contentDescription = context.getString(
+            if (enabled) R.string.smart_seek_disable_custom_accent
+            else R.string.smart_seek_enable_custom_accent
+        )
+    }
+
+    private fun requestSmartSeekDynamicAccent(mediaItem: MediaItem? = instance?.currentMediaItem) {
+        if (prefs.getString("smart_seek_marker_color", "blue") != "dynamic") return
+
+        val artworkUri = mediaItem?.mediaMetadata?.artworkUri
+        if (smartSeekDynamicAccentPaletteResolved && smartSeekDynamicAccentArtworkUri == artworkUri) {
+            return
+        }
+
+        smartSeekDynamicAccentScope?.cancel()
+        smartSeekDynamicAccentDisposable?.dispose()
+        smartSeekDynamicAccentScope = null
+        smartSeekDynamicAccentDisposable = null
+        smartSeekDynamicAccentArtworkUri = artworkUri
+        smartSeekDynamicAccentPaletteResolved = true
+        smartSeekDynamicAccentColor = null
+
+        if (artworkUri == null) {
+            updateSmartSeekCustomAccentToggleButton()
+            updateSmartSeekButton()
+            return
+        }
+
+        val scope = CoroutineScope(Dispatchers.Default)
+        smartSeekDynamicAccentScope = scope
+        smartSeekDynamicAccentDisposable = context.imageLoader.enqueue(
+            ImageRequest.Builder(context).apply {
+                data(artworkUri)
+                size(256, 256)
+                allowConversionToBitmap(true)
+                allowHardware(false)
+                scale(Scale.FILL)
+                target(onSuccess = { image ->
+                    val drawable = image.asDrawable(context.resources)
+                    val bitmap = (drawable as? BitmapDrawable)?.bitmap
+                    if (bitmap != null) {
+                        scope.launch {
+                            val paletteColor = runCatching {
+                                val palette = Palette.from(bitmap).maximumColorCount(16).generate()
+                                palette.vibrantSwatch?.rgb
+                                    ?: palette.lightVibrantSwatch?.rgb
+                                    ?: palette.darkVibrantSwatch?.rgb
+                                    ?: palette.dominantSwatch?.rgb
+                                    ?: palette.mutedSwatch?.rgb
+                            }.getOrNull()
+                            withContext(Dispatchers.Main) {
+                                if (smartSeekDynamicAccentArtworkUri != artworkUri ||
+                                    prefs.getString("smart_seek_marker_color", "blue") != "dynamic"
+                                ) {
+                                    return@withContext
+                                }
+                                smartSeekDynamicAccentColor = paletteColor
+                                updateSmartSeekCustomAccentToggleButton()
+                                updateSmartSeekButton()
+                            }
+                        }
+                    }
+                })
+            }.build()
+        )
     }
 
     private fun setVisibilityIfChanged(view: View, visibility: Int) {
         if (view.visibility != visibility) view.visibility = visibility
     }
 
-    private fun updateSmartSeekProgressOverlay() {
+    private fun updateSmartSeekProgressOverlay(positionOverrideMs: Long? = null) {
         val overlay = bottomSheetSmartSeekProgressOverlay ?: return
         val enabled = prefs.getBoolean("smart_seek_enabled", true)
         val active = enabled && activity.controllerViewModel.isSmartSeekActive()
@@ -960,7 +1073,9 @@ class FullBottomSheet
         val playMs = (resolvedCycle?.playDurationMs ?: smartSeekNextPlayDurationMs).coerceAtLeast(1L)
         val skipMs = (resolvedCycle?.skipDurationMs ?: smartSeekNextSkipDurationMs).coerceAtLeast(1L)
         val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
-        val currentPositionMs = player?.currentPosition ?: 0L
+        val rawCurrentPositionMs = positionOverrideMs ?: (player?.currentPosition ?: 0L)
+        val currentPositionMs = rawCurrentPositionMs.coerceAtLeast(0L)
+            .let { if (durationMs > 0L) it.coerceAtMost(durationMs) else it }
         val remainingMs = if (smartSeekNextPositionMs > currentPositionMs) {
             smartSeekNextPositionMs - currentPositionMs
         } else {
@@ -1022,7 +1137,7 @@ class FullBottomSheet
             hudCustomAccentEnabled = customAccentEnabled
         )
         val totalPlayMs = totalPeriods * playMs
-        updateSmartSeekTimePanel(active, player, durationMs, totalPlayMs)
+        updateSmartSeekTimePanel(active, player, durationMs, totalPlayMs, currentPositionMs)
     }
 
     private fun isSmartSeekTimePanelActive(): Boolean =
@@ -1039,7 +1154,8 @@ class FullBottomSheet
         active: Boolean = isSmartSeekTimePanelActive(),
         player: MediaBrowser? = instance,
         durationMs: Long = currentTrackDurationMs(player),
-        totalPlayDurationMs: Long = durationMs
+        totalPlayDurationMs: Long = durationMs,
+        currentPositionOverrideMs: Long? = null
     ) {
         // Derive listened play-time from track position, so seeking or jumping backward
         // recalculates the value instead of accumulating elapsed wall-clock time.
@@ -1051,7 +1167,7 @@ class FullBottomSheet
         val playMs = (resolvedCycle?.playDurationMs ?: smartSeekNextPlayDurationMs).coerceAtLeast(1L)
         val skipMs = (resolvedCycle?.skipDurationMs ?: smartSeekNextSkipDurationMs).coerceAtLeast(1L)
         val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
-        val currentPosMs = (player?.currentPosition ?: 0L)
+        val currentPosMs = (currentPositionOverrideMs ?: (player?.currentPosition ?: 0L))
             .coerceAtLeast(0L)
             .let { if (durationMs > 0L) it.coerceAtMost(durationMs) else it }
         val fullPlayCycles = currentPosMs / cycleMs
@@ -1080,7 +1196,9 @@ class FullBottomSheet
         val leftTimeText = if (active) {
             CalculationUtils.convertDurationToTimeStamp(smartSeekAccumulatedListenMs)
         } else {
-            CalculationUtils.convertDurationToTimeStamp(player?.currentPosition ?: 0L)
+            CalculationUtils.convertDurationToTimeStamp(
+                currentPositionOverrideMs ?: (player?.currentPosition ?: 0L)
+            )
         }
         smartSeekListenedTime.setTextColor(if (active) accentColor else stockColor)
         if (smartSeekListenedTime.text.toString() != leftTimeText) {
@@ -1335,6 +1453,7 @@ class FullBottomSheet
         )
 
         val markerColorButtons = mutableListOf<RadioButton>()
+        val specialMarkerColorButtons = mutableListOf<MaterialButton>()
         var customAccentEnabled = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
         val markerColorHeader = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1354,6 +1473,7 @@ class FullBottomSheet
             minimumWidth = minWidth
             setPadding(0, 0, 0, 0)
         }
+        smartSeekCustomAccentToggleButton = disableCustomAccentButton
         markerColorHeader.addView(
             disableCustomAccentButton,
             LinearLayout.LayoutParams(
@@ -1391,6 +1511,40 @@ class FullBottomSheet
                 button.isEnabled = customAccentEnabled
                 button.alpha = if (customAccentEnabled) 1f else 0.4f
             }
+            val accentColor = smartSeekMarkerColor()
+            specialMarkerColorButtons.forEach { button ->
+                val selected = customAccentEnabled && button.tag == selectedMarkerColor
+                val surfaceColor = MaterialColors.getColor(
+                    button,
+                    com.google.android.material.R.attr.colorSurface,
+                    Color.WHITE
+                )
+                button.isEnabled = customAccentEnabled
+                button.alpha = if (customAccentEnabled) 1f else 0.4f
+                button.isChecked = selected
+                button.strokeWidth = density.toInt().coerceAtLeast(1)
+                button.strokeColor = ColorStateList.valueOf(
+                    if (selected) accentColor else MaterialColors.getColor(
+                        button,
+                        com.google.android.material.R.attr.colorOutline,
+                        Color.GRAY
+                    )
+                )
+                button.setTextColor(
+                    ColorStateList.valueOf(
+                        if (selected) accentColor else MaterialColors.getColor(
+                            button,
+                            com.google.android.material.R.attr.colorOnSurface,
+                            Color.DKGRAY
+                        )
+                    )
+                )
+                button.backgroundTintList = ColorStateList.valueOf(
+                    if (selected) MaterialColors.layer(surfaceColor, accentColor, 0.16f)
+                    else surfaceColor
+                )
+            }
+            updateSmartSeekCustomAccentToggleButton()
         }
         disableCustomAccentButton.setOnClickListener {
             customAccentEnabled = !customAccentEnabled
@@ -1416,6 +1570,7 @@ class FullBottomSheet
                         putString("smart_seek_marker_color", key)
                     }
                     markerColorButtons.forEach { it.isChecked = it.tag == key }
+                    specialMarkerColorButtons.forEach { it.isChecked = false }
                     updateMarkerColorControls()
                     updateSmartSeekButton()
                     updateSmartSeekProgressOverlay()
@@ -1435,6 +1590,70 @@ class FullBottomSheet
         }
         content.addView(
             markerColorRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        val specialMarkerColorRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        fun specialAccentButton(key: String, label: Int): MaterialButton =
+            MaterialButton(context).apply {
+                tag = key
+                text = context.getString(label)
+                isAllCaps = false
+                isCheckable = true
+                cornerRadius = (14 * density).toInt()
+                minHeight = (36 * density).toInt()
+                minimumHeight = minHeight
+                insetTop = 0
+                insetBottom = 0
+                setPadding((10 * density).toInt(), 0, (10 * density).toInt(), 0)
+                setOnClickListener {
+                    selectedMarkerColor = key
+                    customAccentEnabled = true
+                    prefs.edit {
+                        putBoolean("smart_seek_custom_accent_enabled", true)
+                        putString("smart_seek_marker_color", key)
+                    }
+                    markerColorButtons.forEach { it.isChecked = false }
+                    specialMarkerColorButtons.forEach { it.isChecked = it.tag == key }
+                    updateMarkerColorControls()
+                    if (key == "dynamic") requestSmartSeekDynamicAccent()
+                    updateSmartSeekButton()
+                }
+            }
+        val dynamicAccentButton = specialAccentButton(
+            "dynamic",
+            R.string.smart_seek_color_dynamic
+        )
+        val contrastAccentButton = specialAccentButton(
+            "contrast",
+            R.string.smart_seek_color_contrast
+        )
+        specialMarkerColorButtons += dynamicAccentButton
+        specialMarkerColorButtons += contrastAccentButton
+        val specialButtonLayout = LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        ).apply {
+            setMargins(sectionGap / 2, sectionGap, sectionGap / 2, 0)
+        }
+        specialMarkerColorRow.addView(dynamicAccentButton, specialButtonLayout)
+        specialMarkerColorRow.addView(
+            contrastAccentButton,
+            LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            ).apply { setMargins(sectionGap / 2, sectionGap, sectionGap / 2, 0) }
+        )
+        content.addView(
+            specialMarkerColorRow,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1495,6 +1714,11 @@ class FullBottomSheet
             .setTitle(R.string.smart_seek_settings_title)
             .setView(dialogContent)
             .create()
+        dialog.setOnDismissListener {
+            if (smartSeekCustomAccentToggleButton === disableCustomAccentButton) {
+                smartSeekCustomAccentToggleButton = null
+            }
+        }
         cancelButton.setOnClickListener { dialog.dismiss() }
 
         fun readValue(input: EditText, maxValue: Int): Int? =
@@ -2427,6 +2651,7 @@ class FullBottomSheet
                 scale(Scale.FILL)
                 error(R.drawable.ic_default_cover)
             }
+            requestSmartSeekDynamicAccent(mediaItem)
             if (DynamicColors.isDynamicColorAvailable() &&
                 prefs.getBooleanStrict("content_based_color", true)
             ) {
@@ -2456,26 +2681,26 @@ class FullBottomSheet
         bottomSheetFavoriteButton.addOnCheckedChangeListener(this) // see onCheckedChanged
     }
 
-    private fun updateDuration() {
+    private fun updateDuration(positionOverrideMs: Long? = null) {
         val duration = instance?.contentDuration?.let { if (it == C.TIME_UNSET) null else it }
             ?: instance?.currentMediaItem?.mediaMetadata?.durationMs
         if (duration != null && duration.toInt() != bottomSheetFullSeekBar.max) {
             bottomSheetFullDuration.setTextAnimation(
                 CalculationUtils.convertDurationToTimeStamp(duration)
             )
-            val position =
-                CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
+            val currentPositionMs = positionOverrideMs ?: (instance?.currentPosition ?: 0L)
+            val position = CalculationUtils.convertDurationToTimeStamp(currentPositionMs)
             if (!isUserTracking) {
                 bottomSheetFullSeekBar.max = duration.toInt()
-                bottomSheetFullSeekBar.progress = instance?.currentPosition?.toInt() ?: 0
+                bottomSheetFullSeekBar.progress = currentPositionMs.toInt()
                 bottomSheetFullSlider.valueTo = duration.toFloat().coerceAtLeast(1f)
                 bottomSheetFullSlider.value =
-                    min(instance?.currentPosition?.toFloat() ?: 0f, bottomSheetFullSlider.valueTo)
+                    min(currentPositionMs.toFloat(), bottomSheetFullSlider.valueTo)
                 bottomSheetFullPosition.text = position
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
-        updateSmartSeekProgressOverlay()
+        updateSmartSeekProgressOverlay(positionOverrideMs)
     }
 
     override fun onCheckedChanged(button: MaterialButton?, isChecked: Boolean) {
@@ -2492,6 +2717,8 @@ class FullBottomSheet
         newPosition: Player.PositionInfo,
         reason: Int
     ) {
+        // PositionInfo contains the actual landed position after the seek/snap.
+        smartSeekPositionOverrideMs = newPosition.positionMs
         positionRunnable.run()
     }
 
@@ -2595,19 +2822,21 @@ class FullBottomSheet
 
     private val positionRunnable = object : Runnable {
         override fun run() {
-            updateDuration() // TODO: figure out which callback this can be put in.
-            val position =
-                CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
+            val positionOverrideMs = smartSeekPositionOverrideMs
+            smartSeekPositionOverrideMs = null
+            updateDuration(positionOverrideMs) // TODO: figure out which callback this can be put in.
+            val currentPositionMs = positionOverrideMs ?: (instance?.currentPosition ?: 0L)
+            val position = CalculationUtils.convertDurationToTimeStamp(currentPositionMs)
             if (!isUserTracking) {
-                bottomSheetFullSeekBar.progress = instance?.currentPosition?.toInt() ?: 0
+                bottomSheetFullSeekBar.progress = currentPositionMs.toInt()
                 bottomSheetFullSlider.value =
-                    min(instance?.currentPosition?.toFloat() ?: 0f, bottomSheetFullSlider.valueTo)
+                    min(currentPositionMs.toFloat(), bottomSheetFullSlider.valueTo)
                 if (!isSmartSeekTimePanelActive()) {
                     bottomSheetFullPosition.text = position
                 }
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
-            updateSmartSeekProgressOverlay()
+            updateSmartSeekProgressOverlay(positionOverrideMs)
             if (instance?.isPlaying == true && runnableRunning) {
                 handler.postDelayed(this, SLIDER_UPDATE_INTERVAL)
             } else {

@@ -1341,6 +1341,9 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_color_lime">Green</string>
     <string name="smart_seek_color_pink">Pink</string>
     <string name="smart_seek_color_violet">Violet</string>
+    <string name="smart_seek_color_dynamic">Dynamic</string>
+    <string name="smart_seek_color_contrast">Contrast</string>
+    <string name="smart_seek_enable_custom_accent">Enable custom accent</string>
     <!-- Smart Seek input modes -->
     <string name="smart_seek_input_mode">Input mode</string>
     <string name="smart_seek_mode_absolute">Fixed seconds</string>
