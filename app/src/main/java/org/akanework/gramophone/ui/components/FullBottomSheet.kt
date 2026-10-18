@@ -2416,7 +2416,7 @@ class FullBottomSheet
                 }
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
-            updateSmartSeekTimePanel()
+            updateSmartSeekProgressOverlay()
             if (instance?.isPlaying == true && runnableRunning) {
                 handler.postDelayed(this, SLIDER_UPDATE_INTERVAL)
             } else {
