@@ -331,9 +331,6 @@ class FullBottomSheet
         smartSeekPastBar = findViewById(R.id.smart_seek_past_bar)
         smartSeekFutureBar = findViewById(R.id.smart_seek_future_bar)
         smartSeekCounterRow = findViewById(R.id.smart_seek_counter_row)
-        smartSeekTimePanel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            alignSmartSeekCounterRow()
-        }
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
         bottomSheetSmartSeekProgressOverlay = findViewById(R.id.smart_seek_progress_overlay)
@@ -934,6 +931,10 @@ class FullBottomSheet
             player?.isPlaying == true &&
             smartSeekNextPositionMs > (player?.currentPosition ?: 0L)
 
+        // The canvas owns the moving HUD; this row stays fixed beneath the progress bar.
+        setVisibilityIfChanged(smartSeekTimePanel, GONE)
+        setVisibilityIfChanged(smartSeekListenedTime, VISIBLE)
+
         val stockColor = MaterialColors.getColor(
             bottomSheetFullPosition,
             com.google.android.material.R.attr.colorOnSurfaceVariant,
@@ -947,32 +948,16 @@ class FullBottomSheet
         )
         bottomSheetFullDuration.setTextColor(if (active) accentColor else stockColor)
 
-        if (active) {
-            setVisibilityIfChanged(smartSeekTimePanel, GONE)
-            setVisibilityIfChanged(smartSeekListenedTime, VISIBLE)
-            val listenedText =
-                CalculationUtils.convertDurationToTimeStamp(smartSeekAccumulatedListenMs)
-            smartSeekListenedTime.setTextColor(accentColor)
-            if (smartSeekListenedTime.text.toString() != listenedText) {
-                smartSeekListenedTime.text = listenedText
-            }
-            bottomSheetFullPosition.isClickable = false
-            return
-        }
-
-        setVisibilityIfChanged(smartSeekListenedTime, GONE)
-        setVisibilityIfChanged(smartSeekTimePanel, VISIBLE)
-        smartSeekPlayLabel.visibility = GONE
-        smartSeekSkipLabel.visibility = GONE
-        smartSeekCounterRow.visibility = GONE
-        bottomSheetFullPosition.isClickable = false
-        bottomSheetFullPosition.setTextColor(stockColor)
-        val positionText =
+        val leftTimeText = if (active) {
+            CalculationUtils.convertDurationToTimeStamp(smartSeekAccumulatedListenMs)
+        } else {
             CalculationUtils.convertDurationToTimeStamp(player?.currentPosition ?: 0L)
-        setSmartSeekPositionPanelText(
-            positionText,
-            "stock-position:$positionText:$stockColor"
-        )
+        }
+        smartSeekListenedTime.setTextColor(if (active) accentColor else stockColor)
+        if (smartSeekListenedTime.text.toString() != leftTimeText) {
+            smartSeekListenedTime.text = leftTimeText
+        }
+        bottomSheetFullPosition.isClickable = false
     }
 
     private fun setSmartSeekPositionPanelText(value: CharSequence, cacheKey: String) {
