@@ -170,12 +170,18 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val gap = dp(4f)
 
         val narrowView = width.toFloat() < dp(100f)
-        val cursorX = if (playWhenReady) {
+        val rawCursorX = if (playWhenReady) {
             if (narrowView) 0f else dp(50f)
         } else {
             val selectedPosition = dragPositionMs ?: currentPositionMs
             (selectedPosition.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
         }
+        // Match the visual center of the 5dp cursor even at the track's extreme edges.
+        val halfCursorWidth = dp(2.5f)
+        val cursorX = rawCursorX.coerceIn(
+            halfCursorWidth,
+            (width.toFloat() - halfCursorWidth).coerceAtLeast(halfCursorWidth)
+        )
 
         if (playWhenReady) {
             drawFutureTimeline(canvas, top, bottom, radius, gap)
