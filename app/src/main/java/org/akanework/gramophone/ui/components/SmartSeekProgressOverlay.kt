@@ -14,11 +14,9 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -184,14 +182,13 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val radius = barHeight / 2f
         val gap = dp(4f)
 
-        val narrowView = width.toFloat() < dp(100f)
         val selectedPositionMs = dragPositionMs ?: currentPositionMs
-        val rawCursorX = if (isDragging) {
-            (selectedPositionMs.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
-        } else if (playWhenReady) {
-            if (narrowView) 0f else dp(50f)
-        } else {
-            (currentPositionMs.toFloat() / durationMs.toFloat() * width).coerceIn(0f, width.toFloat())
+        val rawCursorX = when {
+            isDragging -> (selectedPositionMs.toFloat() / durationMs.toFloat() * width)
+                .coerceIn(0f, width.toFloat())
+            playWhenReady -> dp(50f)
+            else -> (currentPositionMs.toFloat() / durationMs.toFloat() * width)
+                .coerceIn(0f, width.toFloat())
         }
         // Match the visual center of the 5dp cursor even at the track's extreme edges.
         val halfCursorWidth = dp(2.5f)
@@ -205,8 +202,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             drawFullTrack(canvas, top, bottom, radius, gap)
             drawCursor(canvas, cursorX, top, bottom)
         } else if (playWhenReady) {
-            drawFutureTimeline(canvas, top, bottom, radius, gap)
-            drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
+            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX)
+            drawCursor(canvas, cursorX, top, bottom)
         } else {
             drawFullTrack(canvas, top, bottom, radius, gap)
             drawCursor(canvas, cursorX, top, bottom)
@@ -299,13 +296,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             (width.toFloat() - margin - rectWidth).coerceAtLeast(margin)
         )
         val fontMetrics = hudTextPaint.fontMetrics
-        val desiredBaseline = (barTop + barBottom) / 2f - dp(60f)
-        val minVisibleBaseline = paddingY - fontMetrics.ascent
-        val maxVisibleBaseline = minOf(
-            height.toFloat() - paddingY - fontMetrics.descent,
-            barTop - fontMetrics.descent - paddingY
-        ).coerceAtLeast(minVisibleBaseline)
-        val baseline = desiredBaseline.coerceIn(minVisibleBaseline, maxVisibleBaseline)
+        // Keep the text baseline a fixed 60dp above the cursor's vertical center.
+        val baseline = (barTop + barBottom) / 2f - dp(60f)
         val card = RectF(
             left,
             baseline + fontMetrics.ascent - paddingY,
@@ -313,25 +305,23 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             baseline + fontMetrics.descent + paddingY
         )
 
+        val hudBackground = Color.rgb(26, 26, 26)
         paint.style = Paint.Style.FILL
         paint.shader = null
-        paint.color = if (hudMonochromeAccent) Color.BLACK else Color.rgb(26, 26, 26)
+        paint.color = hudBackground
         paint.alpha = 255
         canvas.drawRoundRect(card, dp(10f), dp(10f), paint)
 
+        // The pointer has a fixed 10dp width and 15dp height.
+        val pointerHalfWidth = dp(5f)
+        val pointerHeight = dp(15f)
         val pointer = Path().apply {
-            moveTo(
-                (cursorX - dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)),
-                card.bottom - dp(1f)
-            )
-            lineTo(cursorX, barTop.coerceAtLeast(card.bottom))
-            lineTo(
-                (cursorX + dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)),
-                card.bottom - dp(1f)
-            )
+            moveTo((cursorX - pointerHalfWidth).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom)
+            lineTo(cursorX, card.bottom + pointerHeight)
+            lineTo((cursorX + pointerHalfWidth).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom)
             close()
         }
-        paint.color = if (hudMonochromeAccent) Color.BLACK else Color.rgb(26, 26, 26)
+        paint.color = hudBackground
         paint.alpha = 255
         canvas.drawPath(pointer, paint)
 
@@ -379,21 +369,18 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         top: Float,
         bottom: Float,
         radius: Float,
-        gap: Float
+        gap: Float,
+        cursorX: Float
     ) {
-        val narrowView = width.toFloat() < dp(100f)
-        // The cursor center is fixed at 50dp. Its left and right gaps are identical:
-        // 4dp from the rounded trail cap to the cursor, and 4dp from cursor to timeline.
-        // For very narrow layouts preserve the left-edge cursor and full-width timeline.
-        val cursorX = if (narrowView) 0f else dp(50f)
+        // Playback cursor stays fixed; timeline segments are laid out from its right edge.
         val cursorWidth = dp(5f)
         val cursorLeftX = cursorX - cursorWidth / 2f
         val cursorRightX = cursorX + cursorWidth / 2f
         val trailEndX = (cursorLeftX - gap).coerceAtLeast(0f)
-        val timelineStartX = if (narrowView) 0f else cursorRightX + gap
+        val timelineStartX = cursorRightX + gap
         val remainingMs = durationMs - currentPositionMs
         if (remainingMs <= 0L) {
-            drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
+            drawCursor(canvas, cursorX, top, bottom)
             return
         }
 
@@ -416,22 +403,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 (endMs - timelinePositionMs).toFloat() * pxPerMs - trimsLeft - trimsRight
             val segmentWidth = calculatedWidth.coerceAtLeast(minSegmentWidth)
             if (!hudMonochromeAccent || color != skipColor) {
-                val fadeStart = (width.toFloat() - dp(HORIZON_WIDTH_DP)).coerceAtLeast(0f)
-                if (visualX + segmentWidth > fadeStart && visualX < width.toFloat()) {
-                    drawRightFadedSegment(
-                        canvas,
-                        visualX,
-                        segmentWidth,
-                        top,
-                        bottom,
-                        radius,
-                        color,
-                        alpha,
-                        fadeStart
-                    )
-                } else {
-                    drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
-                }
+                drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
             }
             timelinePositionMs = endMs
             // Each drawn block advances the visual timeline; minimum-width blocks do not overlap.
@@ -451,8 +423,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             }
         } else if (remainingMs < playMs + skipMs) {
             if (remainingMs > playMs) drawPlayUntil(durationMs)
-            drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, narrowView)
-            drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
+            drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs)
+            drawCursor(canvas, cursorX, top, bottom)
             return
         } else {
             drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
@@ -473,8 +445,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val tailMs = durationMs - timelinePositionMs
         if (visualX < width.toFloat() && tailMs > playMs) drawPlayUntil(durationMs)
 
-        drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, narrowView)
-        drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
+        drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs)
+        drawCursor(canvas, cursorX, top, bottom)
     }
 
     /** Paused mode: draw all play/skip segments from 0 through the track duration. */
@@ -530,10 +502,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         drawSegment(canvas, left, (right - left).coerceAtLeast(0f), top, bottom, radius, color, alpha)
     }
 
-    /**
-     * Draw recent elapsed play/skip intervals as separate segments. Each segment has
-     * its own left-to-right fade; no continuous gradient is painted behind the cursor.
-     */
+    /** Draw recent elapsed play/skip intervals as solid segments behind the fixed cursor. */
     private fun drawPastTimeline(
         canvas: Canvas,
         trailEndX: Float,
@@ -541,10 +510,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         bottom: Float,
         radius: Float,
         gap: Float,
-        pxPerMs: Float,
-        narrowView: Boolean
+        pxPerMs: Float
     ) {
-        if (narrowView || trailEndX <= 0f || currentPositionMs <= 0L || pxPerMs <= 0f) return
+        if (trailEndX <= 0f || currentPositionMs <= 0L || pxPerMs <= 0f) return
 
         data class PastSegment(val startMs: Long, val endMs: Long, val color: Int, val alpha: Int)
         val playMs = playDurationMs.coerceAtLeast(1L)
@@ -589,79 +557,11 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val trimmedLeft = if (index == 0) left else left + gapAtBoundary
             val trimmedRight = if (index == segments.lastIndex) right else right - gapAtBoundary
             val trimmedSegmentWidth = (trimmedRight - trimmedLeft).coerceAtLeast(0f)
-            if (hudMonochromeAccent) {
-                drawSegment(canvas, trimmedLeft, trimmedSegmentWidth, top, bottom, radius, segment.color, 255)
-            } else {
-                drawFadedSegment(
-                    canvas,
-                    trimmedLeft,
-                    trimmedSegmentWidth,
-                    top, bottom, radius, segment.color, segment.alpha
-                )
-            }
+            drawSegment(
+                canvas, trimmedLeft, trimmedSegmentWidth, top, bottom, radius,
+                segment.color, if (hudMonochromeAccent) 255 else segment.alpha
+            )
         }
-    }
-
-    /**
-     * Fade only the timeline segment as it enters the right-edge horizon.
-     * The shader's end color is transparent, and the rounded segment bounds clip the
-     * effect to the bar instead of painting a rectangle over the entire view.
-     */
-    private fun drawRightFadedSegment(
-        canvas: Canvas,
-        left: Float,
-        segmentWidth: Float,
-        top: Float,
-        bottom: Float,
-        radius: Float,
-        color: Int,
-        alpha: Int,
-        fadeStart: Float
-    ) {
-        if (segmentWidth <= 0f) return
-        val opaqueColor = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
-        paint.style = Paint.Style.FILL
-        paint.alpha = 255
-        paint.shader = LinearGradient(
-            fadeStart, 0f, width.toFloat(), 0f,
-            opaqueColor, Color.TRANSPARENT, Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(
-            RectF(left, top, left + segmentWidth, bottom),
-            radius,
-            radius,
-            paint
-        )
-        paint.shader = null
-    }
-
-    private fun drawFadedSegment(
-        canvas: Canvas,
-        left: Float,
-        segmentWidth: Float,
-        top: Float,
-        bottom: Float,
-        radius: Float,
-        color: Int,
-        alpha: Int
-    ) {
-        if (segmentWidth <= 0f) return
-        val transparentColor = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
-        val opaqueColor = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
-        val fadeWidth = dp(EDGE_FADE_WIDTH_DP).coerceAtMost(segmentWidth)
-        paint.style = Paint.Style.FILL
-        paint.alpha = 255
-        paint.shader = LinearGradient(
-            left, 0f, left + fadeWidth, 0f,
-            transparentColor, opaqueColor, Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(
-            RectF(left, top, left + segmentWidth, bottom),
-            radius,
-            radius,
-            paint
-        )
-        paint.shader = null
     }
 
     private fun drawCursor(
@@ -908,7 +808,5 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private companion object {
         const val MIN_SEGMENT_WIDTH_DP = 6f
-        const val EDGE_FADE_WIDTH_DP = 24f
-        const val HORIZON_WIDTH_DP = 24f
-    }
+remove fade constants    }
 }

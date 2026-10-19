@@ -1346,7 +1346,7 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_enable_custom_accent">Enable custom accent</string>
     <!-- Smart Seek input modes -->
     <string name="smart_seek_input_mode">Input mode</string>
-    <string name="smart_seek_mode_absolute">Fixed seconds</string>
+    <string name="smart_seek_mode_absolute">Fixed time</string>
     <string name="smart_seek_mode_percent">Percent of track duration</string>
     <string name="smart_seek_mode_cycle">Fixed cycle and sound ratio</string>
     <string name="smart_seek_absolute_help">Play and skip durations are set independently in seconds (1–600).</string>

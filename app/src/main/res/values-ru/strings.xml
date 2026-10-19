@@ -578,7 +578,7 @@
     <string name="smart_seek_enable_custom_accent">Включить свой цвет</string>
     <!-- Режимы ввода Smart Seek -->
     <string name="smart_seek_input_mode">Режим настройки</string>
-    <string name="smart_seek_mode_absolute">Фиксированные секунды</string>
+    <string name="smart_seek_mode_absolute">Фиксированное время</string>
     <string name="smart_seek_mode_percent">Проценты от длительности трека</string>
     <string name="smart_seek_mode_cycle">Фиксированный цикл и доля звука</string>
     <string name="smart_seek_absolute_help">Длительности воспроизведения и пропуска задаются отдельно в секундах (1–600).</string>

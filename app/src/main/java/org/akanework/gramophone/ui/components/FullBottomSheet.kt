@@ -1308,6 +1308,50 @@ class FullBottomSheet
             }
         }
 
+        fun formatSmartSeekValue(rawValue: String, percent: Boolean): String {
+            val value = rawValue.toIntOrNull() ?: return ""
+            if (percent) return "$value %"
+            val secondsSuffix = context.getString(R.string.smart_seek_cycle_seconds_suffix)
+            val minutesSuffix = context.getString(R.string.smart_seek_cycle_minutes_suffix)
+            if (value < 60) return "$value $secondsSuffix"
+            val minutes = value / 60
+            val seconds = value % 60
+            return if (seconds == 0) {
+                "$minutes $minutesSuffix"
+            } else {
+                "$minutes $minutesSuffix $seconds $secondsSuffix"
+            }
+        }
+
+        fun configureSmartSeekValueInput(input: EditText, percent: Boolean) {
+            val digitsOnlyFilter = InputFilter { source, start, end, _, _, _ ->
+                val filtered = buildString {
+                    for (index in start until end) {
+                        val character = source[index]
+                        if (character in '0'..'9') append(character)
+                    }
+                }
+                if (filtered.length == end - start) null else filtered
+            }
+            val initialRaw = input.text.toString().filter { it in '0'..'9' }
+            input.tag = initialRaw
+            input.filters = arrayOf<InputFilter>()
+            input.setText(formatSmartSeekValue(initialRaw, percent))
+            input.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    val raw = input.tag as? String ?: input.text.toString().filter { it in '0'..'9' }
+                    input.filters = arrayOf(digitsOnlyFilter)
+                    input.setText(raw)
+                    input.setSelection(input.text.length)
+                } else {
+                    val raw = input.text.toString().filter { it in '0'..'9' }
+                    input.tag = raw
+                    input.filters = arrayOf<InputFilter>()
+                    input.setText(formatSmartSeekValue(raw, percent))
+                }
+            }
+        }
+
         fun addInput(parent: LinearLayout, input: EditText) {
             parent.addView(
                 input,
@@ -1364,9 +1408,11 @@ class FullBottomSheet
         val absoluteSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addLabel(absoluteSection, context.getString(R.string.smart_seek_play_interval))
         val absolutePlayInput = newValueInput(current.absolutePlaySeconds)
+        configureSmartSeekValueInput(absolutePlayInput, percent = false)
         addInput(absoluteSection, absolutePlayInput)
         addLabel(absoluteSection, context.getString(R.string.smart_seek_skip_amount))
         val absoluteSkipInput = newValueInput(current.absoluteSkipSeconds)
+        configureSmartSeekValueInput(absoluteSkipInput, percent = false)
         addInput(absoluteSection, absoluteSkipInput)
         addLabel(absoluteSection, context.getString(R.string.smart_seek_absolute_help))
         content.addView(absoluteSection)
@@ -1374,9 +1420,11 @@ class FullBottomSheet
         val percentSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addLabel(percentSection, context.getString(R.string.smart_seek_play_interval))
         val percentPlayInput = newValueInput(current.playPercent)
+        configureSmartSeekValueInput(percentPlayInput, percent = true)
         addInput(percentSection, percentPlayInput)
         addLabel(percentSection, context.getString(R.string.smart_seek_skip_amount))
         val percentSkipInput = newValueInput(current.skipPercent)
+        configureSmartSeekValueInput(percentSkipInput, percent = true)
         addInput(percentSection, percentSkipInput)
         addLabel(percentSection, context.getString(R.string.smart_seek_percent_help))
         content.addView(percentSection)
@@ -1471,30 +1519,6 @@ class FullBottomSheet
         }
         modeGroup.setOnCheckedChangeListener { _, _ -> updateModeVisibility() }
         updateModeVisibility()
-
-        val boostBufferCheck = CheckBox(context).apply {
-            text = context.getString(R.string.smart_seek_boost_buffer)
-            isChecked = current.boostBuffer
-        }
-        content.addView(
-            boostBufferCheck,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = padding }
-        )
-        content.addView(
-            TextView(context).apply {
-                text = context.getString(R.string.smart_seek_boost_buffer_help)
-            },
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = sectionGap
-                bottomMargin = padding
-            }
-        )
 
         val markerColorButtons = mutableListOf<RadioButton>()
         val specialMarkerColorButtons = mutableListOf<MaterialButton>()
@@ -1728,8 +1752,9 @@ class FullBottomSheet
                             val b = bounds
                             val cy = b.exactCenterY()
                             val radius = minOf(b.height() * 0.22f, b.width() * 0.22f)
-                            val leftX = b.left + b.width() * 0.28f
-                            val rightX = b.left + b.width() * 0.72f
+                            val centerX = b.exactCenterX()
+                            val leftX = centerX - radius
+                            val rightX = centerX + radius
                             fill.color = Color.BLACK
                             canvas.drawCircle(leftX, cy, radius, fill)
                             stroke.color = Color.WHITE
@@ -1780,6 +1805,31 @@ class FullBottomSheet
             )
         )
         updateMarkerColorControls()
+
+        // Buffer acceleration is intentionally the final settings section.
+        val boostBufferCheck = CheckBox(context).apply {
+            text = context.getString(R.string.smart_seek_boost_buffer)
+            isChecked = current.boostBuffer
+        }
+        content.addView(
+            boostBufferCheck,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = padding }
+        )
+        content.addView(
+            TextView(context).apply {
+                text = context.getString(R.string.smart_seek_boost_buffer_help)
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = sectionGap
+                bottomMargin = padding
+            }
+        )
 
         val handleColor = MaterialColors.getColor(
             this,
@@ -1894,8 +1944,14 @@ class FullBottomSheet
         }
         cancelButton.setOnClickListener { dialog.dismiss() }
 
-        fun readValue(input: EditText, maxValue: Int): Int? =
-            input.text.toString().trim().toIntOrNull()?.takeIf { it in 1..maxValue }
+        fun readValue(input: EditText, maxValue: Int): Int? {
+            val raw = if (input.hasFocus()) {
+                input.text.toString().filter { it in '0'..'9' }
+            } else {
+                (input.tag as? String) ?: input.text.toString().filter { it in '0'..'9' }
+            }
+            return raw.toIntOrNull()?.takeIf { it in 1..maxValue }
+        }
 
         // Keep the settings sheet expanded below the player's top controls.
         dialog.setOnShowListener {
