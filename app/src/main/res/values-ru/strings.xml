@@ -564,7 +564,7 @@
     <string name="smart_seek_strict">Строгий (фиксированные значения)</string>
     <string name="smart_seek_random">Случайный (отклонение ±25%)</string>
     <string name="smart_seek_random_help">В случайном режиме длительность воспроизведения и величина пропуска независимо меняются примерно на 25% в каждом цикле.</string>
-    <string name="smart_seek_save">Сохранить</string>
+    <string name="smart_seek_save">OK</string>
     <string name="smart_seek_invalid_value">Введите значение от 1 до %1$d.</string>
     <string name="smart_seek_marker_color">Цвет меток Smart Seek</string>
     <string name="smart_seek_disable_custom_accent">Отключить свой цвет</string>

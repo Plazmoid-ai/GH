@@ -282,15 +282,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val timeText = CalculationUtils.convertDurationToTimeStamp(
             positionMs.coerceIn(0L, durationMs)
         )
-        val neutralColor = Color.WHITE
-        val passedColor = if (hudMonochromeAccent) Color.WHITE else hudPassedColor
-        val futureColor = if (hudMonochromeAccent) Color.WHITE else hudAccentColor
         val parts = listOf(
-            Triple("< ", neutralColor, 255),
-            Triple("[$passedPeriods]", passedColor, 255),
-            Triple("  $timeText  ", neutralColor, 255),
-            Triple("[$remainingPeriods]", futureColor, 255),
-            Triple(" <", neutralColor, 255)
+            Triple("< ", Color.WHITE, 255),
+            Triple("[$passedPeriods]", Color.WHITE, 255),
+            Triple("  $timeText  ", Color.WHITE, 255),
+            Triple("[$remainingPeriods]", Color.WHITE, 255),
+            Triple(" <", Color.WHITE, 255)
         )
 
         val textWidth = parts.sumOf { hudTextPaint.measureText(it.first).toDouble() }.toFloat()
@@ -313,20 +310,29 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         paint.style = Paint.Style.FILL
         paint.shader = null
-        paint.alpha = 255
         paint.color = if (hudMonochromeAccent) Color.BLACK else Color.rgb(26, 26, 26)
-        val pointer = Path().apply {
-            moveTo((cursorX - dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom - dp(1f))
-            lineTo(cursorX, (barTop - dp(8f)).coerceAtLeast(card.bottom))
-            lineTo((cursorX + dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom - dp(1f))
-            close()
-        }
-        canvas.drawPath(pointer, paint)
+        paint.alpha = 255
         canvas.drawRoundRect(card, dp(10f), dp(10f), paint)
 
+        val pointer = Path().apply {
+            moveTo(
+                (cursorX - dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)),
+                card.bottom - dp(1f)
+            )
+            lineTo(cursorX, (barTop - dp(8f)).coerceAtLeast(card.bottom))
+            lineTo(
+                (cursorX + dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)),
+                card.bottom - dp(1f)
+            )
+            close()
+        }
+        paint.color = if (hudMonochromeAccent) Color.BLACK else Color.rgb(26, 26, 26)
+        paint.alpha = 255
+        canvas.drawPath(pointer, paint)
+
         var x = left + paddingX
-        parts.forEachIndexed { index, (text, color, alpha) ->
-            hudTextPaint.color = color
+        parts.forEachIndexed { index, (text, _, _) ->
+            hudTextPaint.color = Color.WHITE
             hudTextPaint.alpha = 255
             canvas.drawText(text, x, baseline, hudTextPaint)
             x += hudTextPaint.measureText(text)

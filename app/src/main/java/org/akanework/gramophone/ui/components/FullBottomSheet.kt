@@ -1328,22 +1328,6 @@ class FullBottomSheet
             ).apply { bottomMargin = padding }
         )
 
-        addLabel(content, context.getString(R.string.smart_seek_input_mode))
-        val modeGroup = RadioGroup(context).apply { orientation = LinearLayout.VERTICAL }
-        fun modeButton(mode: SmartSeekInputMode, label: Int) = RadioButton(context).apply {
-            id = View.generateViewId()
-            tag = mode
-            text = context.getString(label)
-            isChecked = current.inputMode == mode
-        }
-        val absoluteModeButton = modeButton(SmartSeekInputMode.ABSOLUTE, R.string.smart_seek_mode_absolute)
-        val percentModeButton = modeButton(SmartSeekInputMode.PERCENT, R.string.smart_seek_mode_percent)
-        val cycleModeButton = modeButton(SmartSeekInputMode.CYCLE, R.string.smart_seek_mode_cycle)
-        modeGroup.addView(absoluteModeButton)
-        modeGroup.addView(percentModeButton)
-        modeGroup.addView(cycleModeButton)
-        content.addView(modeGroup)
-
         // Keep this frequently used toggle visible without scrolling on compact screens.
         val persistentCheck = CheckBox(context).apply {
             text = context.getString(R.string.settings_smart_seek_persistent)
@@ -1359,6 +1343,22 @@ class FullBottomSheet
                 bottomMargin = sectionGap
             }
         )
+
+        addLabel(content, context.getString(R.string.smart_seek_input_mode))
+        val modeGroup = RadioGroup(context).apply { orientation = LinearLayout.VERTICAL }
+        fun modeButton(mode: SmartSeekInputMode, label: Int) = RadioButton(context).apply {
+            id = View.generateViewId()
+            tag = mode
+            text = context.getString(label)
+            isChecked = current.inputMode == mode
+        }
+        val absoluteModeButton = modeButton(SmartSeekInputMode.ABSOLUTE, R.string.smart_seek_mode_absolute)
+        val percentModeButton = modeButton(SmartSeekInputMode.PERCENT, R.string.smart_seek_mode_percent)
+        val cycleModeButton = modeButton(SmartSeekInputMode.CYCLE, R.string.smart_seek_mode_cycle)
+        modeGroup.addView(absoluteModeButton)
+        modeGroup.addView(percentModeButton)
+        modeGroup.addView(cycleModeButton)
+        content.addView(modeGroup)
 
         val absoluteSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addLabel(absoluteSection, context.getString(R.string.smart_seek_play_interval))
@@ -1669,47 +1669,7 @@ class FullBottomSheet
                     setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
                     iconSize = (36 * density).toInt()
                     iconTint = null
-                    icon = object : android.graphics.drawable.Drawable() {
-                        private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                        private val stroke = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                            style = android.graphics.Paint.Style.STROKE
-                            strokeWidth = density
-                        }
-
-                        override fun draw(canvas: android.graphics.Canvas) {
-                            val b = bounds
-                            val cy = b.exactCenterY()
-                            val radius = minOf(b.height() * 0.19f, b.width() * 0.17f)
-                            val leftX = b.left + b.width() * 0.28f
-                            val rightX = b.left + b.width() * 0.72f
-                            fill.color = Color.BLACK
-                            canvas.drawCircle(leftX, cy, radius, fill)
-                            stroke.color = Color.WHITE
-                            canvas.drawCircle(leftX, cy, radius, stroke)
-                            fill.color = Color.WHITE
-                            canvas.drawCircle(rightX, cy, radius, fill)
-                            stroke.color = Color.BLACK
-                            canvas.drawCircle(rightX, cy, radius, stroke)
-                        }
-
-                        override fun setAlpha(alpha: Int) {
-                            fill.alpha = alpha
-                            stroke.alpha = alpha
-                            invalidateSelf()
-                        }
-
-                        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
-                            fill.colorFilter = colorFilter
-                            stroke.colorFilter = colorFilter
-                            invalidateSelf()
-                        }
-
-                        @Deprecated("Deprecated in Android")
-                        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
-
-                        override fun getIntrinsicWidth(): Int = (36 * density).toInt()
-                        override fun getIntrinsicHeight(): Int = (36 * density).toInt()
-                    }
+                    icon = null
                 }
                 setOnClickListener {
                     selectedMarkerColor = key
@@ -1748,6 +1708,59 @@ class FullBottomSheet
                 FrameLayout.LayoutParams(
                     (64 * density).toInt(),
                     specialButtonHeight,
+                    Gravity.CENTER
+                )
+            )
+            addView(
+                View(context).apply {
+                    isClickable = false
+                    isFocusable = false
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                    background = object : android.graphics.drawable.Drawable() {
+                        private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                        private val stroke = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            style = android.graphics.Paint.Style.STROKE
+                            strokeWidth = density
+                        }
+
+                        override fun draw(canvas: android.graphics.Canvas) {
+                            val b = bounds
+                            val cy = b.exactCenterY()
+                            val radius = minOf(b.height() * 0.22f, b.width() * 0.22f)
+                            val leftX = b.left + b.width() * 0.28f
+                            val rightX = b.left + b.width() * 0.72f
+                            fill.color = Color.BLACK
+                            canvas.drawCircle(leftX, cy, radius, fill)
+                            stroke.color = Color.WHITE
+                            canvas.drawCircle(leftX, cy, radius, stroke)
+                            fill.color = Color.WHITE
+                            canvas.drawCircle(rightX, cy, radius, fill)
+                            stroke.color = Color.BLACK
+                            canvas.drawCircle(rightX, cy, radius, stroke)
+                        }
+
+                        override fun setAlpha(alpha: Int) {
+                            fill.alpha = alpha
+                            stroke.alpha = alpha
+                            invalidateSelf()
+                        }
+
+                        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
+                            fill.colorFilter = colorFilter
+                            stroke.colorFilter = colorFilter
+                            invalidateSelf()
+                        }
+
+                        @Deprecated("Deprecated in Android")
+                        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+
+                        override fun getIntrinsicWidth(): Int = (36 * density).toInt()
+                        override fun getIntrinsicHeight(): Int = (36 * density).toInt()
+                    }
+                },
+                FrameLayout.LayoutParams(
+                    (36 * density).toInt(),
+                    (36 * density).toInt(),
                     Gravity.CENTER
                 )
             )
@@ -1884,73 +1897,15 @@ class FullBottomSheet
         fun readValue(input: EditText, maxValue: Int): Int? =
             input.text.toString().trim().toIntOrNull()?.takeIf { it in 1..maxValue }
 
-        val panelAnimations = mutableMapOf<View, ValueAnimator>()
-        var panelsHidden = false
-        var headerExpandedHeight = 0
-        var footerExpandedHeight = 0
-
-        fun animatePanel(panel: View, hide: Boolean, expandedHeight: Int, moveUp: Boolean) {
-            panelAnimations.remove(panel)?.cancel()
-            if (hide && panel.visibility != View.VISIBLE) return
-            val height = if (expandedHeight > 0) expandedHeight else panel.height
-            val direction = if (moveUp) -1f else 1f
-            if (!hide) {
-                panel.visibility = View.VISIBLE
-                panel.alpha = 0f
-                panel.translationY = direction * padding.toFloat()
-                panel.layoutParams = panel.layoutParams.apply { this.height = 0 }
-            }
-            val startHeight = if (hide) panel.height else 0
-            val endHeight = if (hide) 0 else height
-            val animator = ValueAnimator.ofInt(startHeight, endHeight).apply {
-                duration = 180L
-                addUpdateListener { valueAnimator ->
-                    val animatedHeight = valueAnimator.animatedValue as Int
-                    panel.layoutParams = panel.layoutParams.apply { this.height = animatedHeight }
-                    val fraction = valueAnimator.animatedFraction
-                    panel.alpha = if (hide) 1f - fraction else fraction
-                    panel.translationY = if (hide) {
-                        direction * padding * fraction
-                    } else {
-                        direction * padding * (1f - fraction)
-                    }
-                }
-            }
-            panelAnimations[panel] = animator
-            animator.doOnEnd {
-                if (panelAnimations[panel] !== animator) return@doOnEnd
-                panelAnimations.remove(panel)
-                if (hide) {
-                    panel.visibility = View.GONE
-                    panel.alpha = 0f
-                    panel.translationY = 0f
-                    panel.layoutParams = panel.layoutParams.apply { this.height = 0 }
-                } else {
-                    panel.visibility = View.VISIBLE
-                    panel.alpha = 1f
-                    panel.translationY = 0f
-                    panel.layoutParams = panel.layoutParams.apply {
-                        this.height = LinearLayout.LayoutParams.WRAP_CONTENT
-                    }
-                }
-            }
-            animator.start()
-        }
-
-        fun setPanelsHidden(hide: Boolean) {
-            if (panelsHidden == hide) return
-            if (headerExpandedHeight <= 0) headerExpandedHeight = header.height
-            if (footerExpandedHeight <= 0) footerExpandedHeight = buttonRow.height
-            panelsHidden = hide
-            animatePanel(header, hide, headerExpandedHeight, moveUp = true)
-            animatePanel(buttonRow, hide, footerExpandedHeight, moveUp = false)
-        }
-
+        // Header and action buttons remain fixed; only the settings content scrolls.
         dialog.setOnShowListener {
             dialog.window?.let { window ->
+                val topControlsClearance = (64 * density).toInt()
+                val dialogHeight = (resources.displayMetrics.heightPixels - topControlsClearance)
+                    .coerceAtLeast((resources.displayMetrics.heightPixels * 0.90f).toInt())
                 window.setLayout(
                     (resources.displayMetrics.widthPixels * 0.96f).toInt(),
-                    (resources.displayMetrics.heightPixels * 0.90f).toInt()
+                    dialogHeight
                 )
                 window.setGravity(Gravity.BOTTOM)
                 window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -1959,70 +1914,7 @@ class FullBottomSheet
                 width = ViewGroup.LayoutParams.MATCH_PARENT
                 height = ViewGroup.LayoutParams.MATCH_PARENT
             }
-            dialogContent.post {
-                headerExpandedHeight = header.height
-                footerExpandedHeight = buttonRow.height
-            }
-
-            fun attachDismissSwipe(target: View) {
-                var startX = 0f
-                var startY = 0f
-                target.setOnTouchListener { view, event ->
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            startX = event.rawX
-                            startY = event.rawY
-                            true
-                        }
-                        MotionEvent.ACTION_MOVE -> true
-                        MotionEvent.ACTION_UP -> {
-                            val deltaX = event.rawX - startX
-                            val deltaY = event.rawY - startY
-                            if (deltaY >= (64 * density) &&
-                                kotlin.math.abs(deltaY) > kotlin.math.abs(deltaX)
-                            ) {
-                                dialog.dismiss()
-                            }
-                            view.parent?.requestDisallowInterceptTouchEvent(false)
-                            true
-                        }
-                        MotionEvent.ACTION_CANCEL -> {
-                            view.parent?.requestDisallowInterceptTouchEvent(false)
-                            true
-                        }
-                        else -> true
-                    }
-                }
-            }
-            attachDismissSwipe(header)
-            attachDismissSwipe(handle)
-            attachDismissSwipe(headerTitle)
-
-            var accumulatedScrollDelta = 0
-            val directionThreshold = (6 * density).toInt().coerceAtLeast(3)
-            scroll.setOnScrollChangeListener { _, _, y, _, oldY ->
-                val delta = y - oldY
-                if (delta != 0) {
-                    accumulatedScrollDelta =
-                        if (accumulatedScrollDelta == 0 ||
-                            (accumulatedScrollDelta > 0) == (delta > 0)
-                        ) {
-                            accumulatedScrollDelta + delta
-                        } else {
-                            delta
-                        }
-                    if (y <= 0) {
-                        accumulatedScrollDelta = 0
-                        setPanelsHidden(false)
-                    } else if (accumulatedScrollDelta >= directionThreshold) {
-                        accumulatedScrollDelta = 0
-                        setPanelsHidden(true)
-                    } else if (accumulatedScrollDelta <= -directionThreshold) {
-                        accumulatedScrollDelta = 0
-                        setPanelsHidden(false)
-                    }
-                }
-            }
+        }
 
             saveButton.setOnClickListener {
                 val mode = selectedMode()
