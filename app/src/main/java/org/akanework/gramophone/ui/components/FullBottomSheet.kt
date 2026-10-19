@@ -1914,7 +1914,6 @@ class FullBottomSheet
                 width = ViewGroup.LayoutParams.MATCH_PARENT
                 height = ViewGroup.LayoutParams.MATCH_PARENT
             }
-        }
 
             saveButton.setOnClickListener {
                 val mode = selectedMode()
