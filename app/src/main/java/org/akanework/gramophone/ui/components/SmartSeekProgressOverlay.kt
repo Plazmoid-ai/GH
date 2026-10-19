@@ -16,6 +16,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
@@ -69,9 +70,13 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var hudPassedColor = Color.rgb(166, 139, 255)
     private var hudOnSurfaceColor = Color.rgb(51, 51, 51)
     private var hudCustomAccentEnabled = true
+    private var hudMonochromeAccent = false
 
     private var isDragging = false
+    private var showDraggingHud = false
     private var dragPositionMs: Long? = null
+    private var dragStartX = 0f
+    private var dragHoldRunnable: Runnable? = null
 
     /** Called when a paused-track drag/tap is released at the snapped play-segment start. */
     var onSeekRequested: ((Long) -> Unit)? = null
@@ -100,7 +105,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         hudAccentColor: Int = Color.rgb(124, 77, 255),
         hudPassedColor: Int = Color.rgb(166, 139, 255),
         hudOnSurfaceColor: Int = Color.rgb(51, 51, 51),
-        hudCustomAccentEnabled: Boolean = true
+        hudCustomAccentEnabled: Boolean = true,
+        hudMonochromeAccent: Boolean = false
     ) {
         this.active = active
         this.playWhenReady = playWhenReady
@@ -120,6 +126,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.hudPassedColor = hudPassedColor
         this.hudOnSurfaceColor = hudOnSurfaceColor
         this.hudCustomAccentEnabled = hudCustomAccentEnabled
+        this.hudMonochromeAccent = hudMonochromeAccent
 
         val desiredTrailColor = if (this.nextSeekPositionMs > this.currentPositionMs) {
             this.markerColor
@@ -130,7 +137,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         if (!active) {
             isDragging = false
+            showDraggingHud = false
             dragPositionMs = null
+            dragHoldRunnable?.let { removeCallbacks(it) }
+            dragHoldRunnable = null
         }
         postInvalidateOnAnimation()
     }
@@ -200,7 +210,11 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             drawFullTrack(canvas, top, bottom, radius, gap)
             drawCursor(canvas, cursorX, top, bottom)
         }
-        drawHud(canvas, cursorX, top, bottom)
+        if (isDragging && showDraggingHud) {
+            drawDraggingHud(canvas, cursorX, selectedPositionMs, top, bottom)
+        } else {
+            drawHud(canvas, cursorX, top, bottom)
+        }
     }
 
     /**
@@ -208,7 +222,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
      * gray delimiters, a subdued left label, a readable timer, and a bright right accent.
      */
     private fun drawHud(canvas: Canvas, cursorX: Float, barTop: Float, barBottom: Float) {
-        val gray = Color.rgb(158, 158, 158)
+        val gray = if (hudMonochromeAccent) hudAccentColor else Color.rgb(158, 158, 158)
         val margin = dp(4f)
         val centerY = (barTop + barBottom) / 2f
         val topBaseline = centerY - dp(17f)
@@ -218,12 +232,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         hudTextPaint.textSize = sp(12f)
         val timer = CalculationUtils.convertDurationToTimeStamp(hudRemainingMs)
         // Keep the left counter softer than the right counter without losing contrast.
-        val subduedAlpha = 220
+        val subduedAlpha = if (hudMonochromeAccent) 255 else 220
         val topParts = listOf(
             Triple("<", gray, 255),
             Triple(hudPassedPeriods.toString(), hudPassedColor, subduedAlpha),
             Triple("[", gray, 255),
-            Triple(timer, hudOnSurfaceColor, 255),
+            Triple(timer, if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor, 255),
             Triple("]", gray, 255),
             Triple(hudRemainingPeriods.toString(), hudAccentColor, 255),
             Triple("<", gray, 255)
@@ -239,6 +253,84 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             Triple("]", gray, 255)
         )
         drawHudLine(canvas, cursorX, bottomBaseline, hudCounterPaint, bottomParts, 0f, margin)
+    }
+
+    /**
+     * Elevated one-line HUD shown only for a long drag or a long press on the cursor.
+     * The card sits above the finger and points down toward the active cursor.
+     */
+    private fun drawDraggingHud(
+        canvas: Canvas,
+        cursorX: Float,
+        positionMs: Long,
+        barTop: Float,
+        barBottom: Float
+    ) {
+        val margin = dp(4f)
+        val spacing = dp(3f)
+        val textSize = sp(16f)
+        hudTextPaint.textSize = textSize
+
+        val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
+        val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
+        val passedPeriods = (positionMs.coerceAtLeast(0L) / cycleMs)
+            .coerceAtMost(totalPeriods)
+        val remainingPeriods = (totalPeriods - passedPeriods).coerceAtLeast(0L)
+        val timeText = CalculationUtils.convertDurationToTimeStamp(
+            positionMs.coerceIn(0L, durationMs)
+        )
+        val neutralColor = Color.WHITE
+        val passedColor = if (hudMonochromeAccent) Color.WHITE else hudPassedColor
+        val futureColor = if (hudMonochromeAccent) Color.WHITE else hudAccentColor
+        val parts = listOf(
+            Triple("< ", neutralColor, 255),
+            Triple("[$passedPeriods]", passedColor, 255),
+            Triple("  $timeText  ", neutralColor, 255),
+            Triple("[$remainingPeriods]", futureColor, 255),
+            Triple(" <", neutralColor, 255)
+        )
+
+        val textWidth = parts.sumOf { hudTextPaint.measureText(it.first).toDouble() }.toFloat()
+        val lineWidth = textWidth + spacing * (parts.size - 1)
+        val paddingX = dp(9f)
+        val paddingY = dp(6f)
+        val rectWidth = lineWidth + paddingX * 2f
+        val left = (cursorX - rectWidth / 2f).coerceIn(
+            margin,
+            (width.toFloat() - margin - rectWidth).coerceAtLeast(margin)
+        )
+        val baseline = (barTop + barBottom) / 2f - dp(56f)
+        val fontMetrics = hudTextPaint.fontMetrics
+        val card = RectF(
+            left,
+            (baseline + fontMetrics.ascent - paddingY).coerceAtLeast(0f),
+            left + rectWidth,
+            baseline + fontMetrics.descent + paddingY
+        )
+
+        paint.style = Paint.Style.FILL
+        paint.shader = null
+        paint.alpha = 255
+        paint.color = Color.BLACK
+        val pointer = Path().apply {
+            moveTo((cursorX - dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom - dp(1f))
+            lineTo(cursorX, (barTop - dp(8f)).coerceAtLeast(card.bottom))
+            lineTo((cursorX + dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom - dp(1f))
+            close()
+        }
+        canvas.drawPath(pointer, paint)
+        canvas.drawRoundRect(card, dp(10f), dp(10f), paint)
+
+        var x = left + paddingX
+        parts.forEachIndexed { index, (text, color, alpha) ->
+            hudTextPaint.color = color
+            hudTextPaint.alpha = alpha
+            canvas.drawText(text, x, baseline, hudTextPaint)
+            x += hudTextPaint.measureText(text)
+            if (index != parts.lastIndex) x += spacing
+        }
+        hudTextPaint.alpha = 255
+        hudTextPaint.textSize = sp(12f)
     }
 
     private fun drawHudLine(
@@ -580,10 +672,66 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         )
     }
 
+    /** Jump to the start of the adjacent play interval without entering drag-HUD mode. */
+    fun seekAdjacentPlaySegment(direction: Int): Boolean {
+        if (!active || durationMs <= 0L || direction == 0) return false
+        val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
+        val position = currentPositionMs.coerceIn(0L, durationMs)
+        val cycleIndex = position / cycleMs
+        val target = if (direction > 0) {
+            (cycleIndex + 1L) * cycleMs
+        } else {
+            val startOfCurrentCycle = cycleIndex * cycleMs
+            if (position == startOfCurrentCycle) {
+                (cycleIndex - 1L) * cycleMs
+            } else {
+                startOfCurrentCycle
+            }
+        }
+        if (target < 0L || target >= durationMs) return false
+        currentPositionMs = target
+        postInvalidateOnAnimation()
+        onSeekRequested?.invoke(target)
+        return true
+    }
+
+    /** Start/update/finish a long gesture originating on the Play/Pause button. */
+    fun beginGestureDrag(positionMs: Long) {
+        if (!active || durationMs <= 0L) return
+        isDragging = true
+        showDraggingHud = true
+        dragPositionMs = positionMs.coerceIn(0L, durationMs)
+        parent?.requestDisallowInterceptTouchEvent(true)
+        postInvalidateOnAnimation()
+    }
+
+    fun updateGestureDrag(positionMs: Long) {
+        if (!isDragging) return
+        dragPositionMs = positionMs.coerceIn(0L, durationMs)
+        postInvalidateOnAnimation()
+    }
+
+    fun finishGestureDrag(commit: Boolean) {
+        if (!isDragging) return
+        val target = dragPositionMs?.coerceIn(0L, durationMs) ?: currentPositionMs
+        isDragging = false
+        showDraggingHud = false
+        dragPositionMs = null
+        parent?.requestDisallowInterceptTouchEvent(false)
+        if (commit) {
+            currentPositionMs = target
+            onSeekRequested?.invoke(target)
+        }
+        postInvalidateOnAnimation()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!active || durationMs <= 0L || width <= 0) {
             if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                dragHoldRunnable?.let { removeCallbacks(it) }
+                dragHoldRunnable = null
                 isDragging = false
+                showDraggingHud = false
                 dragPositionMs = null
                 parent?.requestDisallowInterceptTouchEvent(false)
             }
@@ -603,7 +751,16 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                     kotlin.math.abs(event.y - height / 2f) <= dp(22f)
                 if (!inCursorZone) return false
                 isDragging = true
+                showDraggingHud = false
+                dragStartX = event.x
                 dragPositionMs = positionFromX(event.x)
+                dragHoldRunnable?.let { removeCallbacks(it) }
+                dragHoldRunnable = Runnable {
+                    if (isDragging) {
+                        showDraggingHud = true
+                        postInvalidateOnAnimation()
+                    }
+                }.also { postDelayed(it, 500L) }
                 parent?.requestDisallowInterceptTouchEvent(true)
                 postInvalidateOnAnimation()
                 return true
@@ -611,6 +768,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
             MotionEvent.ACTION_MOVE -> {
                 if (!isDragging) return false
+                if (kotlin.math.abs(event.x - dragStartX) >= dp(60f)) {
+                    showDraggingHud = true
+                }
                 dragPositionMs = positionFromX(event.x)
                 postInvalidateOnAnimation()
                 return true
@@ -619,7 +779,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             MotionEvent.ACTION_UP -> {
                 if (!isDragging) return false
                 val newPositionMs = positionFromX(event.x)
+                dragHoldRunnable?.let { removeCallbacks(it) }
+                dragHoldRunnable = null
                 isDragging = false
+                showDraggingHud = false
                 dragPositionMs = null
                 currentPositionMs = newPositionMs
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -630,7 +793,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
             MotionEvent.ACTION_CANCEL -> {
                 if (!isDragging) return false
+                dragHoldRunnable?.let { removeCallbacks(it) }
+                dragHoldRunnable = null
                 isDragging = false
+                showDraggingHud = false
                 dragPositionMs = null
                 parent?.requestDisallowInterceptTouchEvent(false)
                 postInvalidateOnAnimation()

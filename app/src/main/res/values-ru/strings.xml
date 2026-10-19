@@ -574,7 +574,7 @@
     <string name="smart_seek_color_pink">Розовый</string>
     <string name="smart_seek_color_violet">Фиолетовый</string>
     <string name="smart_seek_color_dynamic">Динамический</string>
-    <string name="smart_seek_color_contrast">Контрастный</string>
+    <string name="smart_seek_color_contrast">Тема для AMOLED</string>
     <string name="smart_seek_enable_custom_accent">Включить свой цвет</string>
     <!-- Режимы ввода Smart Seek -->
     <string name="smart_seek_input_mode">Режим настройки</string>

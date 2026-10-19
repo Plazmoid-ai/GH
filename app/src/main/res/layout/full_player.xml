@@ -180,6 +180,8 @@
             android:layout_height="92dp"
             android:layout_marginHorizontal="23dp"
             android:layout_marginBottom="0.5dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
             app:layout_constraintBottom_toTopOf="@id/duration_frame"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
@@ -224,7 +226,8 @@
             <org.akanework.gramophone.ui.components.SmartSeekProgressOverlay
                 android:id="@+id/smart_seek_progress_overlay"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="160dp"
+                android:layout_gravity="center_vertical"
                 android:importantForAccessibility="no" />
 
         </FrameLayout>

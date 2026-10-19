@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ "Develop", "fix/smart-seek-time-panel-final-ui-v2" ]
+    branches: [ "Develop", "fix/smart-seek-time-panel-final-ui-v2", "Swipe_smart" ]
     paths-ignore:
       - ".github/**"
       - "!.github/workflows/**"
