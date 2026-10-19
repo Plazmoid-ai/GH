@@ -56,6 +56,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var currentPositionMs = 0L
     private var durationMs = 0L
     private var timelineRightEdgeX = Float.NaN
+    private var cursorPositionXOverride = Float.NaN
     private var nextSeekPositionMs = -1L
     private var playDurationMs = 15_000L
     private var skipDurationMs = 30_000L
@@ -159,6 +160,26 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             width.toFloat()
         }
 
+    /** Pins the visual cursor to a caller-provided x coordinate in this view's local space. */
+    fun setCursorX(positionX: Float) {
+        val resolvedX = if (width > 0 && positionX.isFinite()) {
+            positionX.coerceIn(0f, width.toFloat())
+        } else {
+            Float.NaN
+        }
+        if (cursorPositionXOverride != resolvedX) {
+            cursorPositionXOverride = resolvedX
+            postInvalidateOnAnimation()
+        }
+    }
+
+    private fun resolvedCursorX(): Float =
+        if (cursorPositionXOverride.isFinite() && width > 0) {
+            cursorPositionXOverride.coerceIn(0f, width.toFloat())
+        } else {
+            50f * resources.displayMetrics.density
+        }
+
     /**
      * Smoothly blends the trail color when the current interval changes from play to skip
      * or back. Updates received during the same interval do not restart the animator.
@@ -197,8 +218,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val gap = dp(4f)
 
         val selectedPositionMs = dragPositionMs ?: currentPositionMs
-        // The cursor remains pinned at 50dp; only the timeline's right boundary changes.
-        val cursorX = 50f * resources.displayMetrics.density
+        // Keep the cursor aligned with the right edge of the elapsed-time label.
+        val cursorX = resolvedCursorX()
         val timelineEndX = resolvedTimelineRightEdgeX()
 
         if (isDragging) {
@@ -265,7 +286,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         barTop: Float
     ) {
         val centerX = width / 2f
-        val cardCenterY = barTop - dp(40f)
+        // Keep the capsule inside the slider frame instead of letting the title row clip it.
+        val cardCenterY = barTop - dp(18f)
         val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
         val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
         val passedPeriods = (positionMs.coerceAtLeast(0L) / cycleMs)

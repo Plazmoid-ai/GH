@@ -1144,19 +1144,24 @@ class FullBottomSheet
     private fun updateSmartSeekTimelineRightEdge(overlay: SmartSeekProgressOverlay) {
         if (overlay.width <= 0) return
 
-        val qualityDetails = bottomSheetFullQualityDetails
-        if (qualityDetails.visibility != VISIBLE || qualityDetails.width <= 0) {
-            overlay.setTimelineRightEdgeX(overlay.width.toFloat())
-            return
-        }
+        // Use the full width available to the overlay; the centered quality label was
+        // shortening the timeline to only a small part of the screen.
+        overlay.setTimelineRightEdgeX(overlay.width.toFloat())
 
-        val overlayLocation = IntArray(2)
-        val qualityLocation = IntArray(2)
-        overlay.getLocationOnScreen(overlayLocation)
-        qualityDetails.getLocationOnScreen(qualityLocation)
-        overlay.setTimelineRightEdgeX(
-            (qualityLocation[0] - overlayLocation[0]).toFloat()
-        )
+        // Anchor the fixed cursor precisely at the right edge of the lower elapsed-time label.
+        val listenedTime = smartSeekListenedTime
+        if (listenedTime.visibility == VISIBLE && listenedTime.width > 0) {
+            val overlayLocation = IntArray(2)
+            val listenedLocation = IntArray(2)
+            overlay.getLocationOnScreen(overlayLocation)
+            listenedTime.getLocationOnScreen(listenedLocation)
+            overlay.setCursorX(
+                (listenedLocation[0] + listenedTime.width - overlayLocation[0]).toFloat()
+            )
+        } else {
+            // Fallback for the brief period before the label is laid out or when it is hidden.
+            overlay.setCursorX(50f * resources.displayMetrics.density)
+        }
     }
 
     private fun calculateSmartSeekListenedMs(
