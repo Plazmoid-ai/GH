@@ -1103,11 +1103,6 @@ class FullBottomSheet
         val playLabel = "${(playMs + 500L) / 1_000L}"
         val skipLabel = "${(skipMs + 500L) / 1_000L}"
         val accentColor = smartSeekMarkerColor()
-        val surfaceColor = MaterialColors.getColor(
-            this,
-            com.google.android.material.R.attr.colorSurface,
-            Color.WHITE
-        )
         val onSurfaceColor = MaterialColors.getColor(
             this,
             com.google.android.material.R.attr.colorOnSurface,
@@ -1116,14 +1111,7 @@ class FullBottomSheet
         val customAccentEnabled = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
         val contrastAccentEnabled = customAccentEnabled &&
             prefs.getString("smart_seek_marker_color", "blue") == "contrast"
-        val passedColor = when {
-            contrastAccentEnabled -> accentColor
-            customAccentEnabled ->
-                // Lighten the accent itself; blending with a dark surface made this counter too dim.
-                MaterialColors.layer(accentColor, Color.WHITE, 0.25f)
-            else -> MaterialColors.layer(onSurfaceColor, Color.WHITE, 0.15f)
-        }
-
+        updateSmartSeekTimelineRightEdge(overlay)
         overlay.update(
             active = active,
             currentPositionMs = currentPositionMs,
@@ -1136,17 +1124,46 @@ class FullBottomSheet
             skipColor = if (contrastAccentEnabled) Color.TRANSPARENT else context.getColor(R.color.smart_seek_skip),
             hudPlayLabel = playLabel,
             hudSkipLabel = skipLabel,
-            hudRemainingMs = remainingMs,
-            hudPassedPeriods = passedPeriods.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            hudListenedMs = calculateSmartSeekListenedMs(currentPositionMs, playMs, skipMs),
             hudRemainingPeriods = remainingPeriods.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             hudAccentColor = accentColor,
-            hudPassedColor = passedColor,
             hudOnSurfaceColor = if (contrastAccentEnabled) accentColor else onSurfaceColor,
             hudCustomAccentEnabled = customAccentEnabled,
             hudMonochromeAccent = contrastAccentEnabled
         )
         val totalPlayMs = totalPeriods * playMs
         updateSmartSeekTimePanel(active, player, durationMs, totalPlayMs, currentPositionMs)
+    }
+
+    private fun updateSmartSeekTimelineRightEdge(overlay: SmartSeekProgressOverlay) {
+        if (overlay.width <= 0) return
+
+        val qualityDetails = bottomSheetFullQualityDetails
+        if (qualityDetails.visibility != VISIBLE || qualityDetails.width <= 0) {
+            overlay.setTimelineRightEdgeX(overlay.width.toFloat())
+            return
+        }
+
+        val overlayLocation = IntArray(2)
+        val qualityLocation = IntArray(2)
+        overlay.getLocationOnScreen(overlayLocation)
+        qualityDetails.getLocationOnScreen(qualityLocation)
+        overlay.setTimelineRightEdgeX(
+            (qualityLocation[0] - overlayLocation[0]).toFloat()
+        )
+    }
+
+    private fun calculateSmartSeekListenedMs(
+        positionMs: Long,
+        playDurationMs: Long,
+        skipDurationMs: Long
+    ): Long {
+        val playMs = playDurationMs.coerceAtLeast(1L)
+        val cycleMs = (playMs + skipDurationMs.coerceAtLeast(1L)).coerceAtLeast(1L)
+        val safePositionMs = positionMs.coerceAtLeast(0L)
+        val fullPlayCycles = safePositionMs / cycleMs
+        val positionWithinCycleMs = safePositionMs % cycleMs
+        return fullPlayCycles * playMs + min(positionWithinCycleMs, playMs)
     }
 
     private fun isSmartSeekTimePanelActive(): Boolean =
@@ -1179,10 +1196,8 @@ class FullBottomSheet
         val currentPosMs = (currentPositionOverrideMs ?: (player?.currentPosition ?: 0L))
             .coerceAtLeast(0L)
             .let { if (durationMs > 0L) it.coerceAtMost(durationMs) else it }
-        val fullPlayCycles = currentPosMs / cycleMs
-        val positionWithinCycleMs = currentPosMs % cycleMs
         smartSeekAccumulatedListenMs =
-            fullPlayCycles * playMs + min(positionWithinCycleMs, playMs)
+            calculateSmartSeekListenedMs(currentPosMs, playMs, skipMs)
 
         // The canvas owns the moving HUD; this row stays fixed beneath the progress bar.
         setVisibilityIfChanged(smartSeekTimePanel, GONE)

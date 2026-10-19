@@ -248,6 +248,7 @@
                 android:id="@+id/smart_seek_listened_time"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
                 android:fontFamily="sans-serif"
                 android:textColor="?colorPrimary"
                 android:textSize="12sp"
@@ -331,19 +332,10 @@
                         app:textFontWeight="600" />
 
                     <TextView
-                        android:id="@+id/smart_seek_counter_arrow"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginHorizontal="3dp"
-                        android:text="❮"
-                        android:textColor="#888888"
-                        android:textSize="11sp"
-                        app:textFontWeight="600" />
-
-                    <TextView
                         android:id="@+id/smart_seek_remaining_periods"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="3dp"
                         android:text="3"
                         android:textColor="?colorPrimary"
                         android:textSize="11sp"

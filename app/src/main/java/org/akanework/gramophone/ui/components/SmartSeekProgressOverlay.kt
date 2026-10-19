@@ -55,16 +55,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private var currentPositionMs = 0L
     private var durationMs = 0L
+    private var timelineRightEdgeX = Float.NaN
     private var nextSeekPositionMs = -1L
     private var playDurationMs = 15_000L
     private var skipDurationMs = 30_000L
     private var hudPlayLabel = "15"
     private var hudSkipLabel = "30"
-    private var hudRemainingMs = 15_000L
-    private var hudPassedPeriods = 0
+    private var hudListenedMs = 0L
     private var hudRemainingPeriods = 0
     private var hudAccentColor = Color.rgb(124, 77, 255)
-    private var hudPassedColor = Color.rgb(166, 139, 255)
     private var hudOnSurfaceColor = Color.rgb(51, 51, 51)
     private var hudCustomAccentEnabled = true
     private var hudMonochromeAccent = false
@@ -98,11 +97,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         skipColor: Int = Color.TRANSPARENT,
         hudPlayLabel: String = "15",
         hudSkipLabel: String = "30",
-        hudRemainingMs: Long = 15_000L,
-        hudPassedPeriods: Int = 0,
+        hudListenedMs: Long = 0L,
         hudRemainingPeriods: Int = 0,
         hudAccentColor: Int = Color.rgb(124, 77, 255),
-        hudPassedColor: Int = Color.rgb(166, 139, 255),
         hudOnSurfaceColor: Int = Color.rgb(51, 51, 51),
         hudCustomAccentEnabled: Boolean = true,
         hudMonochromeAccent: Boolean = false
@@ -118,11 +115,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.skipColor = skipColor
         this.hudPlayLabel = hudPlayLabel
         this.hudSkipLabel = hudSkipLabel
-        this.hudRemainingMs = hudRemainingMs.coerceAtLeast(0L)
-        this.hudPassedPeriods = hudPassedPeriods.coerceAtLeast(0)
+        this.hudListenedMs = hudListenedMs.coerceAtLeast(0L)
         this.hudRemainingPeriods = hudRemainingPeriods.coerceAtLeast(0)
         this.hudAccentColor = hudAccentColor
-        this.hudPassedColor = hudPassedColor
         this.hudOnSurfaceColor = hudOnSurfaceColor
         this.hudCustomAccentEnabled = hudCustomAccentEnabled
         this.hudMonochromeAccent = hudMonochromeAccent
@@ -143,6 +138,26 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         }
         postInvalidateOnAnimation()
     }
+
+    /** Sets the right edge shared by the future segments and the static interval label. */
+    fun setTimelineRightEdgeX(edgeX: Float) {
+        val resolvedEdgeX = if (width > 0 && edgeX.isFinite()) {
+            edgeX.coerceIn(0f, width.toFloat())
+        } else {
+            Float.NaN
+        }
+        if (timelineRightEdgeX != resolvedEdgeX) {
+            timelineRightEdgeX = resolvedEdgeX
+            postInvalidateOnAnimation()
+        }
+    }
+
+    private fun resolvedTimelineRightEdgeX(): Float =
+        if (timelineRightEdgeX.isFinite() && timelineRightEdgeX > 0f) {
+            timelineRightEdgeX.coerceAtMost(width.toFloat())
+        } else {
+            width.toFloat()
+        }
 
     /**
      * Smoothly blends the trail color when the current interval changes from play to skip
@@ -182,51 +197,47 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val gap = dp(4f)
 
         val selectedPositionMs = dragPositionMs ?: currentPositionMs
-        // The cursor is pinned to 50dp; timeline segments scroll relative to this anchor.
+        // The cursor remains pinned at 50dp; only the timeline's right boundary changes.
         val cursorX = 50f * resources.displayMetrics.density
+        val timelineEndX = resolvedTimelineRightEdgeX()
 
         if (isDragging) {
-            // Keep the cursor fixed while the timeline is rendered around the selected time.
-            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, selectedPositionMs)
+            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, selectedPositionMs, timelineEndX)
             drawCursor(canvas, cursorX, top, bottom)
         } else if (playWhenReady) {
-            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, currentPositionMs)
+            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, currentPositionMs, timelineEndX)
             drawCursor(canvas, cursorX, top, bottom)
         } else {
-            drawFullTrack(canvas, top, bottom, radius, gap)
+            drawFullTrack(canvas, top, bottom, radius, gap, timelineEndX)
             drawCursor(canvas, cursorX, top, bottom)
         }
         if (isDragging && showDraggingHud) {
             drawDraggingHud(canvas, selectedPositionMs)
         } else {
-            drawHud(canvas, cursorX, top, bottom)
+            drawHud(canvas, cursorX, top, bottom, timelineEndX)
         }
     }
 
-    /**
-     * Draws the two-line HUD centered around the cursor. Every fragment has its own color:
-     * gray delimiters, a subdued left label, a readable timer, and a bright right accent.
-     */
-    private fun drawHud(canvas: Canvas, cursorX: Float, barTop: Float, barBottom: Float) {
+    /** Draws listened play-time and the remaining interval count, plus a right-aligned static label. */
+    private fun drawHud(
+        canvas: Canvas,
+        cursorX: Float,
+        barTop: Float,
+        barBottom: Float,
+        timelineRightEdgeX: Float
+    ) {
         val gray = if (hudMonochromeAccent) hudAccentColor else Color.rgb(158, 158, 158)
         val margin = dp(4f)
         val centerY = (barTop + barBottom) / 2f
         val topBaseline = centerY - dp(17f)
         val bottomBaseline = centerY + dp(32f)
-        val spacing = dp(2.5f)
+        val spacing = dp(6f)
 
         hudTextPaint.textSize = sp(12f)
-        val timer = CalculationUtils.convertDurationToTimeStamp(hudRemainingMs)
-        // Keep the left counter softer than the right counter without losing contrast.
-        val subduedAlpha = if (hudMonochromeAccent) 255 else 220
+        val timer = CalculationUtils.convertDurationToTimeStamp(hudListenedMs)
         val topParts = listOf(
-            Triple("<", gray, 255),
-            Triple(hudPassedPeriods.toString(), hudPassedColor, subduedAlpha),
-            Triple("[", gray, 255),
             Triple(timer, if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor, 255),
-            Triple("]", gray, 255),
-            Triple(hudRemainingPeriods.toString(), hudAccentColor, 255),
-            Triple("<", gray, 255)
+            Triple(hudRemainingPeriods.toString(), hudAccentColor, 255)
         )
         drawHudLine(canvas, cursorX, topBaseline, hudTextPaint, topParts, spacing, margin)
 
@@ -238,44 +249,49 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             Triple(hudPlayLabel, hudAccentColor, 255),
             Triple("]", gray, 255)
         )
-        drawHudLine(canvas, cursorX, bottomBaseline, hudCounterPaint, bottomParts, 0f, margin)
+        drawHudLine(
+            canvas, cursorX, bottomBaseline, hudCounterPaint, bottomParts,
+            0f, margin, timelineRightEdgeX
+        )
     }
 
     /**
-     * Fixed drag HUD: centered horizontally and anchored to a constant Y coordinate.
-     * Its background is always drawn first, followed by a single white text line.
+     * Compact capsule above the bar. The time is accumulated play-interval duration,
+     * not the raw position within the track.
      */
     private fun drawDraggingHud(
         canvas: Canvas,
         positionMs: Long
     ) {
         val centerX = width / 2f
-        val baselineY = height.toFloat() - dp(80f)
-        val cardWidth = minOf(dp(280f), (width.toFloat() - dp(16f)).coerceAtLeast(0f))
-        val card = RectF(
-            centerX - cardWidth / 2f,
-            baselineY - dp(26f),
-            centerX + cardWidth / 2f,
-            baselineY + dp(10f)
-        )
-
+        val centerY = height.toFloat() - dp(140f)
         val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
         val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
         val passedPeriods = (positionMs.coerceAtLeast(0L) / cycleMs)
             .coerceAtMost(totalPeriods)
         val remainingPeriods = (totalPeriods - passedPeriods).coerceAtLeast(0L)
         val timeText = CalculationUtils.convertDurationToTimeStamp(
-            positionMs.coerceIn(0L, durationMs)
+            calculateListenedPlayTime(positionMs)
         )
-        val hudText = "< [$passedPeriods]  $timeText  [$remainingPeriods] <"
+        val hudText = "$timeText  $remainingPeriods"
+
+        hudTextPaint.textSize = sp(16f)
+        val textWidth = hudTextPaint.measureText(hudText)
+        val cardWidth = (textWidth + dp(32f))
+            .coerceAtMost((width.toFloat() - dp(16f)).coerceAtLeast(0f))
+        val card = RectF(
+            centerX - cardWidth / 2f,
+            centerY - dp(16f),
+            centerX + cardWidth / 2f,
+            centerY + dp(16f)
+        )
 
         paint.style = Paint.Style.FILL
         paint.shader = null
         paint.color = Color.rgb(26, 26, 26)
         paint.alpha = 255
-        canvas.drawRoundRect(card, dp(8f), dp(8f), paint)
+        canvas.drawRoundRect(card, dp(20f), dp(20f), paint)
 
-        hudTextPaint.textSize = sp(16f)
         hudTextPaint.color = Color.WHITE
         hudTextPaint.alpha = 255
         hudTextPaint.textAlign = Paint.Align.CENTER
@@ -287,6 +303,16 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         hudTextPaint.alpha = 255
     }
 
+    private fun calculateListenedPlayTime(positionMs: Long): Long {
+        val playMs = playDurationMs.coerceAtLeast(1L)
+        val cycleMs = (playMs + skipDurationMs.coerceAtLeast(1L)).coerceAtLeast(1L)
+        val safePositionMs = positionMs.coerceAtLeast(0L)
+            .let { if (durationMs > 0L) it.coerceAtMost(durationMs) else it }
+        val fullPlayCycles = safePositionMs / cycleMs
+        val positionWithinCycleMs = safePositionMs % cycleMs
+        return fullPlayCycles * playMs + minOf(positionWithinCycleMs, playMs)
+    }
+
     private fun drawHudLine(
         canvas: Canvas,
         cursorX: Float,
@@ -294,14 +320,17 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         textPaint: Paint,
         parts: List<Triple<String, Int, Int>>,
         spacing: Float,
-        margin: Float
+        margin: Float,
+        rightEdgeX: Float? = null
     ) {
         val textWidth = parts.sumOf { textPaint.measureText(it.first).toDouble() }.toFloat()
         val lineWidth = textWidth + spacing * (parts.size - 1)
-        val xStart = (cursorX - lineWidth / 2f).coerceIn(
-            margin,
-            (width.toFloat() - margin - lineWidth).coerceAtLeast(margin)
-        )
+        val maxStartX = (width.toFloat() - margin - lineWidth).coerceAtLeast(margin)
+        val xStart = if (rightEdgeX != null) {
+            (rightEdgeX - lineWidth).coerceIn(margin, maxStartX)
+        } else {
+            (cursorX - lineWidth / 2f).coerceIn(margin, maxStartX)
+        }
         var x = xStart
         parts.forEachIndexed { index, (text, color, alpha) ->
             textPaint.color = color
@@ -321,9 +350,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         radius: Float,
         gap: Float,
         cursorX: Float,
-        timelinePositionMs: Long
+        timelinePositionMs: Long,
+        timelineRightEdgeX: Float
     ) {
-        // Playback cursor stays fixed; timeline segments are laid out from its right edge.
+        // Playback cursor stays fixed; timeline segments extend to the technical-info boundary.
         val cursorWidth = dp(5f)
         val cursorLeftX = cursorX - cursorWidth / 2f
         val cursorRightX = cursorX + cursorWidth / 2f
@@ -335,7 +365,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             return
         }
 
-        val timelineWidth = (width.toFloat() - timelineStartX).coerceAtLeast(0f)
+        val timelineWidth = (timelineRightEdgeX - timelineStartX).coerceAtLeast(0f)
         if (timelineWidth <= 0f) return
         val pxPerMs = timelineWidth / remainingMs.toFloat()
         val playMs = playDurationMs
@@ -352,13 +382,19 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val trimsRight = if (endMs >= durationMs) 0f else gap / 2f
             val calculatedWidth =
                 (endMs - currentTimelineMs).toFloat() * pxPerMs - trimsLeft - trimsRight
-            val segmentWidth = calculatedWidth.coerceAtLeast(minSegmentWidth)
-            if (!hudMonochromeAccent || color != skipColor) {
+            val availableWidth = (timelineRightEdgeX - visualX).coerceAtLeast(0f)
+            val segmentWidth = if (endMs >= durationMs) {
+                availableWidth
+            } else {
+                calculatedWidth.coerceAtLeast(minSegmentWidth).coerceAtMost(availableWidth)
+            }
+            if (segmentWidth > 0f && (!hudMonochromeAccent || color != skipColor)) {
                 drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
             }
             currentTimelineMs = endMs
-            // Each drawn block advances the visual timeline; minimum-width blocks do not overlap.
+            // Keep the final segment's right edge exactly aligned to the technical-info boundary.
             if (endMs < durationMs) visualX += segmentWidth + gap
+            else visualX = timelineRightEdgeX
         }
 
         fun drawPlayUntil(endMs: Long) =
@@ -373,7 +409,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 drawSkipUntil((currentTimelineMs + skipMs).coerceAtMost(durationMs))
             }
         } else if (remainingMs < playMs + skipMs) {
-            if (remainingMs > playMs) drawPlayUntil(durationMs)
+            // Render a final partial cycle instead of leaving a short tail blank.
+            drawPlayUntil((currentTimelineMs + playMs).coerceAtMost(durationMs))
+            if (currentTimelineMs < durationMs) drawSkipUntil(durationMs)
             drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, timelinePositionMs)
             drawCursor(canvas, cursorX, top, bottom)
             return
@@ -387,14 +425,19 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         while (durationMs - currentTimelineMs >= playMs + skipMs) {
             // Once the visual timeline has crossed the viewport, more segments are clipped
             // and need not be allocated/drawn on every animation frame.
-            if (visualX >= width.toFloat()) break
+            if (visualX >= timelineRightEdgeX) break
             drawPlayUntil((currentTimelineMs + playMs).coerceAtMost(durationMs))
-            if (visualX >= width.toFloat()) break
+            if (visualX >= timelineRightEdgeX) break
             drawSkipUntil((currentTimelineMs + skipMs).coerceAtMost(durationMs))
         }
 
-        val tailMs = durationMs - currentTimelineMs
-        if (visualX < width.toFloat() && tailMs > playMs) drawPlayUntil(durationMs)
+        // Draw the remaining partial cycle too; omitting a short tail left a visible empty gap.
+        if (visualX < timelineRightEdgeX && currentTimelineMs < durationMs) {
+            drawPlayUntil((currentTimelineMs + playMs).coerceAtMost(durationMs))
+            if (visualX < timelineRightEdgeX && currentTimelineMs < durationMs) {
+                drawSkipUntil((currentTimelineMs + skipMs).coerceAtMost(durationMs))
+            }
+        }
 
         drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, timelinePositionMs)
         drawCursor(canvas, cursorX, top, bottom)
@@ -406,9 +449,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         top: Float,
         bottom: Float,
         radius: Float,
-        gap: Float
+        gap: Float,
+        timelineRightEdgeX: Float
     ) {
-        val pxPerMs = width.toFloat() / durationMs.toFloat()
+        val pxPerMs = timelineRightEdgeX / durationMs.toFloat()
         var timelinePositionMs = 0L
 
         while (timelinePositionMs < durationMs) {
