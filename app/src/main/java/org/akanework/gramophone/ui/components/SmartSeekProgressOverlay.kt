@@ -191,8 +191,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         if (!active || width <= 0 || height <= 0 || durationMs <= 0L) return
 
         val barHeight = dp(6f)
-        val top = (height - barHeight) / 2f
-        val bottom = top + barHeight
+        val barTop = (height - barHeight) / 2f
+        val barBottom = barTop + barHeight
         val radius = barHeight / 2f
         val gap = dp(4f)
 
@@ -202,19 +202,19 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val timelineEndX = resolvedTimelineRightEdgeX()
 
         if (isDragging) {
-            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, selectedPositionMs, timelineEndX)
-            drawCursor(canvas, cursorX, top, bottom)
+            drawFutureTimeline(canvas, barTop, barBottom, radius, gap, cursorX, selectedPositionMs, timelineEndX)
+            drawCursor(canvas, cursorX, barTop, barBottom)
         } else if (playWhenReady) {
-            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, currentPositionMs, timelineEndX)
-            drawCursor(canvas, cursorX, top, bottom)
+            drawFutureTimeline(canvas, barTop, barBottom, radius, gap, cursorX, currentPositionMs, timelineEndX)
+            drawCursor(canvas, cursorX, barTop, barBottom)
         } else {
-            drawFullTrack(canvas, top, bottom, radius, gap, timelineEndX)
-            drawCursor(canvas, cursorX, top, bottom)
+            drawFullTrack(canvas, barTop, barBottom, radius, gap, timelineEndX)
+            drawCursor(canvas, cursorX, barTop, barBottom)
         }
         if (isDragging && showDraggingHud) {
-            drawDraggingHud(canvas, selectedPositionMs)
+            drawDraggingHud(canvas, selectedPositionMs, barTop)
         } else {
-            drawHud(canvas, cursorX, top, bottom, timelineEndX)
+            drawHud(canvas, cursorX, barTop, barBottom, timelineEndX)
         }
     }
 
@@ -261,10 +261,11 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
      */
     private fun drawDraggingHud(
         canvas: Canvas,
-        positionMs: Long
+        positionMs: Long,
+        barTop: Float
     ) {
         val centerX = width / 2f
-        val centerY = height.toFloat() - dp(140f)
+        val cardCenterY = barTop - dp(40f)
         val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
         val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
         val passedPeriods = (positionMs.coerceAtLeast(0L) / cycleMs)
@@ -273,7 +274,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val timeText = CalculationUtils.convertDurationToTimeStamp(
             calculateListenedPlayTime(positionMs)
         )
-        val hudText = "$timeText  $remainingPeriods"
+        val hudText = "[$timeText]  $remainingPeriods"
 
         hudTextPaint.textSize = sp(16f)
         val textWidth = hudTextPaint.measureText(hudText)
@@ -281,9 +282,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             .coerceAtMost((width.toFloat() - dp(16f)).coerceAtLeast(0f))
         val card = RectF(
             centerX - cardWidth / 2f,
-            centerY - dp(16f),
+            cardCenterY - dp(16f),
             centerX + cardWidth / 2f,
-            centerY + dp(16f)
+            cardCenterY + dp(16f)
         )
 
         paint.style = Paint.Style.FILL

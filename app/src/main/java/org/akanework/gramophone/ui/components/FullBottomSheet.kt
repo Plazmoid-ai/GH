@@ -324,6 +324,9 @@ class FullBottomSheet
     private var pqs: PlaylistQueueSheet? = null
 
     init {
+        // Let the Smart Seek overlay draw its HUD outside the slider bounds.
+        clipChildren = false
+        clipToPadding = false
         inflate(context, R.layout.full_player, this)
         bottomSheetFullCoverFrame = findViewById(R.id.album_cover_frame)
         bottomSheetFullCover = findViewById(R.id.full_sheet_cover)
@@ -347,10 +350,13 @@ class FullBottomSheet
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
         bottomSheetSmartSeekProgressOverlay = findViewById(R.id.smart_seek_progress_overlay)
-        bottomSheetSmartSeekProgressOverlay?.onSeekRequested = { positionMs ->
-            smartSeekNextPositionMs = -1L
-            instance?.seekTo(positionMs)
-            bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
+        bottomSheetSmartSeekProgressOverlay?.apply {
+            elevation = 100f
+            onSeekRequested = { positionMs ->
+                smartSeekNextPositionMs = -1L
+                instance?.seekTo(positionMs)
+                bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
+            }
         }
         bottomSheetFullSlideUpButton = findViewById(R.id.slide_down)
         bottomSheetShuffleButton = findViewById(R.id.sheet_random)
