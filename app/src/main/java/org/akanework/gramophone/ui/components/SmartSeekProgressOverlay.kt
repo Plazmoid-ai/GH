@@ -808,5 +808,5 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
     private companion object {
         const val MIN_SEGMENT_WIDTH_DP = 6f
-remove fade constants    }
+    }
 }
