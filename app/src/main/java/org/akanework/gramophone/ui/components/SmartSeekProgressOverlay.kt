@@ -206,7 +206,6 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             drawCursor(canvas, cursorX, top, bottom)
         } else if (playWhenReady) {
             drawFutureTimeline(canvas, top, bottom, radius, gap)
-            drawHorizon(canvas)
             drawCursor(canvas, cursorX, top, bottom, leftEdge = narrowView)
         } else {
             drawFullTrack(canvas, top, bottom, radius, gap)
@@ -299,11 +298,17 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             margin,
             (width.toFloat() - margin - rectWidth).coerceAtLeast(margin)
         )
-        val baseline = (barTop + barBottom) / 2f - dp(60f)
         val fontMetrics = hudTextPaint.fontMetrics
+        val desiredBaseline = (barTop + barBottom) / 2f - dp(60f)
+        val minVisibleBaseline = paddingY - fontMetrics.ascent
+        val maxVisibleBaseline = minOf(
+            height.toFloat() - paddingY - fontMetrics.descent,
+            barTop - fontMetrics.descent - paddingY
+        ).coerceAtLeast(minVisibleBaseline)
+        val baseline = desiredBaseline.coerceIn(minVisibleBaseline, maxVisibleBaseline)
         val card = RectF(
             left,
-            (baseline + fontMetrics.ascent - paddingY).coerceAtLeast(0f),
+            baseline + fontMetrics.ascent - paddingY,
             left + rectWidth,
             baseline + fontMetrics.descent + paddingY
         )
@@ -319,7 +324,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 (cursorX - dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)),
                 card.bottom - dp(1f)
             )
-            lineTo(cursorX, (barTop - dp(8f)).coerceAtLeast(card.bottom))
+            lineTo(cursorX, barTop.coerceAtLeast(card.bottom))
             lineTo(
                 (cursorX + dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)),
                 card.bottom - dp(1f)
@@ -411,7 +416,22 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 (endMs - timelinePositionMs).toFloat() * pxPerMs - trimsLeft - trimsRight
             val segmentWidth = calculatedWidth.coerceAtLeast(minSegmentWidth)
             if (!hudMonochromeAccent || color != skipColor) {
-                drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
+                val fadeStart = (width.toFloat() - dp(HORIZON_WIDTH_DP)).coerceAtLeast(0f)
+                if (visualX + segmentWidth > fadeStart && visualX < width.toFloat()) {
+                    drawRightFadedSegment(
+                        canvas,
+                        visualX,
+                        segmentWidth,
+                        top,
+                        bottom,
+                        radius,
+                        color,
+                        alpha,
+                        fadeStart
+                    )
+                } else {
+                    drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
+                }
             }
             timelinePositionMs = endMs
             // Each drawn block advances the visual timeline; minimum-width blocks do not overlap.
@@ -511,46 +531,6 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     }
 
     /**
-     * Softly dissolves the far-right timeline into the player's surface color.
-     * The background overlay fades from transparent to opaque over the final 24dp,
-     * causing the timeline underneath to fade from fully visible to fully hidden.
-     */
-    private fun drawHorizon(canvas: Canvas) {
-        if (width <= 0) return
-        val horizonWidth = dp(HORIZON_WIDTH_DP).coerceAtMost(width.toFloat())
-        if (horizonWidth <= 0f) return
-
-        val startX = width.toFloat() - horizonWidth
-        if (hudMonochromeAccent) {
-            val backgroundColor = if (markerColor == Color.WHITE) Color.BLACK else Color.WHITE
-            paint.style = Paint.Style.FILL
-            paint.alpha = 255
-            paint.shader = null
-            paint.color = backgroundColor
-            canvas.drawRect(startX, 0f, width.toFloat(), height.toFloat(), paint)
-            return
-        }
-        val backgroundColor = MaterialColors.getColor(
-            this,
-            com.google.android.material.R.attr.colorSurface
-        )
-        val transparentBackgroundColor = Color.argb(
-            0,
-            Color.red(backgroundColor),
-            Color.green(backgroundColor),
-            Color.blue(backgroundColor)
-        )
-        paint.style = Paint.Style.FILL
-        paint.alpha = 255
-        paint.shader = LinearGradient(
-            startX, 0f, width.toFloat(), 0f,
-            transparentBackgroundColor, backgroundColor, Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(startX, 0f, width.toFloat(), height.toFloat(), paint)
-        paint.shader = null
-    }
-
-    /**
      * Draw recent elapsed play/skip intervals as separate segments. Each segment has
      * its own left-to-right fade; no continuous gradient is painted behind the cursor.
      */
@@ -620,6 +600,39 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 )
             }
         }
+    }
+
+    /**
+     * Fade only the timeline segment as it enters the right-edge horizon.
+     * The shader's end color is transparent, and the rounded segment bounds clip the
+     * effect to the bar instead of painting a rectangle over the entire view.
+     */
+    private fun drawRightFadedSegment(
+        canvas: Canvas,
+        left: Float,
+        segmentWidth: Float,
+        top: Float,
+        bottom: Float,
+        radius: Float,
+        color: Int,
+        alpha: Int,
+        fadeStart: Float
+    ) {
+        if (segmentWidth <= 0f) return
+        val opaqueColor = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        paint.style = Paint.Style.FILL
+        paint.alpha = 255
+        paint.shader = LinearGradient(
+            fadeStart, 0f, width.toFloat(), 0f,
+            opaqueColor, Color.TRANSPARENT, Shader.TileMode.CLAMP
+        )
+        canvas.drawRoundRect(
+            RectF(left, top, left + segmentWidth, bottom),
+            radius,
+            radius,
+            paint
+        )
+        paint.shader = null
     }
 
     private fun drawFadedSegment(

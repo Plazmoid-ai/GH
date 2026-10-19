@@ -66,7 +66,6 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.viewModels
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.view.ContextThemeWrapper
 import androidx.appcompat.widget.TooltipCompat
@@ -109,6 +108,8 @@ import coil3.request.allowHardware
 import coil3.request.error
 import coil3.size.Scale
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.color.DynamicColors
@@ -1877,16 +1878,15 @@ class FullBottomSheet
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    topMargin = sectionGap
+                    topMargin = (24 * density).toInt()
                     bottomMargin = sectionGap
                     marginStart = padding
                     marginEnd = padding
                 }
             )
         }
-        val dialog = MaterialAlertDialogBuilder(context)
-            .setView(dialogContent)
-            .create()
+        val dialog = BottomSheetDialog(context)
+        dialog.setContentView(dialogContent)
         dialog.setOnDismissListener {
             if (smartSeekCustomAccentToggleButton === disableCustomAccentButton) {
                 smartSeekCustomAccentToggleButton = null
@@ -1897,15 +1897,14 @@ class FullBottomSheet
         fun readValue(input: EditText, maxValue: Int): Int? =
             input.text.toString().trim().toIntOrNull()?.takeIf { it in 1..maxValue }
 
-        // Header and action buttons remain fixed; only the settings content scrolls.
+        // Keep the settings sheet expanded below the player's top controls.
         dialog.setOnShowListener {
+            val topControlsClearance = (72 * density).toInt()
+            val screenHeight = resources.displayMetrics.heightPixels
             dialog.window?.let { window ->
-                val topControlsClearance = (64 * density).toInt()
-                val dialogHeight = (resources.displayMetrics.heightPixels - topControlsClearance)
-                    .coerceAtLeast((resources.displayMetrics.heightPixels * 0.90f).toInt())
                 window.setLayout(
                     (resources.displayMetrics.widthPixels * 0.96f).toInt(),
-                    dialogHeight
+                    WindowManager.LayoutParams.MATCH_PARENT
                 )
                 window.setGravity(Gravity.BOTTOM)
                 window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -1913,6 +1912,13 @@ class FullBottomSheet
             dialogContent.layoutParams = dialogContent.layoutParams.apply {
                 width = ViewGroup.LayoutParams.MATCH_PARENT
                 height = ViewGroup.LayoutParams.MATCH_PARENT
+            }
+            dialog.behavior.apply {
+                isFitToContents = false
+                expandedOffset = topControlsClearance
+                peekHeight = (screenHeight - topControlsClearance).coerceAtLeast(0)
+                skipCollapsed = true
+                state = BottomSheetBehavior.STATE_EXPANDED
             }
 
             saveButton.setOnClickListener {
