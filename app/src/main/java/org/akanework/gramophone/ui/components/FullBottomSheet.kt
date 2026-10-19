@@ -36,6 +36,7 @@ import android.os.Bundle
 import android.os.Parcelable
 import android.os.Process
 import android.os.SystemClock
+import android.text.InputFilter
 import android.text.InputType
 import android.text.Spannable
 import android.text.SpannableStringBuilder
@@ -50,11 +51,13 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewPropertyAnimator
+import android.view.WindowManager
 import android.view.WindowInsets
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.SeekBar
@@ -1129,7 +1132,7 @@ class FullBottomSheet
             skipDurationMs = skipMs,
             playWhenReady = player?.playWhenReady == true,
             markerColor = accentColor,
-            skipColor = context.getColor(R.color.smart_seek_skip),
+            skipColor = if (contrastAccentEnabled) Color.TRANSPARENT else context.getColor(R.color.smart_seek_skip),
             hudPlayLabel = playLabel,
             hudSkipLabel = skipLabel,
             hudRemainingMs = remainingMs,
@@ -1276,6 +1279,34 @@ class FullBottomSheet
                 setText(value.toString())
             }
 
+        fun configureUnitInput(input: EditText, suffix: String) {
+            val digitsOnlyFilter = InputFilter { source, start, end, _, _, _ ->
+                val filtered = buildString {
+                    for (index in start until end) {
+                        val character = source[index]
+                        if (character in '0'..'9') append(character)
+                    }
+                }
+                if (filtered.length == end - start) null else filtered
+            }
+
+            fun digits(): String = input.text.toString().filter { it in '0'..'9' }
+
+            input.filters = arrayOf<InputFilter>()
+            input.setText(digits().let { if (it.isEmpty()) "" else "$it $suffix" })
+            input.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+                val value = digits()
+                if (hasFocus) {
+                    input.filters = arrayOf(digitsOnlyFilter)
+                    input.setText(value)
+                    input.setSelection(input.text.length)
+                } else {
+                    input.filters = arrayOf<InputFilter>()
+                    input.setText(if (value.isEmpty()) "" else "$value $suffix")
+                }
+            }
+        }
+
         fun addInput(parent: LinearLayout, input: EditText) {
             parent.addView(
                 input,
@@ -1360,7 +1391,10 @@ class FullBottomSheet
         val cycleMinutesInput = newValueInput(
             (current.cycleDurationMs / 60_000L).toInt()
         )
-        addLabel(cycleMinutesColumn, context.getString(R.string.smart_seek_cycle_minutes))
+        configureUnitInput(
+            cycleMinutesInput,
+            context.getString(R.string.smart_seek_cycle_minutes_suffix)
+        )
         addInput(cycleMinutesColumn, cycleMinutesInput)
         cycleDurationRow.addView(
             cycleMinutesColumn,
@@ -1375,7 +1409,10 @@ class FullBottomSheet
         val cycleSecondsInput = newValueInput(
             ((current.cycleDurationMs % 60_000L) / 1_000L).toInt()
         )
-        addLabel(cycleSecondsColumn, context.getString(R.string.smart_seek_cycle_seconds))
+        configureUnitInput(
+            cycleSecondsInput,
+            context.getString(R.string.smart_seek_cycle_seconds_suffix)
+        )
         addInput(cycleSecondsColumn, cycleSecondsInput)
         cycleDurationRow.addView(
             cycleSecondsColumn,
@@ -1528,7 +1565,7 @@ class FullBottomSheet
                 button.isEnabled = customAccentEnabled
                 button.alpha = if (customAccentEnabled) 1f else 0.3f
                 button.isChecked = selected
-                button.strokeWidth = density.toInt().coerceAtLeast(1)
+                button.strokeWidth = if (selected) (2 * density).toInt().coerceAtLeast(2) else density.toInt().coerceAtLeast(1)
                 button.strokeColor = ColorStateList.valueOf(
                     if (selected) accentColor else MaterialColors.getColor(
                         button,
@@ -1621,7 +1658,7 @@ class FullBottomSheet
                 textSize = 12f
                 isCheckable = true
                 cornerRadius = (14 * density).toInt()
-                minHeight = (36 * density).toInt()
+                minHeight = (40 * density).toInt()
                 minimumHeight = minHeight
                 insetTop = 0
                 insetBottom = 0
@@ -1630,7 +1667,7 @@ class FullBottomSheet
                     minWidth = (64 * density).toInt()
                     minimumWidth = minWidth
                     setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
-                    iconSize = (40 * density).toInt()
+                    iconSize = (36 * density).toInt()
                     iconTint = null
                     icon = object : android.graphics.drawable.Drawable() {
                         private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
@@ -1670,8 +1707,8 @@ class FullBottomSheet
                         @Deprecated("Deprecated in Android")
                         override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
 
-                        override fun getIntrinsicWidth(): Int = (40 * density).toInt()
-                        override fun getIntrinsicHeight(): Int = (40 * density).toInt()
+                        override fun getIntrinsicWidth(): Int = (36 * density).toInt()
+                        override fun getIntrinsicHeight(): Int = (36 * density).toInt()
                     }
                 }
                 setOnClickListener {
@@ -1698,20 +1735,28 @@ class FullBottomSheet
         )
         specialMarkerColorButtons += dynamicAccentButton
         specialMarkerColorButtons += contrastAccentButton
-        val specialButtonLayout = LinearLayout.LayoutParams(
-            0,
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            1f
-        ).apply {
-            setMargins(sectionGap / 2, sectionGap, sectionGap / 2, 0)
-        }
-        specialMarkerColorRow.addView(dynamicAccentButton, specialButtonLayout)
+        val specialButtonHeight = (40 * density).toInt()
         specialMarkerColorRow.addView(
-            contrastAccentButton,
-            LinearLayout.LayoutParams(
-                (64 * density).toInt(),
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(sectionGap / 2, sectionGap, sectionGap / 2, 0) }
+            dynamicAccentButton,
+            LinearLayout.LayoutParams(0, specialButtonHeight, 0.70f).apply {
+                setMargins(sectionGap / 2, sectionGap, sectionGap / 2, 0)
+            }
+        )
+        val contrastAccentContainer = FrameLayout(context).apply {
+            addView(
+                contrastAccentButton,
+                FrameLayout.LayoutParams(
+                    (64 * density).toInt(),
+                    specialButtonHeight,
+                    Gravity.CENTER
+                )
+            )
+        }
+        specialMarkerColorRow.addView(
+            contrastAccentContainer,
+            LinearLayout.LayoutParams(0, specialButtonHeight, 0.30f).apply {
+                setMargins(sectionGap / 2, sectionGap, sectionGap / 2, 0)
+            }
         )
         content.addView(
             specialMarkerColorRow,
@@ -1722,19 +1767,55 @@ class FullBottomSheet
         )
         updateMarkerColorControls()
 
-        val scroll = ScrollView(context).apply {
-            isFillViewport = true
-            addView(content)
+        val handleColor = MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOutline,
+            Color.GRAY
+        )
+        val handle = View(context).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(handleColor)
+                cornerRadius = 3 * density
+            }
         }
-        val dialogContent = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(
-                scroll,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    (resources.displayMetrics.heightPixels * 0.72f).toInt()
+        val headerTitle = TextView(context).apply {
+            text = context.getString(R.string.smart_seek_settings_title)
+            textSize = 20f
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            setTextColor(
+                MaterialColors.getColor(
+                    this,
+                    com.google.android.material.R.attr.colorOnSurface,
+                    Color.DKGRAY
                 )
             )
+            setPadding(0, (8 * density).toInt(), 0, 0)
+        }
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, 0, padding, sectionGap)
+            addView(
+                handle,
+                LinearLayout.LayoutParams(
+                    (36 * density).toInt(),
+                    (4 * density).toInt()
+                ).apply {
+                    gravity = Gravity.CENTER
+                    topMargin = (8 * density).toInt()
+                }
+            )
+            addView(
+                headerTitle,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        val scroll = ScrollView(context).apply {
+            isFillViewport = false
+            clipToPadding = false
+            addView(content)
         }
         val buttonRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1760,19 +1841,37 @@ class FullBottomSheet
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginStart = sectionGap }
         )
-        dialogContent.addView(
-            buttonRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = sectionGap
-                bottomMargin = sectionGap
-                marginEnd = padding
-            }
-        )
+        val dialogContent = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(
+                header,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                scroll,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            )
+            addView(
+                buttonRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = sectionGap
+                    bottomMargin = sectionGap
+                    marginStart = padding
+                    marginEnd = padding
+                }
+            )
+        }
         val dialog = MaterialAlertDialogBuilder(context)
-            .setTitle(R.string.smart_seek_settings_title)
             .setView(dialogContent)
             .create()
         dialog.setOnDismissListener {
@@ -1785,11 +1884,150 @@ class FullBottomSheet
         fun readValue(input: EditText, maxValue: Int): Int? =
             input.text.toString().trim().toIntOrNull()?.takeIf { it in 1..maxValue }
 
+        val panelAnimations = mutableMapOf<View, ValueAnimator>()
+        var panelsHidden = false
+        var headerExpandedHeight = 0
+        var footerExpandedHeight = 0
+
+        fun animatePanel(panel: View, hide: Boolean, expandedHeight: Int, moveUp: Boolean) {
+            panelAnimations.remove(panel)?.cancel()
+            if (hide && panel.visibility != View.VISIBLE) return
+            val height = if (expandedHeight > 0) expandedHeight else panel.height
+            val direction = if (moveUp) -1f else 1f
+            if (!hide) {
+                panel.visibility = View.VISIBLE
+                panel.alpha = 0f
+                panel.translationY = direction * padding.toFloat()
+                panel.layoutParams = panel.layoutParams.apply { this.height = 0 }
+            }
+            val startHeight = if (hide) panel.height else 0
+            val endHeight = if (hide) 0 else height
+            val animator = ValueAnimator.ofInt(startHeight, endHeight).apply {
+                duration = 180L
+                addUpdateListener { valueAnimator ->
+                    val animatedHeight = valueAnimator.animatedValue as Int
+                    panel.layoutParams = panel.layoutParams.apply { this.height = animatedHeight }
+                    val fraction = valueAnimator.animatedFraction
+                    panel.alpha = if (hide) 1f - fraction else fraction
+                    panel.translationY = if (hide) {
+                        direction * padding * fraction
+                    } else {
+                        direction * padding * (1f - fraction)
+                    }
+                }
+            }
+            panelAnimations[panel] = animator
+            animator.doOnEnd {
+                if (panelAnimations[panel] !== animator) return@doOnEnd
+                panelAnimations.remove(panel)
+                if (hide) {
+                    panel.visibility = View.GONE
+                    panel.alpha = 0f
+                    panel.translationY = 0f
+                    panel.layoutParams = panel.layoutParams.apply { this.height = 0 }
+                } else {
+                    panel.visibility = View.VISIBLE
+                    panel.alpha = 1f
+                    panel.translationY = 0f
+                    panel.layoutParams = panel.layoutParams.apply {
+                        this.height = LinearLayout.LayoutParams.WRAP_CONTENT
+                    }
+                }
+            }
+            animator.start()
+        }
+
+        fun setPanelsHidden(hide: Boolean) {
+            if (panelsHidden == hide) return
+            if (headerExpandedHeight <= 0) headerExpandedHeight = header.height
+            if (footerExpandedHeight <= 0) footerExpandedHeight = buttonRow.height
+            panelsHidden = hide
+            animatePanel(header, hide, headerExpandedHeight, moveUp = true)
+            animatePanel(buttonRow, hide, footerExpandedHeight, moveUp = false)
+        }
+
         dialog.setOnShowListener {
+            dialog.window?.let { window ->
+                window.setLayout(
+                    (resources.displayMetrics.widthPixels * 0.96f).toInt(),
+                    (resources.displayMetrics.heightPixels * 0.90f).toInt()
+                )
+                window.setGravity(Gravity.BOTTOM)
+                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            }
+            dialogContent.layoutParams = dialogContent.layoutParams.apply {
+                width = ViewGroup.LayoutParams.MATCH_PARENT
+                height = ViewGroup.LayoutParams.MATCH_PARENT
+            }
+            dialogContent.post {
+                headerExpandedHeight = header.height
+                footerExpandedHeight = buttonRow.height
+            }
+
+            fun attachDismissSwipe(target: View) {
+                var startX = 0f
+                var startY = 0f
+                target.setOnTouchListener { view, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            startX = event.rawX
+                            startY = event.rawY
+                            true
+                        }
+                        MotionEvent.ACTION_MOVE -> true
+                        MotionEvent.ACTION_UP -> {
+                            val deltaX = event.rawX - startX
+                            val deltaY = event.rawY - startY
+                            if (deltaY >= (64 * density) &&
+                                kotlin.math.abs(deltaY) > kotlin.math.abs(deltaX)
+                            ) {
+                                dialog.dismiss()
+                            }
+                            view.parent?.requestDisallowInterceptTouchEvent(false)
+                            true
+                        }
+                        MotionEvent.ACTION_CANCEL -> {
+                            view.parent?.requestDisallowInterceptTouchEvent(false)
+                            true
+                        }
+                        else -> true
+                    }
+                }
+            }
+            attachDismissSwipe(header)
+            attachDismissSwipe(handle)
+            attachDismissSwipe(headerTitle)
+
+            var accumulatedScrollDelta = 0
+            val directionThreshold = (6 * density).toInt().coerceAtLeast(3)
+            scroll.setOnScrollChangeListener { _, _, y, _, oldY ->
+                val delta = y - oldY
+                if (delta != 0) {
+                    accumulatedScrollDelta =
+                        if (accumulatedScrollDelta == 0 ||
+                            (accumulatedScrollDelta > 0) == (delta > 0)
+                        ) {
+                            accumulatedScrollDelta + delta
+                        } else {
+                            delta
+                        }
+                    if (y <= 0) {
+                        accumulatedScrollDelta = 0
+                        setPanelsHidden(false)
+                    } else if (accumulatedScrollDelta >= directionThreshold) {
+                        accumulatedScrollDelta = 0
+                        setPanelsHidden(true)
+                    } else if (accumulatedScrollDelta <= -directionThreshold) {
+                        accumulatedScrollDelta = 0
+                        setPanelsHidden(false)
+                    }
+                }
+            }
+
             saveButton.setOnClickListener {
                 val mode = selectedMode()
-                val cycleMinutes = cycleMinutesInput.text.toString().trim().toIntOrNull()
-                val cycleSeconds = cycleSecondsInput.text.toString().trim().toIntOrNull()
+                val cycleMinutes = cycleMinutesInput.text.toString().filter { it in '0'..'9' }.toIntOrNull()
+                val cycleSeconds = cycleSecondsInput.text.toString().filter { it in '0'..'9' }.toIntOrNull()
                 var absolutePlay = readValue(absolutePlayInput, SmartSeekConfig.MAX_SECONDS)
                 var absoluteSkip = readValue(absoluteSkipInput, SmartSeekConfig.MAX_SECONDS)
                 var percentPlay = readValue(percentPlayInput, 99)

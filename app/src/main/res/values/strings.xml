@@ -1357,6 +1357,8 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_cycle_help">Cycle length stays fixed. Random variation is disabled, and the final part of each track plays normally.</string>
     <string name="smart_seek_cycle_minutes">Minutes</string>
     <string name="smart_seek_cycle_seconds">Seconds</string>
+    <string name="smart_seek_cycle_minutes_suffix">min</string>
+    <string name="smart_seek_cycle_seconds_suffix">sec</string>
     <string name="smart_seek_cycle_minutes_invalid">Enter a value from 0 to 10 minutes.</string>
     <string name="smart_seek_cycle_seconds_invalid">Enter a value from 0 to 59 seconds.</string>
     <string name="smart_seek_cycle_duration_range">Cycle duration must be between 1 second and 10 minutes.</string>

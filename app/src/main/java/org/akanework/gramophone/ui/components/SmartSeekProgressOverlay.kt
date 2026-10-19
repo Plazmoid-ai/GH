@@ -135,7 +135,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         } else {
             this.skipColor
         }
-        updateTrailColor(desiredTrailColor, active && playWhenReady)
+        updateTrailColor(desiredTrailColor, active && playWhenReady && !this.hudMonochromeAccent)
 
         if (!active) {
             isDragging = false
@@ -314,7 +314,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
         paint.shader = null
         paint.alpha = 255
-        paint.color = Color.rgb(26, 26, 26)
+        paint.color = if (hudMonochromeAccent) Color.BLACK else Color.rgb(26, 26, 26)
         val pointer = Path().apply {
             moveTo((cursorX - dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom - dp(1f))
             lineTo(cursorX, (barTop - dp(8f)).coerceAtLeast(card.bottom))
@@ -404,14 +404,16 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val calculatedWidth =
                 (endMs - timelinePositionMs).toFloat() * pxPerMs - trimsLeft - trimsRight
             val segmentWidth = calculatedWidth.coerceAtLeast(minSegmentWidth)
-            drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
+            if (!hudMonochromeAccent || color != skipColor) {
+                drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
+            }
             timelinePositionMs = endMs
             // Each drawn block advances the visual timeline; minimum-width blocks do not overlap.
             if (endMs < durationMs) visualX += segmentWidth + gap
         }
 
         fun drawPlayUntil(endMs: Long) =
-            drawFutureSegmentUntil(endMs, markerColor, 220)
+            drawFutureSegmentUntil(endMs, markerColor, if (hudMonochromeAccent) 255 else 220)
 
         fun drawSkipUntil(endMs: Long) =
             drawFutureSegmentUntil(endMs, skipColor, 190)
@@ -464,16 +466,18 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val playEndMs = (timelinePositionMs + playDurationMs).coerceAtMost(durationMs)
             drawTimelineSegment(
                 canvas, timelinePositionMs, playEndMs, 0L, pxPerMs,
-                0f, top, bottom, radius, gap, markerColor, 220
+                0f, top, bottom, radius, gap, markerColor, if (hudMonochromeAccent) 255 else 220
             )
             timelinePositionMs = playEndMs
             if (timelinePositionMs >= durationMs) break
 
             val skipEndMs = (timelinePositionMs + skipDurationMs).coerceAtMost(durationMs)
-            drawTimelineSegment(
-                canvas, timelinePositionMs, skipEndMs, 0L, pxPerMs,
-                0f, top, bottom, radius, gap, skipColor, 190
-            )
+            if (!hudMonochromeAccent) {
+                drawTimelineSegment(
+                    canvas, timelinePositionMs, skipEndMs, 0L, pxPerMs,
+                    0f, top, bottom, radius, gap, skipColor, 190
+                )
+            }
             timelinePositionMs = skipEndMs
         }
     }
@@ -511,6 +515,15 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         if (horizonWidth <= 0f) return
 
         val startX = width.toFloat() - horizonWidth
+        if (hudMonochromeAccent) {
+            val backgroundColor = if (markerColor == Color.WHITE) Color.BLACK else Color.WHITE
+            paint.style = Paint.Style.FILL
+            paint.alpha = 255
+            paint.shader = null
+            paint.color = backgroundColor
+            canvas.drawRect(startX, 0f, width.toFloat(), height.toFloat(), paint)
+            return
+        }
         val backgroundColor = MaterialColors.getColor(
             this,
             com.google.android.material.R.attr.colorSurface
@@ -561,14 +574,17 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val cycleIndex = (cursorMs - 1L) / cycleMs
             val cycleStart = cycleIndex * cycleMs
             val playEnd = (cycleStart + playMs).coerceAtMost(durationMs)
-            val segment = if (cursorMs > playEnd) {
+            val isSkipSegment = cursorMs > playEnd
+            val segment = if (isSkipSegment) {
                 val start = (cycleStart + playMs).coerceAtMost(cursorMs)
                 PastSegment(start, cursorMs, skipColor, 190)
             } else {
-                PastSegment(cycleStart, cursorMs.coerceAtMost(playEnd), markerColor, 220)
+                PastSegment(cycleStart, cursorMs.coerceAtMost(playEnd), markerColor, if (hudMonochromeAccent) 255 else 220)
             }
             if (segment.endMs <= segment.startMs) break
-            segmentsNewestFirst += segment
+            if (!hudMonochromeAccent || !isSkipSegment) {
+                segmentsNewestFirst += segment
+            }
             cursorMs = segment.startMs
         }
 
@@ -586,12 +602,17 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val gapAtBoundary = minOf(gap / 2f, segmentWidth * 0.15f)
             val trimmedLeft = if (index == 0) left else left + gapAtBoundary
             val trimmedRight = if (index == segments.lastIndex) right else right - gapAtBoundary
-            drawFadedSegment(
-                canvas,
-                trimmedLeft,
-                (trimmedRight - trimmedLeft).coerceAtLeast(0f),
-                top, bottom, radius, segment.color, segment.alpha
-            )
+            val segmentWidth = (trimmedRight - trimmedLeft).coerceAtLeast(0f)
+            if (hudMonochromeAccent) {
+                drawSegment(canvas, trimmedLeft, segmentWidth, top, bottom, radius, segment.color, 255)
+            } else {
+                drawFadedSegment(
+                    canvas,
+                    trimmedLeft,
+                    segmentWidth,
+                    top, bottom, radius, segment.color, segment.alpha
+                )
+            }
         }
     }
 
@@ -633,10 +654,14 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     ) {
         paint.style = Paint.Style.FILL
         paint.shader = null
-        paint.color = MaterialColors.getColor(
-            this,
-            com.google.android.material.R.attr.colorOnSurface
-        )
+        paint.color = if (hudMonochromeAccent) {
+            markerColor
+        } else {
+            MaterialColors.getColor(
+                this,
+                com.google.android.material.R.attr.colorOnSurface
+            )
+        }
         paint.alpha = 255
 
         val cursorWidth = dp(5f)

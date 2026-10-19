@@ -589,6 +589,8 @@
     <string name="smart_seek_cycle_help">Длительность цикла остаётся фиксированной. Случайные отклонения отключены, последняя часть трека воспроизводится полностью.</string>
     <string name="smart_seek_cycle_minutes">Минуты</string>
     <string name="smart_seek_cycle_seconds">Секунды</string>
+    <string name="smart_seek_cycle_minutes_suffix">мин</string>
+    <string name="smart_seek_cycle_seconds_suffix">сек</string>
     <string name="smart_seek_cycle_minutes_invalid">Введите от 0 до 10 минут.</string>
     <string name="smart_seek_cycle_seconds_invalid">Введите от 0 до 59 секунд.</string>
     <string name="smart_seek_cycle_duration_range">Длительность цикла должна быть от 1 секунды до 10 минут.</string>
