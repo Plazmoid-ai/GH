@@ -76,9 +76,11 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var showDraggingHud = false
     private var dragPositionMs: Long? = null
     private var dragStartX = 0f
+    private var dragStartPositionMs = 0L
+    private var gesturePending = false
     private var dragHoldRunnable: Runnable? = null
 
-    /** Called when a paused-track drag/tap is released at the snapped play-segment start. */
+    /** Called when a progress-bar gesture commits a seek position. */
     var onSeekRequested: ((Long) -> Unit)? = null
 
     init {
@@ -270,6 +272,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val spacing = dp(3f)
         val textSize = sp(16f)
         hudTextPaint.textSize = textSize
+        hudTextPaint.alpha = 255
 
         val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
         val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
@@ -299,7 +302,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             margin,
             (width.toFloat() - margin - rectWidth).coerceAtLeast(margin)
         )
-        val baseline = (barTop + barBottom) / 2f - dp(56f)
+        val baseline = (barTop + barBottom) / 2f - dp(60f)
         val fontMetrics = hudTextPaint.fontMetrics
         val card = RectF(
             left,
@@ -311,7 +314,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         paint.style = Paint.Style.FILL
         paint.shader = null
         paint.alpha = 255
-        paint.color = Color.BLACK
+        paint.color = Color.rgb(26, 26, 26)
         val pointer = Path().apply {
             moveTo((cursorX - dp(10f)).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom - dp(1f))
             lineTo(cursorX, (barTop - dp(8f)).coerceAtLeast(card.bottom))
@@ -324,7 +327,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         var x = left + paddingX
         parts.forEachIndexed { index, (text, color, alpha) ->
             hudTextPaint.color = color
-            hudTextPaint.alpha = alpha
+            hudTextPaint.alpha = 255
             canvas.drawText(text, x, baseline, hudTextPaint)
             x += hudTextPaint.measureText(text)
             if (index != parts.lastIndex) x += spacing
@@ -730,6 +733,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 dragHoldRunnable?.let { removeCallbacks(it) }
                 dragHoldRunnable = null
+                gesturePending = false
                 isDragging = false
                 showDraggingHud = false
                 dragPositionMs = null
@@ -740,24 +744,21 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val narrowView = width.toFloat() < dp(100f)
-                val cursorX = if (playWhenReady) {
-                    if (narrowView) 0f else dp(50f)
-                } else {
-                    (currentPositionMs.toFloat() / durationMs.toFloat() * width)
-                        .coerceIn(0f, width.toFloat())
-                }
-                val inCursorZone = kotlin.math.abs(event.x - cursorX) <= dp(18f) &&
-                    kotlin.math.abs(event.y - height / 2f) <= dp(22f)
-                if (!inCursorZone) return false
-                isDragging = true
-                showDraggingHud = false
+                if (kotlin.math.abs(event.y - height / 2f) > dp(24f)) return false
                 dragStartX = event.x
-                dragPositionMs = positionFromX(event.x)
+                dragStartPositionMs = positionFromX(event.x)
+                dragPositionMs = dragStartPositionMs
+                gesturePending = true
+                isDragging = false
+                showDraggingHud = false
                 dragHoldRunnable?.let { removeCallbacks(it) }
                 dragHoldRunnable = Runnable {
-                    if (isDragging) {
+                    if (gesturePending && active) {
+                        gesturePending = false
+                        isDragging = true
                         showDraggingHud = true
+                        dragPositionMs = dragStartPositionMs
+                        parent?.requestDisallowInterceptTouchEvent(true)
                         postInvalidateOnAnimation()
                     }
                 }.also { postDelayed(it, 500L) }
@@ -767,34 +768,67 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (!isDragging) return false
-                if (kotlin.math.abs(event.x - dragStartX) >= dp(60f)) {
+                val deltaX = event.x - dragStartX
+                if (gesturePending && kotlin.math.abs(deltaX) > dp(60f)) {
+                    gesturePending = false
+                    isDragging = true
                     showDraggingHud = true
+                    dragPositionMs = dragStartPositionMs
                 }
+                if (!isDragging) return gesturePending
                 dragPositionMs = positionFromX(event.x)
                 postInvalidateOnAnimation()
                 return true
             }
 
             MotionEvent.ACTION_UP -> {
-                if (!isDragging) return false
-                val newPositionMs = positionFromX(event.x)
+                val deltaX = event.x - dragStartX
                 dragHoldRunnable?.let { removeCallbacks(it) }
                 dragHoldRunnable = null
+                val wasDragging = isDragging
+                val wasPending = gesturePending
+                gesturePending = false
+
+                if (wasDragging) {
+                    val target = positionFromX(event.x)
+                    isDragging = false
+                    showDraggingHud = false
+                    dragPositionMs = null
+                    currentPositionMs = target
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    postInvalidateOnAnimation()
+                    onSeekRequested?.invoke(target)
+                    return true
+                }
+
                 isDragging = false
                 showDraggingHud = false
                 dragPositionMs = null
-                currentPositionMs = newPositionMs
                 parent?.requestDisallowInterceptTouchEvent(false)
+                when {
+                    wasPending && kotlin.math.abs(deltaX) >= dp(20f) &&
+                        kotlin.math.abs(deltaX) <= dp(60f) -> {
+                        seekAdjacentPlaySegment(if (deltaX > 0f) 1 else -1)
+                    }
+                    wasPending && kotlin.math.abs(deltaX) > dp(60f) -> {
+                        val target = positionFromX(event.x)
+                        currentPositionMs = target
+                        onSeekRequested?.invoke(target)
+                    }
+                    wasPending -> {
+                        val target = nearestPlaySegmentStart(positionFromX(event.x))
+                        currentPositionMs = target
+                        onSeekRequested?.invoke(target)
+                    }
+                }
                 postInvalidateOnAnimation()
-                onSeekRequested?.invoke(newPositionMs)
-                return true
+                return wasPending
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                if (!isDragging) return false
                 dragHoldRunnable?.let { removeCallbacks(it) }
                 dragHoldRunnable = null
+                gesturePending = false
                 isDragging = false
                 showDraggingHud = false
                 dragPositionMs = null
@@ -803,8 +837,16 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
                 return true
             }
 
-            else -> return isDragging
+            else -> return gesturePending || isDragging
         }
+    }
+
+    private fun nearestPlaySegmentStart(positionMs: Long): Long {
+        val position = positionMs.coerceIn(0L, durationMs)
+        val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
+        val cycleStart = (position / cycleMs) * cycleMs
+        val nextStart = (cycleStart + cycleMs).coerceAtMost(durationMs)
+        return if (position - cycleStart <= nextStart - position) cycleStart else nextStart
     }
 
     private fun positionFromX(x: Float): Long {

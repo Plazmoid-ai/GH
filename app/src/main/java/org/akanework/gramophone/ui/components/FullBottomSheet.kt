@@ -624,106 +624,33 @@ class FullBottomSheet
             instance?.playOrPause()
         }
 
-        // Optional gesture controls on the main Play/Pause button.
+        // Optional track/queue swipe controls stay on the Play/Pause button.
         var swipeStartX = 0f
         var swipeStartY = 0f
         var swipeStartTranslationX = 0f
         var isSwiping = false
-        var swipeGestureHandled = false
-        var smartSeekGesture = false
-        var smartSeekDragStarted = false
-        var smartSeekGestureStartPositionMs = 0L
-        var smartSeekHoldRunnable: Runnable? = null
         val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
-        val smartSeekShortSwipeMinPx = 20f * resources.displayMetrics.density
-        val smartSeekLongSwipePx = 60f * resources.displayMetrics.density
-        val smartSeekHoldDelayMs = 500L
-
-        fun beginSmartSeekGestureDrag(view: View) {
-            if (smartSeekDragStarted) return
-            smartSeekDragStarted = true
-            smartSeekHoldRunnable?.let { view.removeCallbacks(it) }
-            smartSeekHoldRunnable = null
-            bottomSheetSmartSeekProgressOverlay?.beginGestureDrag(smartSeekGestureStartPositionMs)
-        }
-
-        fun updateSmartSeekGestureDrag(dx: Float) {
-            val overlay = bottomSheetSmartSeekProgressOverlay ?: return
-            val durationMs = currentTrackDurationMs()
-            if (durationMs <= 0L || overlay.width <= 0) return
-            val deltaMs = (dx / overlay.width.toFloat() * durationMs.toFloat()).toLong()
-            overlay.updateGestureDrag(
-                (smartSeekGestureStartPositionMs + deltaMs).coerceIn(0L, durationMs)
-            )
-        }
-
-        fun cancelSmartSeekHold(view: View) {
-            smartSeekHoldRunnable?.let { view.removeCallbacks(it) }
-            smartSeekHoldRunnable = null
-        }
 
         bottomSheetFullControllerButton.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    smartSeekGesture = prefs.getBoolean("smart_seek_enabled", true) &&
-                        activity.controllerViewModel.isSmartSeekActive()
-                    if (!smartSeekGesture && !prefs.getBoolean("enable_player_swipes", false)) {
+                    if (!prefs.getBoolean("enable_player_swipes", false)) {
                         view.translationX = 0f
                         return@setOnTouchListener false
                     }
-
                     swipeStartX = event.x
                     swipeStartY = event.y
                     swipeStartTranslationX = view.translationX
-                    smartSeekGestureStartPositionMs = instance?.currentPosition?.coerceAtLeast(0L) ?: 0L
                     isSwiping = false
-                    swipeGestureHandled = false
-                    smartSeekDragStarted = false
-
-                    if (smartSeekGesture) {
-                        smartSeekHoldRunnable = Runnable {
-                            if (smartSeekGesture && !smartSeekDragStarted) {
-                                beginSmartSeekGestureDrag(view)
-                                updateSmartSeekGestureDrag(0f)
-                            }
-                        }
-                        view.postDelayed(smartSeekHoldRunnable!!, smartSeekHoldDelayMs)
-                    }
                     true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    if (swipeGestureHandled) return@setOnTouchListener true
                     val dx = event.x - swipeStartX
                     val dy = event.y - swipeStartY
                     if (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop) {
                         isSwiping = true
                     }
-
-                    if (smartSeekGesture) {
-                        if (kotlin.math.abs(dx) > touchSlop &&
-                            kotlin.math.abs(dx) > kotlin.math.abs(dy)
-                        ) {
-                            parent?.requestDisallowInterceptTouchEvent(true)
-                        }
-                        if (kotlin.math.abs(dx) > smartSeekLongSwipePx &&
-                            kotlin.math.abs(dx) > kotlin.math.abs(dy)
-                        ) {
-                            beginSmartSeekGestureDrag(view)
-                        }
-                        if (smartSeekDragStarted) {
-                            updateSmartSeekGestureDrag(dx)
-                            parent?.requestDisallowInterceptTouchEvent(true)
-                        } else if (dy < -touchSlop &&
-                            kotlin.math.abs(dy) > kotlin.math.abs(dx)
-                        ) {
-                            parent?.requestDisallowInterceptTouchEvent(true)
-                        } else if (dy > touchSlop) {
-                            parent?.requestDisallowInterceptTouchEvent(false)
-                        }
-                        return@setOnTouchListener true
-                    }
-
                     if (kotlin.math.abs(dx) > kotlin.math.abs(dy) &&
                         kotlin.math.abs(dx) > touchSlop
                     ) {
@@ -732,81 +659,39 @@ class FullBottomSheet
                     } else if (dy < -touchSlop &&
                         kotlin.math.abs(dy) > kotlin.math.abs(dx)
                     ) {
-                        // Claim upward swipes so the queue can open instead of collapsing the sheet.
                         parent?.requestDisallowInterceptTouchEvent(true)
                     } else if (dy > touchSlop) {
-                        // Keep downward gestures available to the BottomSheet.
                         parent?.requestDisallowInterceptTouchEvent(false)
                     }
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!swipeGestureHandled) {
-                        swipeGestureHandled = true
-                        val dx = event.x - swipeStartX
-                        val dy = event.y - swipeStartY
-                        val savedValue = prefs.getInt("player_swipe_sensitivity", 60)
-                            .coerceIn(SWIPE_SENSITIVITY_MIN_VALUE, SWIPE_SENSITIVITY_MAX_VALUE)
-                        val actualThreshold = SWIPE_SENSITIVITY_MAX_VALUE - savedValue +
-                            SWIPE_SENSITIVITY_MIN_VALUE
-                        val swipeThreshold = actualThreshold * resources.displayMetrics.density
-                        val horizontal = kotlin.math.abs(dx) > kotlin.math.abs(dy)
-
-                        if (smartSeekGesture) {
-                            cancelSmartSeekHold(view)
-                            when {
-                                smartSeekDragStarted -> {
-                                    updateSmartSeekGestureDrag(dx)
-                                    bottomSheetSmartSeekProgressOverlay?.finishGestureDrag(commit = true)
-                                }
-                                horizontal &&
-                                    kotlin.math.abs(dx) >= smartSeekShortSwipeMinPx &&
-                                    kotlin.math.abs(dx) <= smartSeekLongSwipePx -> {
-                                    // A short flick changes play intervals without opening the drag HUD.
-                                    bottomSheetSmartSeekProgressOverlay?.seekAdjacentPlaySegment(
-                                        if (dx > 0f) 1 else -1
-                                    )
-                                }
-                                horizontal && kotlin.math.abs(dx) > smartSeekLongSwipePx -> {
-                                    // Handle very fast swipes even if Android did not deliver a MOVE event.
-                                    beginSmartSeekGestureDrag(view)
-                                    updateSmartSeekGestureDrag(dx)
-                                    bottomSheetSmartSeekProgressOverlay?.finishGestureDrag(commit = true)
-                                }
-                                dy <= -swipeThreshold && !horizontal -> {
-                                    ViewCompat.performHapticFeedback(
-                                        view, HapticFeedbackConstantsCompat.CONTEXT_CLICK
-                                    )
-                                    if (instance != null) {
-                                        pqs = PlaylistQueueSheet(wrappedContext ?: context, activity).also { it.show() }
-                                    }
-                                }
-                                !isSwiping || kotlin.math.abs(dx) < smartSeekShortSwipeMinPx -> view.performClick()
-                            }
-                            smartSeekGesture = false
-                            smartSeekDragStarted = false
-                        } else if (!isSwiping) {
-                            view.performClick()
-                        } else {
-                            when {
-                                dx >= swipeThreshold && horizontal -> instance?.seekToNextMediaItem()
-                                dx <= -swipeThreshold && horizontal -> instance?.seekToPreviousMediaItem()
-                                dy <= -swipeThreshold && !horizontal -> {
-                                    ViewCompat.performHapticFeedback(
-                                        view, HapticFeedbackConstantsCompat.CONTEXT_CLICK
-                                    )
-                                    if (instance != null) {
-                                        pqs = PlaylistQueueSheet(wrappedContext ?: context, activity).also { it.show() }
-                                    }
-                                }
-                                dy >= swipeThreshold && !horizontal -> {
-                                    // Ignore: let the parent BottomSheet handle downward movement.
+                    val dx = event.x - swipeStartX
+                    val dy = event.y - swipeStartY
+                    val savedValue = prefs.getInt("player_swipe_sensitivity", 60)
+                        .coerceIn(SWIPE_SENSITIVITY_MIN_VALUE, SWIPE_SENSITIVITY_MAX_VALUE)
+                    val actualThreshold = SWIPE_SENSITIVITY_MAX_VALUE - savedValue +
+                        SWIPE_SENSITIVITY_MIN_VALUE
+                    val swipeThreshold = actualThreshold * resources.displayMetrics.density
+                    val horizontal = kotlin.math.abs(dx) > kotlin.math.abs(dy)
+                    if (!isSwiping) {
+                        view.performClick()
+                    } else {
+                        when {
+                            dx >= swipeThreshold && horizontal -> instance?.seekToNextMediaItem()
+                            dx <= -swipeThreshold && horizontal -> instance?.seekToPreviousMediaItem()
+                            dy <= -swipeThreshold && !horizontal -> {
+                                ViewCompat.performHapticFeedback(
+                                    view, HapticFeedbackConstantsCompat.CONTEXT_CLICK
+                                )
+                                if (instance != null) {
+                                    pqs = PlaylistQueueSheet(wrappedContext ?: context, activity).also { it.show() }
                                 }
                             }
+                            // Downward swipes remain available to the parent BottomSheet.
                         }
                     }
-                    cancelSmartSeekHold(view)
                     view.animate().translationX(0f).setDuration(120).start()
                     parent?.requestDisallowInterceptTouchEvent(false)
                     isSwiping = false
@@ -814,16 +699,9 @@ class FullBottomSheet
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
-                    cancelSmartSeekHold(view)
-                    if (smartSeekDragStarted) {
-                        bottomSheetSmartSeekProgressOverlay?.finishGestureDrag(commit = false)
-                    }
-                    smartSeekGesture = false
-                    smartSeekDragStarted = false
                     view.animate().translationX(0f).setDuration(120).start()
                     parent?.requestDisallowInterceptTouchEvent(false)
                     isSwiping = false
-                    swipeGestureHandled = true
                     true
                 }
 
@@ -1078,7 +956,7 @@ class FullBottomSheet
             Color.BLACK
         )
         button.alpha = if (enabled) 1f else 0.3f
-        button.isEnabled = enabled
+        button.isEnabled = true
         button.setTextColor(ColorStateList.valueOf(color))
         button.strokeWidth = (resources.displayMetrics.density).toInt().coerceAtLeast(1)
         button.strokeColor = ColorStateList.valueOf(color)
@@ -1637,7 +1515,7 @@ class FullBottomSheet
         fun updateMarkerColorControls() {
             markerColorButtons.forEach { button ->
                 button.isEnabled = customAccentEnabled
-                button.alpha = if (customAccentEnabled) 1f else 0.4f
+                button.alpha = if (customAccentEnabled) 1f else 0.3f
             }
             val accentColor = smartSeekMarkerColor()
             specialMarkerColorButtons.forEach { button ->
@@ -1648,7 +1526,7 @@ class FullBottomSheet
                     Color.WHITE
                 )
                 button.isEnabled = customAccentEnabled
-                button.alpha = if (customAccentEnabled) 1f else 0.4f
+                button.alpha = if (customAccentEnabled) 1f else 0.3f
                 button.isChecked = selected
                 button.strokeWidth = density.toInt().coerceAtLeast(1)
                 button.strokeColor = ColorStateList.valueOf(
@@ -1735,7 +1613,8 @@ class FullBottomSheet
         fun specialAccentButton(key: String, label: Int): MaterialButton =
             MaterialButton(context).apply {
                 tag = key
-                text = context.getString(label)
+                text = if (key == "contrast") "" else context.getString(label)
+                contentDescription = context.getString(label)
                 isAllCaps = false
                 isSingleLine = true
                 ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1747,6 +1626,54 @@ class FullBottomSheet
                 insetTop = 0
                 insetBottom = 0
                 setPadding((10 * density).toInt(), 0, (10 * density).toInt(), 0)
+                if (key == "contrast") {
+                    minWidth = (64 * density).toInt()
+                    minimumWidth = minWidth
+                    setPadding((4 * density).toInt(), 0, (4 * density).toInt(), 0)
+                    iconSize = (40 * density).toInt()
+                    iconTint = null
+                    icon = object : android.graphics.drawable.Drawable() {
+                        private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                        private val stroke = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            style = android.graphics.Paint.Style.STROKE
+                            strokeWidth = density
+                        }
+
+                        override fun draw(canvas: android.graphics.Canvas) {
+                            val b = bounds
+                            val cy = b.exactCenterY()
+                            val radius = minOf(b.height() * 0.19f, b.width() * 0.17f)
+                            val leftX = b.left + b.width() * 0.28f
+                            val rightX = b.left + b.width() * 0.72f
+                            fill.color = Color.BLACK
+                            canvas.drawCircle(leftX, cy, radius, fill)
+                            stroke.color = Color.WHITE
+                            canvas.drawCircle(leftX, cy, radius, stroke)
+                            fill.color = Color.WHITE
+                            canvas.drawCircle(rightX, cy, radius, fill)
+                            stroke.color = Color.BLACK
+                            canvas.drawCircle(rightX, cy, radius, stroke)
+                        }
+
+                        override fun setAlpha(alpha: Int) {
+                            fill.alpha = alpha
+                            stroke.alpha = alpha
+                            invalidateSelf()
+                        }
+
+                        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
+                            fill.colorFilter = colorFilter
+                            stroke.colorFilter = colorFilter
+                            invalidateSelf()
+                        }
+
+                        @Deprecated("Deprecated in Android")
+                        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+
+                        override fun getIntrinsicWidth(): Int = (40 * density).toInt()
+                        override fun getIntrinsicHeight(): Int = (40 * density).toInt()
+                    }
+                }
                 setOnClickListener {
                     selectedMarkerColor = key
                     customAccentEnabled = true
@@ -1782,9 +1709,8 @@ class FullBottomSheet
         specialMarkerColorRow.addView(
             contrastAccentButton,
             LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                1f
+                (64 * density).toInt(),
+                LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { setMargins(sectionGap / 2, sectionGap, sectionGap / 2, 0) }
         )
         content.addView(
@@ -1806,7 +1732,7 @@ class FullBottomSheet
                 scroll,
                 LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    (resources.displayMetrics.heightPixels * 0.55f).toInt()
+                    (resources.displayMetrics.heightPixels * 0.72f).toInt()
                 )
             )
         }
