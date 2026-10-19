@@ -15,7 +15,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.AttributeSet
@@ -183,33 +182,22 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val gap = dp(4f)
 
         val selectedPositionMs = dragPositionMs ?: currentPositionMs
-        val rawCursorX = when {
-            isDragging -> (selectedPositionMs.toFloat() / durationMs.toFloat() * width)
-                .coerceIn(0f, width.toFloat())
-            playWhenReady -> dp(50f)
-            else -> (currentPositionMs.toFloat() / durationMs.toFloat() * width)
-                .coerceIn(0f, width.toFloat())
-        }
-        // Match the visual center of the 5dp cursor even at the track's extreme edges.
-        val halfCursorWidth = dp(2.5f)
-        val cursorX = rawCursorX.coerceIn(
-            halfCursorWidth,
-            (width.toFloat() - halfCursorWidth).coerceAtLeast(halfCursorWidth)
-        )
+        // The cursor is pinned to 50dp; timeline segments scroll relative to this anchor.
+        val cursorX = 50f * resources.displayMetrics.density
 
         if (isDragging) {
-            // While scrubbing, show the full segmented timeline and move the cursor with the finger.
-            drawFullTrack(canvas, top, bottom, radius, gap)
+            // Keep the cursor fixed while the timeline is rendered around the selected time.
+            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, selectedPositionMs)
             drawCursor(canvas, cursorX, top, bottom)
         } else if (playWhenReady) {
-            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX)
+            drawFutureTimeline(canvas, top, bottom, radius, gap, cursorX, currentPositionMs)
             drawCursor(canvas, cursorX, top, bottom)
         } else {
             drawFullTrack(canvas, top, bottom, radius, gap)
             drawCursor(canvas, cursorX, top, bottom)
         }
         if (isDragging && showDraggingHud) {
-            drawDraggingHud(canvas, cursorX, selectedPositionMs, top, bottom)
+            drawDraggingHud(canvas, selectedPositionMs)
         } else {
             drawHud(canvas, cursorX, top, bottom)
         }
@@ -254,21 +242,22 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     }
 
     /**
-     * Elevated one-line HUD shown only for a long drag or a long press on the cursor.
-     * The card sits above the finger and points down toward the active cursor.
+     * Fixed drag HUD: centered horizontally and anchored to a constant Y coordinate.
+     * Its background is always drawn first, followed by a single white text line.
      */
     private fun drawDraggingHud(
         canvas: Canvas,
-        cursorX: Float,
-        positionMs: Long,
-        barTop: Float,
-        barBottom: Float
+        positionMs: Long
     ) {
-        val margin = dp(4f)
-        val spacing = dp(3f)
-        val textSize = sp(16f)
-        hudTextPaint.textSize = textSize
-        hudTextPaint.alpha = 255
+        val centerX = width / 2f
+        val baselineY = height.toFloat() - dp(80f)
+        val cardWidth = minOf(dp(280f), (width.toFloat() - dp(16f)).coerceAtLeast(0f))
+        val card = RectF(
+            centerX - cardWidth / 2f,
+            baselineY - dp(26f),
+            centerX + cardWidth / 2f,
+            baselineY + dp(10f)
+        )
 
         val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
         val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
@@ -278,63 +267,24 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val timeText = CalculationUtils.convertDurationToTimeStamp(
             positionMs.coerceIn(0L, durationMs)
         )
-        val parts = listOf(
-            Triple("< ", Color.WHITE, 255),
-            Triple("[$passedPeriods]", Color.WHITE, 255),
-            Triple("  $timeText  ", Color.WHITE, 255),
-            Triple("[$remainingPeriods]", Color.WHITE, 255),
-            Triple(" <", Color.WHITE, 255)
-        )
+        val hudText = "< [$passedPeriods]  $timeText  [$remainingPeriods] <"
 
-        val textWidth = parts.sumOf { hudTextPaint.measureText(it.first).toDouble() }.toFloat()
-        val lineWidth = textWidth + spacing * (parts.size - 1)
-        val paddingX = dp(9f)
-        val paddingY = dp(6f)
-        val rectWidth = lineWidth + paddingX * 2f
-        val left = (cursorX - rectWidth / 2f).coerceIn(
-            margin,
-            (width.toFloat() - margin - rectWidth).coerceAtLeast(margin)
-        )
-        val fontMetrics = hudTextPaint.fontMetrics
-        // Keep the text baseline a fixed 60dp above the cursor's vertical center.
-        val baseline = (barTop + barBottom) / 2f - dp(60f)
-        val card = RectF(
-            left,
-            baseline + fontMetrics.ascent - paddingY,
-            left + rectWidth,
-            baseline + fontMetrics.descent + paddingY
-        )
-
-        val hudBackground = Color.rgb(26, 26, 26)
         paint.style = Paint.Style.FILL
         paint.shader = null
-        paint.color = hudBackground
+        paint.color = Color.rgb(26, 26, 26)
         paint.alpha = 255
-        canvas.drawRoundRect(card, dp(10f), dp(10f), paint)
+        canvas.drawRoundRect(card, dp(8f), dp(8f), paint)
 
-        // The pointer has a fixed 10dp width and 15dp height.
-        val pointerHalfWidth = dp(5f)
-        val pointerHeight = dp(15f)
-        val pointer = Path().apply {
-            moveTo((cursorX - pointerHalfWidth).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom)
-            lineTo(cursorX, card.bottom + pointerHeight)
-            lineTo((cursorX + pointerHalfWidth).coerceIn(left + dp(8f), left + rectWidth - dp(8f)), card.bottom)
-            close()
-        }
-        paint.color = hudBackground
-        paint.alpha = 255
-        canvas.drawPath(pointer, paint)
-
-        var x = left + paddingX
-        parts.forEachIndexed { index, (text, _, _) ->
-            hudTextPaint.color = Color.WHITE
-            hudTextPaint.alpha = 255
-            canvas.drawText(text, x, baseline, hudTextPaint)
-            x += hudTextPaint.measureText(text)
-            if (index != parts.lastIndex) x += spacing
-        }
+        hudTextPaint.textSize = sp(16f)
+        hudTextPaint.color = Color.WHITE
         hudTextPaint.alpha = 255
+        hudTextPaint.textAlign = Paint.Align.CENTER
+        val textBaseline = card.centerY() -
+            (hudTextPaint.ascent() + hudTextPaint.descent()) / 2f
+        canvas.drawText(hudText, centerX, textBaseline, hudTextPaint)
+        hudTextPaint.textAlign = Paint.Align.LEFT
         hudTextPaint.textSize = sp(12f)
+        hudTextPaint.alpha = 255
     }
 
     private fun drawHudLine(
@@ -370,7 +320,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         bottom: Float,
         radius: Float,
         gap: Float,
-        cursorX: Float
+        cursorX: Float,
+        timelinePositionMs: Long
     ) {
         // Playback cursor stays fixed; timeline segments are laid out from its right edge.
         val cursorWidth = dp(5f)
@@ -378,7 +329,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val cursorRightX = cursorX + cursorWidth / 2f
         val trailEndX = (cursorLeftX - gap).coerceAtLeast(0f)
         val timelineStartX = cursorRightX + gap
-        val remainingMs = durationMs - currentPositionMs
+        val remainingMs = durationMs - timelinePositionMs
         if (remainingMs <= 0L) {
             drawCursor(canvas, cursorX, top, bottom)
             return
@@ -389,23 +340,23 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val pxPerMs = timelineWidth / remainingMs.toFloat()
         val playMs = playDurationMs
         val skipMs = skipDurationMs
-        var timelinePositionMs = currentPositionMs
+        var currentTimelineMs = timelinePositionMs
 
         var visualX = timelineStartX
         val minSegmentWidth = dp(MIN_SEGMENT_WIDTH_DP)
 
         fun drawFutureSegmentUntil(endMs: Long, color: Int, alpha: Int) {
-            if (endMs <= timelinePositionMs) return
-            val isFirst = timelinePositionMs == currentPositionMs
+            if (endMs <= currentTimelineMs) return
+            val isFirst = currentTimelineMs == timelinePositionMs
             val trimsLeft = if (isFirst) 0f else gap / 2f
             val trimsRight = if (endMs >= durationMs) 0f else gap / 2f
             val calculatedWidth =
-                (endMs - timelinePositionMs).toFloat() * pxPerMs - trimsLeft - trimsRight
+                (endMs - currentTimelineMs).toFloat() * pxPerMs - trimsLeft - trimsRight
             val segmentWidth = calculatedWidth.coerceAtLeast(minSegmentWidth)
             if (!hudMonochromeAccent || color != skipColor) {
                 drawSegment(canvas, visualX, segmentWidth, top, bottom, radius, color, alpha)
             }
-            timelinePositionMs = endMs
+            currentTimelineMs = endMs
             // Each drawn block advances the visual timeline; minimum-width blocks do not overlap.
             if (endMs < durationMs) visualX += segmentWidth + gap
         }
@@ -416,36 +367,36 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         fun drawSkipUntil(endMs: Long) =
             drawFutureSegmentUntil(endMs, skipColor, 190)
 
-        if (nextSeekPositionMs > currentPositionMs) {
+        if (nextSeekPositionMs > timelinePositionMs) {
             drawPlayUntil(nextSeekPositionMs.coerceAtMost(durationMs))
-            if (timelinePositionMs < durationMs) {
-                drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
+            if (currentTimelineMs < durationMs) {
+                drawSkipUntil((currentTimelineMs + skipMs).coerceAtMost(durationMs))
             }
         } else if (remainingMs < playMs + skipMs) {
             if (remainingMs > playMs) drawPlayUntil(durationMs)
-            drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs)
+            drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, timelinePositionMs)
             drawCursor(canvas, cursorX, top, bottom)
             return
         } else {
-            drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
-            if (timelinePositionMs < durationMs) {
-                drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
+            drawPlayUntil((currentTimelineMs + playMs).coerceAtMost(durationMs))
+            if (currentTimelineMs < durationMs) {
+                drawSkipUntil((currentTimelineMs + skipMs).coerceAtMost(durationMs))
             }
         }
 
-        while (durationMs - timelinePositionMs >= playMs + skipMs) {
+        while (durationMs - currentTimelineMs >= playMs + skipMs) {
             // Once the visual timeline has crossed the viewport, more segments are clipped
             // and need not be allocated/drawn on every animation frame.
             if (visualX >= width.toFloat()) break
-            drawPlayUntil((timelinePositionMs + playMs).coerceAtMost(durationMs))
+            drawPlayUntil((currentTimelineMs + playMs).coerceAtMost(durationMs))
             if (visualX >= width.toFloat()) break
-            drawSkipUntil((timelinePositionMs + skipMs).coerceAtMost(durationMs))
+            drawSkipUntil((currentTimelineMs + skipMs).coerceAtMost(durationMs))
         }
 
-        val tailMs = durationMs - timelinePositionMs
+        val tailMs = durationMs - currentTimelineMs
         if (visualX < width.toFloat() && tailMs > playMs) drawPlayUntil(durationMs)
 
-        drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs)
+        drawPastTimeline(canvas, trailEndX, top, bottom, radius, gap, pxPerMs, timelinePositionMs)
         drawCursor(canvas, cursorX, top, bottom)
     }
 
@@ -510,9 +461,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         bottom: Float,
         radius: Float,
         gap: Float,
-        pxPerMs: Float
+        pxPerMs: Float,
+        timelinePositionMs: Long
     ) {
-        if (trailEndX <= 0f || currentPositionMs <= 0L || pxPerMs <= 0f) return
+        if (trailEndX <= 0f || timelinePositionMs <= 0L || pxPerMs <= 0f) return
 
         data class PastSegment(val startMs: Long, val endMs: Long, val color: Int, val alpha: Int)
         val playMs = playDurationMs.coerceAtLeast(1L)
@@ -522,7 +474,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         // the future timeline; older segments are clipped naturally by the Canvas.
         val maxSegments = 10
         val segmentsNewestFirst = mutableListOf<PastSegment>()
-        var cursorMs = currentPositionMs.coerceAtMost(durationMs)
+        var cursorMs = timelinePositionMs.coerceAtMost(durationMs)
 
         while (cursorMs > 0L && segmentsNewestFirst.size < maxSegments) {
             val cycleIndex = (cursorMs - 1L) / cycleMs
@@ -548,8 +500,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         segments.forEachIndexed { index, segment ->
             // Anchor the newest segment to the end of the trail. A long segment may
             // begin left of x=0; do not compress it to fit the 50dp trail.
-            val left = trailEndX - (currentPositionMs - segment.startMs).toFloat() * pxPerMs
-            val right = trailEndX - (currentPositionMs - segment.endMs).toFloat() * pxPerMs
+            val left = trailEndX - (timelinePositionMs - segment.startMs).toFloat() * pxPerMs
+            val right = trailEndX - (timelinePositionMs - segment.endMs).toFloat() * pxPerMs
             val segmentWidth = right - left
             if (segmentWidth <= 0f) return@forEachIndexed
 

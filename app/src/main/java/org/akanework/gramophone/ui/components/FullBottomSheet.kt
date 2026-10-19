@@ -1957,10 +1957,11 @@ class FullBottomSheet
         dialog.setOnShowListener {
             val topControlsClearance = (72 * density).toInt()
             val screenHeight = resources.displayMetrics.heightPixels
+            val sheetHeight = (screenHeight - topControlsClearance).coerceAtLeast(0)
             dialog.window?.let { window ->
                 window.setLayout(
                     (resources.displayMetrics.widthPixels * 0.96f).toInt(),
-                    WindowManager.LayoutParams.MATCH_PARENT
+                    sheetHeight
                 )
                 window.setGravity(Gravity.BOTTOM)
                 window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -1970,9 +1971,9 @@ class FullBottomSheet
                 height = ViewGroup.LayoutParams.MATCH_PARENT
             }
             dialog.behavior.apply {
-                isFitToContents = false
-                expandedOffset = topControlsClearance
-                peekHeight = (screenHeight - topControlsClearance).coerceAtLeast(0)
+                isFitToContents = true
+                expandedOffset = 0
+                peekHeight = sheetHeight
                 skipCollapsed = true
                 state = BottomSheetBehavior.STATE_EXPANDED
             }
