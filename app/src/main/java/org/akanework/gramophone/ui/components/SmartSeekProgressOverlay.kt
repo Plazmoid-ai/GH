@@ -602,14 +602,14 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             val gapAtBoundary = minOf(gap / 2f, segmentWidth * 0.15f)
             val trimmedLeft = if (index == 0) left else left + gapAtBoundary
             val trimmedRight = if (index == segments.lastIndex) right else right - gapAtBoundary
-            val segmentWidth = (trimmedRight - trimmedLeft).coerceAtLeast(0f)
+            val trimmedSegmentWidth = (trimmedRight - trimmedLeft).coerceAtLeast(0f)
             if (hudMonochromeAccent) {
-                drawSegment(canvas, trimmedLeft, segmentWidth, top, bottom, radius, segment.color, 255)
+                drawSegment(canvas, trimmedLeft, trimmedSegmentWidth, top, bottom, radius, segment.color, 255)
             } else {
                 drawFadedSegment(
                     canvas,
                     trimmedLeft,
-                    segmentWidth,
+                    trimmedSegmentWidth,
                     top, bottom, radius, segment.color, segment.alpha
                 )
             }
