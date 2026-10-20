@@ -36,6 +36,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val phaseColorEvaluator = ArgbEvaluator()
     private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create("sans-serif", Typeface.BOLD)
         textSize = sp(12f)
@@ -247,6 +248,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             drawFullTrack(canvas, barTop, barBottom, radius, gap, timelineEndX)
             drawCursor(canvas, cursorX, barTop, barBottom)
         }
+        drawPhaseCapsule(canvas, barBottom, selectedPositionMs)
         if (isDragging && showDraggingHud) {
             drawDraggingHud(canvas, selectedPositionMs, barTop)
         } else {
@@ -269,13 +271,27 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val spacing = dp(6f)
 
         hudTextPaint.textSize = sp(12f)
-        val countdown = CalculationUtils.convertDurationToTimeStamp(hudCurrentIntervalRemainingMs)
+        val countdownParts = CalculationUtils.convertDurationToTimeStamp(hudCurrentIntervalRemainingMs)
+            .split(":", limit = 2)
+        val minutes = countdownParts.getOrElse(0) { "0" }
+        val seconds = countdownParts.getOrElse(1) { "00" }
+        val counterColor = if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor
         val topParts = listOf(
-            Triple(hudPassedPeriods.toString(), if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor, 255),
-            Triple("[$countdown]", if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor, 255),
+            Triple(hudPassedPeriods.toString(), counterColor, 255),
+            Triple(" ", counterColor, 255),
+            Triple("[", counterColor, 255),
+            Triple(minutes, counterColor, 255),
+            Triple(":", counterColor, 255),
+            Triple(seconds, counterColor, 255),
+            Triple("]", counterColor, 255),
+            Triple(" ", counterColor, 255),
             Triple(hudRemainingPeriods.toString(), hudAccentColor, 255)
         )
-        drawHudLine(canvas, cursorX, topBaseline, hudTextPaint, topParts, spacing, margin)
+        // The colon is the anchor: its horizontal center matches the fixed cursor.
+        drawHudLine(
+            canvas, cursorX, topBaseline, hudTextPaint, topParts,
+            0f, margin, anchorPartIndex = 4
+        )
 
         hudCounterPaint.textSize = sp(12f)
         val bottomParts = listOf(
@@ -290,6 +306,47 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             canvas, cursorX, bottomBaseline, hudCounterPaint, bottomParts,
             0f, margin
         )
+    }
+
+    /** Draws a centered phase capsule under the bar, colored directly from the current interval progress. */
+    private fun drawPhaseCapsule(
+        canvas: Canvas,
+        barBottom: Float,
+        positionMs: Long
+    ) {
+        val playMs = playDurationMs.coerceAtLeast(1L)
+        val skipMs = skipDurationMs.coerceAtLeast(1L)
+        val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
+        val safePositionMs = positionMs.coerceIn(0L, durationMs)
+        val positionInCycleMs = safePositionMs % cycleMs
+        val progress = if (positionInCycleMs < playMs) {
+            positionInCycleMs.toFloat() / playMs.toFloat()
+        } else {
+            1f
+        }.coerceIn(0f, 1f)
+
+        val silenceColor = Color.rgb(158, 158, 158)
+        val animatedColor = phaseColorEvaluator.evaluate(
+            progress,
+            hudAccentColor,
+            silenceColor
+        ) as Int
+        val capsuleWidth = dp(80f)
+        val capsuleHeight = dp(14f)
+        val centerX = width / 2f
+        val centerY = barBottom + dp(34f)
+        val capsule = RectF(
+            centerX - capsuleWidth / 2f,
+            centerY - capsuleHeight / 2f,
+            centerX + capsuleWidth / 2f,
+            centerY + capsuleHeight / 2f
+        )
+
+        paint.style = Paint.Style.FILL
+        paint.shader = null
+        paint.color = animatedColor
+        paint.alpha = 255
+        canvas.drawRoundRect(capsule, capsuleHeight / 2f, capsuleHeight / 2f, paint)
     }
 
     /**
@@ -364,15 +421,22 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         parts: List<Triple<String, Int, Int>>,
         spacing: Float,
         margin: Float,
-        rightEdgeX: Float? = null
+        rightEdgeX: Float? = null,
+        anchorPartIndex: Int? = null
     ) {
         val textWidth = parts.sumOf { textPaint.measureText(it.first).toDouble() }.toFloat()
         val lineWidth = textWidth + spacing * (parts.size - 1)
         val maxStartX = (width.toFloat() - margin - lineWidth).coerceAtLeast(margin)
-        val xStart = if (rightEdgeX != null) {
-            (rightEdgeX - lineWidth).coerceIn(margin, maxStartX)
-        } else {
-            (cursorX - lineWidth / 2f).coerceIn(margin, maxStartX)
+        val xStart = when {
+            anchorPartIndex != null -> {
+                val anchorIndex = anchorPartIndex.coerceIn(0, parts.lastIndex)
+                val widthBeforeAnchor = parts.take(anchorIndex)
+                    .sumOf { textPaint.measureText(it.first).toDouble() }.toFloat()
+                cursorX - widthBeforeAnchor - spacing * anchorIndex -
+                    textPaint.measureText(parts[anchorIndex].first) / 2f
+            }
+            rightEdgeX != null -> (rightEdgeX - lineWidth).coerceIn(margin, maxStartX)
+            else -> (cursorX - lineWidth / 2f).coerceIn(margin, maxStartX)
         }
         var x = xStart
         parts.forEachIndexed { index, (text, color, alpha) ->
