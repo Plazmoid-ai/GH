@@ -29,13 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Generate bot data
-        if: github.event_name != 'pull_request'
-        run: |
-          echo "RANDOM_QUOTE=$(shuf -n1 <<<"$LIST_OF_QUOTES")" >> $GITHUB_ENV
-        env:
-          LIST_OF_QUOTES: ${{ secrets.LIST_OF_QUOTES }}
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -51,7 +44,7 @@ jobs:
       - name: Set release type
         run: echo releaseType=CI > package.properties
 
-      # --- Ключи передаются через $GITHUB_ENV, чтобы их увидел configureFromEnv в build.gradle.kts ---
+      # --- Ключи передаются в окружение ---
       - name: Create signing files
         if: github.event_name != 'pull_request'
         run: |
@@ -63,75 +56,34 @@ jobs:
             echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PWD }}"
           } >> "$GITHUB_ENV"
 
-      # --- Одноразовая диагностика: один прогон даст точный ответ ---
-      - name: Debug signing
-        if: github.event_name != 'pull_request'
-        run: |
-          echo "STORE_FILE=[$AKANE_RELEASE_STORE_FILE]"
-          echo "ALIAS=[$AKANE_RELEASE_KEY_ALIAS]"
-          echo "STORE_PASS_LEN=${#AKANE_RELEASE_STORE_PASSWORD}"
-          echo "KEY_PASS_LEN=${#AKANE_RELEASE_KEY_PASSWORD}"
-          ls -la "$AKANE_RELEASE_STORE_FILE" || true
-          echo "--- keystore list ---"
-          keytool -list -v -keystore "$AKANE_RELEASE_STORE_FILE" \
-            -storepass "$AKANE_RELEASE_STORE_PASSWORD" 2>&1 | head -30
-          echo "--- alias check ---"
-          keytool -list -v -keystore "$AKANE_RELEASE_STORE_FILE" \
-            -storepass "$AKANE_RELEASE_STORE_PASSWORD" \
-            -alias "$AKANE_RELEASE_KEY_ALIAS" \
-            -keypass "$AKANE_RELEASE_KEY_PASSWORD" 2>&1 | head -20
-
+      # --- Сборка (только arm64-v8a) ---
       - name: Build with Gradle
         if: github.event_name != 'pull_request'
-        run: ./gradlew :app:assembleRelease --no-build-cache --rerun-tasks
+        run: ./gradlew :app:assembleRelease -PtargetAbi=arm64-v8a --console=plain
 
       - name: Build with Gradle for pull request
         if: github.event_name == 'pull_request'
-        run: ./gradlew :app:assembleDebug
+        run: ./gradlew :app:assembleDebug -PtargetAbi=arm64-v8a --console=plain
 
+      # --- Поиск APK ---
       - name: Find apk
         if: github.event_name != 'pull_request'
         run: |
-          APK_FILE=$(find app/build/outputs/apk/release -name '*.apk')
+          APK_FILE=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
           echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
 
       - name: Find apk for pull request
         if: github.event_name == 'pull_request'
         run: |
-          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk')
+          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
           echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
-        env:
-          API_ID: ${{ secrets.TG_APP_ID }}
-          API_HASH: ${{ secrets.TG_APP_HASH }}
-          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
 
-      - name: Upload files to Telegram
-        if: github.event_name != 'pull_request'
-        uses: xz-dev/TelegramFileUploader@v1.1.1
-        with:
-          to-who: ${{ secrets.TG_CHAT_ID }}
-          message: ${{ env.RANDOM_QUOTE }}
-          files: |
-            ${{ env.APK_FILE }}
-        env:
-          API_ID: ${{ secrets.TG_APP_ID }}
-          API_HASH: ${{ secrets.TG_APP_HASH }}
-          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-
+      # --- Загрузка артефакта ---
       - name: Upload apk
-        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_FILE_NAME }}
           path: ${{ env.APK_FILE }}
           compression-level: 9
-
-      - name: Upload apk
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APK_FILE_NAME }}
-          path: ${{ env.APK_FILE }}
-          compression-level: 0
