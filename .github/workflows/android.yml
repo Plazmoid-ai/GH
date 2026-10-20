@@ -28,7 +28,7 @@ jobs:
     name: Build App
     runs-on: ubuntu-latest
     steps:
-  
+
       - name: Generate bot data
         if: github.event_name != 'pull_request'
         run: |
@@ -51,20 +51,40 @@ jobs:
       - name: Set release type
         run: echo releaseType=CI > package.properties
 
+      # --- Ключи передаются через $GITHUB_ENV, чтобы их увидел configureFromEnv в build.gradle.kts ---
       - name: Create signing files
         if: github.event_name != 'pull_request'
         run: |
-          mkdir -p ~/.gradle
           echo "${{ secrets.KEYSTORE_SECRET }}" | base64 -d > ~/key.jks
-          echo "AKANE_RELEASE_STORE_FILE=$(realpath ~/key.jks)" > ~/.gradle/gradle.properties
-          echo "AKANE_RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PWD }}" >> ~/.gradle/gradle.properties
-          echo "AKANE_RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> ~/.gradle/gradle.properties
-          echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PWD }}" >> ~/.gradle/gradle.properties
+          {
+            echo "AKANE_RELEASE_STORE_FILE=$(realpath ~/key.jks)"
+            echo "AKANE_RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PWD }}"
+            echo "AKANE_RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}"
+            echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PWD }}"
+          } >> "$GITHUB_ENV"
+
+      # --- Одноразовая диагностика: один прогон даст точный ответ ---
+      - name: Debug signing
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "STORE_FILE=[$AKANE_RELEASE_STORE_FILE]"
+          echo "ALIAS=[$AKANE_RELEASE_KEY_ALIAS]"
+          echo "STORE_PASS_LEN=${#AKANE_RELEASE_STORE_PASSWORD}"
+          echo "KEY_PASS_LEN=${#AKANE_RELEASE_KEY_PASSWORD}"
+          ls -la "$AKANE_RELEASE_STORE_FILE" || true
+          echo "--- keystore list ---"
+          keytool -list -v -keystore "$AKANE_RELEASE_STORE_FILE" \
+            -storepass "$AKANE_RELEASE_STORE_PASSWORD" 2>&1 | head -30
+          echo "--- alias check ---"
+          keytool -list -v -keystore "$AKANE_RELEASE_STORE_FILE" \
+            -storepass "$AKANE_RELEASE_STORE_PASSWORD" \
+            -alias "$AKANE_RELEASE_KEY_ALIAS" \
+            -keypass "$AKANE_RELEASE_KEY_PASSWORD" 2>&1 | head -20
 
       - name: Build with Gradle
         if: github.event_name != 'pull_request'
-        run: ./gradlew :app:assembleRelease
-  
+        run: ./gradlew :app:assembleRelease --no-build-cache --rerun-tasks
+
       - name: Build with Gradle for pull request
         if: github.event_name == 'pull_request'
         run: ./gradlew :app:assembleDebug
@@ -75,7 +95,7 @@ jobs:
           APK_FILE=$(find app/build/outputs/apk/release -name '*.apk')
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
           echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
-  
+
       - name: Find apk for pull request
         if: github.event_name == 'pull_request'
         run: |
@@ -110,8 +130,8 @@ jobs:
 
       - name: Upload apk
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_FILE_NAME }}
           path: ${{ env.APK_FILE }}
-          archive: false
+          compression-level: 0
