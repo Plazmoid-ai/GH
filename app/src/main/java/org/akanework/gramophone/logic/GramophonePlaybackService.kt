@@ -105,7 +105,12 @@ import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
@@ -179,6 +184,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         const val SERVICE_QUERY_TIMER = "query_timer"
         const val SERVICE_GET_AUDIO_FORMAT = "get_audio_format"
         const val SERVICE_GET_LYRICS = "get_lyrics"
+        const val SERVICE_SMART_SEEK = "smart_seek"
         const val SERVICE_TIMER_CHANGED = "changed_timer"
         const val SERVICE_SET_MEDIA_ITEMS_SEAMLESSLY = "set_media_items_seamlessly"
         const val SERVICE_SET_MEDIA_ITEMS_ATOMIC = "set_media_items_atomic"
@@ -240,6 +246,19 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private var btInfo: BtCodecInfo? = null
     private var proxy: BtCodecInfo.Companion.Proxy? = null
     private val scope = CoroutineScope(Dispatchers.Main)
+    private val smartSeekScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    @Volatile
+    private var smartSeekConfig = SmartSeekConfig()
+    @Volatile
+    private var smartSeekActive = false
+    @Volatile
+    private var smartSeekPaused = false
+    private var smartSeekJob: Job? = null
+    private var smartSeekSeeking = false
+    private var smartSeekTrackIndex = C.INDEX_UNSET
+    private var smartSeekNextPositionMs = -1L
+    private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
+    private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private val lastPlaylistLoaded = CompletableDeferred<Unit>()
     private val lyricsFetcher = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
     private val bitrateFetcher = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
@@ -326,6 +345,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         mainExecutor = ContextCompat.getMainExecutor(this)
         nm = NotificationManagerCompat.from(this)
         prefs = PreferenceManager.getDefaultSharedPreferences(applicationContext)
+        smartSeekConfig = SmartSeekConfig.load(prefs)
         qb = QueueBoard(this)
         setListener(this)
         setMediaNotificationProvider(
@@ -426,7 +446,11 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         it.setConstantBitrateSeekingEnabled(true)
                         it.setMp3ExtractorFlags(Mp3Extractor.FLAG_ENABLE_INDEX_SEEKING)
                     })
-            )
+            ).apply {
+                if (SmartSeekConfig.load(prefs).boostBuffer) {
+                    setLoadControl(SmartSeekLoadControl.create())
+                }
+            }
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .setAudioAttributes(
                     AudioAttributes
@@ -810,6 +834,235 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         return onSetRating(session, controller, mediaItemId, rating)
     }
 
+    private fun startSmartSeek() {
+        if (!isSmartSeekEnabled()) {
+            stopSmartSeek()
+            return
+        }
+        val player = controller
+        if (player?.currentMediaItem == null) {
+            Log.i(TAG, "Smart Seek was not started because there is no current media item")
+            stopSmartSeek()
+            return
+        }
+
+        smartSeekConfig = SmartSeekConfig.load(prefs)
+        smartSeekActive = true
+        smartSeekPaused = !player.isPlaying
+        smartSeekTrackIndex = player.currentMediaItemIndex
+        smartSeekNextPositionMs = -1L
+        broadcastSmartSeekState()
+        if (player.isPlaying) {
+            startSmartSeekLoop()
+        }
+    }
+
+    private fun stopSmartSeek() {
+        smartSeekActive = false
+        smartSeekPaused = false
+        cancelSmartSeekJob(resetPendingSeek = true)
+        smartSeekTrackIndex = C.INDEX_UNSET
+        smartSeekNextPositionMs = -1L
+        broadcastSmartSeekState()
+    }
+
+    private fun isSmartSeekEnabled(): Boolean =
+        prefs.getBoolean("smart_seek_enabled", true)
+
+    private fun isSmartSeekPersistent(): Boolean =
+        isSmartSeekEnabled() && prefs.getBoolean("smart_seek_persistent", false)
+
+    /**
+     * Finish Smart Seek for the current track without disabling the persistent mode.
+     * A later media-item transition will schedule a fresh interval for the next track.
+     */
+    private fun finishSmartSeekTrack() {
+        if (isSmartSeekPersistent()) {
+            smartSeekNextPositionMs = -1L
+            smartSeekSeeking = false
+            broadcastSmartSeekState()
+        } else {
+            stopSmartSeek()
+        }
+    }
+
+    private fun cancelSmartSeekJob(resetPendingSeek: Boolean = false) {
+        smartSeekJob?.cancel()
+        smartSeekJob = null
+        if (resetPendingSeek) {
+            smartSeekSeeking = false
+        }
+    }
+
+    private fun startSmartSeekLoop() {
+        if (!isSmartSeekEnabled() || !smartSeekActive || smartSeekPaused || smartSeekJob?.isActive == true) return
+        val player = controller ?: return
+        if (!player.isPlaying) return
+        if (player.currentMediaItem == null) {
+            if (isSmartSeekPersistent()) {
+                smartSeekTrackIndex = C.INDEX_UNSET
+                smartSeekNextPositionMs = -1L
+                broadcastSmartSeekState()
+            } else {
+                stopSmartSeek()
+            }
+            return
+        }
+        if (player.currentMediaItemIndex != smartSeekTrackIndex) {
+            if (isSmartSeekPersistent()) {
+                smartSeekTrackIndex = player.currentMediaItemIndex
+                smartSeekNextPositionMs = -1L
+            } else {
+                stopSmartSeek()
+                return
+            }
+        }
+
+        val job = smartSeekScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                while (isActive && smartSeekActive) {
+                    val currentPlayer = controller ?: break
+                    if (!currentPlayer.isPlaying) break
+                    if (currentPlayer.currentMediaItemIndex != smartSeekTrackIndex) {
+                        if (!isSmartSeekPersistent()) stopSmartSeek()
+                        break
+                    }
+                    if (currentPlayer.playbackState != Player.STATE_READY ||
+                        currentPlayer.duration <= 0L
+                    ) {
+                        Log.i(TAG, "Smart Seek stopped for this track: player is not ready or duration is unknown")
+                        finishSmartSeekTrack()
+                        break
+                    }
+
+                    val cycle = smartSeekConfig.resolveCycle(currentPlayer.duration)
+                    val remainingMs = currentPlayer.duration - currentPlayer.currentPosition
+                    if (
+                        smartSeekConfig.inputMode == SmartSeekInputMode.CYCLE &&
+                        remainingMs <= smartSeekConfig.cycleDurationMs.coerceIn(
+                            SmartSeekConfig.MIN_INTERVAL_MS,
+                            SmartSeekConfig.MAX_CYCLE_DURATION_MS
+                        )
+                    ) {
+                        // Leave the final cycle to play normally so the track always ends with sound.
+                        Log.i(TAG, "Smart Seek finished for this track: entering the final audible tail")
+                        finishSmartSeekTrack()
+                        break
+                    }
+                    if (
+                        smartSeekConfig.inputMode != SmartSeekInputMode.CYCLE &&
+                        remainingMs <= cycle.playDurationMs
+                    ) {
+                        Log.i(TAG, "Smart Seek finished for this track: not enough time remains for another interval")
+                        finishSmartSeekTrack()
+                        break
+                    }
+
+                    // Show where the next automatic jump will occur. Pausing resets this marker.
+                    smartSeekNextPlayDurationMs = cycle.playDurationMs
+                    smartSeekNextSkipDurationMs = cycle.skipDurationMs
+                    smartSeekNextPositionMs = currentPlayer.currentPosition + cycle.playDurationMs
+                    broadcastSmartSeekState()
+
+                    // Known behavior: a pause cancels this delay; resume starts a fresh interval.
+                    delay(cycle.playDurationMs)
+                    if (!isActive || !smartSeekActive) break
+
+                    val seekPlayer = controller ?: break
+                    if (!seekPlayer.isPlaying) break
+                    if (seekPlayer.currentMediaItemIndex != smartSeekTrackIndex) {
+                        if (!isSmartSeekPersistent()) stopSmartSeek()
+                        break
+                    }
+                    if (seekPlayer.playbackState != Player.STATE_READY || seekPlayer.duration <= 0L) {
+                        Log.i(TAG, "Smart Seek finished for this track before seekTo: player is not ready or duration is unknown")
+                        finishSmartSeekTrack()
+                        break
+                    }
+
+                    if (smartSeekSeeking) {
+                        // A previous seek is still being acknowledged. Avoid a busy loop on the main thread.
+                        var waitCount = 0
+                        while (smartSeekSeeking && waitCount < 40 && isActive) {
+                            delay(50L)
+                            waitCount++
+                        }
+                        if (smartSeekSeeking) {
+                            Log.w(TAG, "Smart Seek timed out waiting for the previous seek")
+                            smartSeekSeeking = false
+                        }
+                    }
+
+                    val currentPosition = seekPlayer.currentPosition
+                    val targetPosition = currentPosition + cycle.skipDurationMs
+                    if (targetPosition >= seekPlayer.duration) {
+                        Log.i(TAG, "Smart Seek finished for this track: next target is beyond the current track")
+                        finishSmartSeekTrack()
+                        break
+                    }
+                    if (
+                        smartSeekConfig.inputMode == SmartSeekInputMode.CYCLE &&
+                        seekPlayer.duration - targetPosition <= cycle.playDurationMs
+                    ) {
+                        // If the remaining tail is no longer than one sound segment, do not skip it.
+                        Log.i(TAG, "Smart Seek finished for this track: preserving the final audible tail")
+                        finishSmartSeekTrack()
+                        break
+                    }
+
+                    smartSeekSeeking = true
+                    broadcastSmartSeekState()
+                    Log.i(TAG, "Smart Seek: seeking from $currentPosition to $targetPosition")
+                    seekPlayer.seekTo(targetPosition)
+
+                    // Wait for Media3 to report the seek before scheduling the next cycle.
+                    var waitCount = 0
+                    while (smartSeekSeeking && waitCount < 40 && isActive) {
+                        delay(50L)
+                        waitCount++
+                    }
+                    if (smartSeekSeeking) {
+                        Log.w(TAG, "Smart Seek timed out waiting for seek discontinuity")
+                        smartSeekSeeking = false
+                    }
+                    smartSeekNextPositionMs = -1L
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                smartSeekSeeking = false
+                Log.e(TAG, "Smart Seek failed", e)
+                stopSmartSeek()
+            } finally {
+                if (smartSeekJob === coroutineContext[Job]) {
+                    smartSeekJob = null
+                }
+            }
+        }
+        smartSeekJob = job
+        job.start()
+    }
+
+    private fun smartSeekStateBundle(): Bundle = Bundle().apply {
+        putBoolean("active", smartSeekActive)
+        putBoolean("paused", smartSeekPaused)
+        putLong("nextPositionMs", smartSeekNextPositionMs)
+        putLong("playDurationMs", smartSeekNextPlayDurationMs)
+        putLong("skipDurationMs", smartSeekNextSkipDurationMs)
+        putBoolean("seeking", smartSeekSeeking)
+        putInt("playValue", smartSeekConfig.playValue)
+        putInt("skipValue", smartSeekConfig.skipValue)
+        putBoolean("usePercent", smartSeekConfig.usePercent)
+        putString("pattern", smartSeekConfig.pattern.name)
+    }
+
+    private fun broadcastSmartSeekState() {
+        mediaSession?.broadcastCustomCommand(
+            SessionCommand(SERVICE_SMART_SEEK, Bundle.EMPTY),
+            smartSeekStateBundle()
+        )
+    }
+
     // When destroying, we should release server side player
     // alongside with the mediaSession.
     override fun onDestroy() {
@@ -818,6 +1071,9 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         unregisterReceiver(seekReceiver)
         unregisterReceiver(btReceiver)
         prefs.unregisterOnSharedPreferenceChangeListener(this)
+        smartSeekActive = false
+        cancelSmartSeekJob(resetPendingSeek = true)
+        smartSeekScope.cancel()
         // Important: this must happen before sending stop() as that changes state ENDED -> IDLE
         lastPlayedManager.save()
         scope.cancel()
@@ -874,6 +1130,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         availableSessionCommands.add(SessionCommand.COMMAND_CODE_SESSION_SET_RATING)
         availableSessionCommands.add(SessionCommand(SERVICE_SET_TIMER, Bundle.EMPTY))
         availableSessionCommands.add(SessionCommand(SERVICE_QUERY_TIMER, Bundle.EMPTY))
+        availableSessionCommands.add(SessionCommand(SERVICE_SMART_SEEK, Bundle.EMPTY))
         availableSessionCommands.add(SessionCommand(SERVICE_GET_LYRICS, Bundle.EMPTY))
         availableSessionCommands.add(SessionCommand(SERVICE_GET_AUDIO_FORMAT, Bundle.EMPTY))
         availableSessionCommands.add(SessionCommand(SERVICE_SET_MEDIA_ITEMS_SEAMLESSLY, Bundle.EMPTY))
@@ -902,6 +1159,11 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
             SessionCommand(SERVICE_GET_AUDIO_FORMAT, Bundle.EMPTY),
             Bundle.EMPTY
         )
+        session.sendCustomCommand(
+            controller,
+            SessionCommand(SERVICE_SMART_SEEK, Bundle.EMPTY),
+            smartSeekStateBundle()
+        )
     }
 
     override fun onDisconnected(session: MediaSession, controller: MediaSession.ControllerInfo) {
@@ -909,6 +1171,22 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String?) {
+        if (key == "smart_seek_enabled" && !isSmartSeekEnabled()) {
+            handler.post { stopSmartSeek() }
+        }
+        if (key == SmartSeekConfig.PREF_CONFIG_REVISION) {
+            handler.post {
+                smartSeekConfig = SmartSeekConfig.load(prefs)
+                if (smartSeekActive) {
+                    cancelSmartSeekJob(resetPendingSeek = true)
+                    smartSeekNextPositionMs = -1L
+                    if (isSmartSeekEnabled() && controller?.isPlaying == true) {
+                        startSmartSeekLoop()
+                    }
+                    broadcastSmartSeekState()
+                }
+            }
+        }
         var restart = false
         if (key == null || key == "notification_lyrics" || key == "status_bar_lyrics") {
             scheduleSendingLyrics(false)
@@ -1061,6 +1339,36 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
         return Futures.immediateFuture(
             when (customCommand.customAction) {
+                SERVICE_SMART_SEEK -> {
+                    val resume = customCommand.customExtras.getBoolean("resume")
+                    val enabled = customCommand.customExtras.getBoolean("enabled")
+                    val mode = customCommand.customExtras.getString("mode")
+                    val configure = customCommand.customExtras.getBoolean("configure")
+                    handler.post {
+                        if (resume && smartSeekActive && isSmartSeekEnabled()) {
+                            smartSeekPaused = false
+                            smartSeekNextPositionMs = -1L
+                            startSmartSeekLoop()
+                            broadcastSmartSeekState()
+                        } else if (configure && !isSmartSeekEnabled()) {
+                            stopSmartSeek()
+                        } else if (configure) {
+                            smartSeekConfig = SmartSeekConfig.load(prefs)
+                            cancelSmartSeekJob(resetPendingSeek = true)
+                            smartSeekNextPositionMs = -1L
+                            if (smartSeekActive && this.controller?.isPlaying == true) {
+                                startSmartSeekLoop()
+                            }
+                            broadcastSmartSeekState()
+                        } else if (enabled && mode == SmartSeekMode.MANUAL.name && isSmartSeekEnabled()) {
+                            startSmartSeek()
+                        } else {
+                            stopSmartSeek()
+                        }
+                    }
+                    SessionResult(SessionResult.RESULT_SUCCESS)
+                }
+
                 SERVICE_SET_TIMER -> {
                     // 0 = clear timer; 0 with pauseOnEnd true will pause on end of current song
                     val duration = customCommand.customExtras.getInt("duration")
@@ -1523,6 +1831,15 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     override fun onPlaybackStateChanged(state: Int) {
+        if (state == Player.STATE_ENDED && smartSeekActive) {
+            if (isSmartSeekPersistent()) {
+                cancelSmartSeekJob(resetPendingSeek = true)
+                smartSeekNextPositionMs = -1L
+                broadcastSmartSeekState()
+            } else {
+                stopSmartSeek()
+            }
+        }
         if (state == Player.STATE_IDLE) {
             var changed = false
             if (afTrackFormat != null) {
@@ -1574,6 +1891,25 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        if (smartSeekActive) {
+            if (isSmartSeekPersistent()) {
+                // Keep the mode enabled, but start a fresh interval for the new track.
+                cancelSmartSeekJob(resetPendingSeek = true)
+                smartSeekTrackIndex = if (mediaItem != null) {
+                    controller?.currentMediaItemIndex ?: C.INDEX_UNSET
+                } else {
+                    C.INDEX_UNSET
+                }
+                smartSeekNextPositionMs = -1L
+                broadcastSmartSeekState()
+                if (mediaItem != null && controller?.isPlaying == true) {
+                    startSmartSeekLoop()
+                }
+            } else {
+                // Manual Smart Seek belongs to one track; let subsequent tracks play normally.
+                stopSmartSeek()
+            }
+        }
         if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
             bitrate = null
             bitrateFetcher.launch {
@@ -1642,6 +1978,21 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (isPlaying) {
+            if (smartSeekActive) {
+                smartSeekPaused = false
+                startSmartSeekLoop()
+                broadcastSmartSeekState()
+            }
+        } else {
+            // Pausing playback suspends Smart Seek and exposes the normal seek control.
+            cancelSmartSeekJob()
+            if (smartSeekActive) {
+                smartSeekPaused = true
+                smartSeekNextPositionMs = -1L
+                broadcastSmartSeekState()
+            }
+        }
         scheduleSendingLyrics(false)
         lastPlayedManager.save()
     }
@@ -1750,7 +2101,22 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         newPosition: Player.PositionInfo,
         reason: Int
     ) {
-        if (lastKnownPeriodUid != newPosition.periodUid || oldPosition.periodUid != newPosition.periodUid) {
+        // Smart Seek jumps within the same track. Do not clear the active audio-format cache merely
+        // because Media3 reports a different period after such a seek; the format may not be emitted
+        // again when playback resumes, leaving the quality row empty.
+        val isSmartSeekJump = smartSeekSeeking &&
+            reason == Player.DISCONTINUITY_REASON_SEEK &&
+            oldPosition.mediaItemIndex == newPosition.mediaItemIndex
+        if (smartSeekSeeking && reason == Player.DISCONTINUITY_REASON_SEEK) {
+            smartSeekSeeking = false
+        }
+
+        if (isSmartSeekJump) {
+            lastKnownPeriodUid = newPosition.periodUid
+        } else if (
+            lastKnownPeriodUid != newPosition.periodUid ||
+            oldPosition.periodUid != newPosition.periodUid
+        ) {
             var changed = false
             downstreamFormat.toSet().forEach {
                 if (newPosition.periodUid != it.first) {

@@ -37,6 +37,7 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import org.akanework.gramophone.logic.GramophoneApplication
 import org.akanework.gramophone.logic.GramophonePlaybackService
+import org.akanework.gramophone.logic.SmartSeekMode
 import org.akanework.gramophone.logic.utils.LifecycleCallbackListImpl
 import java.util.concurrent.ExecutionException
 
@@ -48,6 +49,8 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
     private val mainExecutor = ContextCompat.getMainExecutor(application)
     private var controllerLifecycle: LifecycleHost? = null
     private var controllerFuture: ListenableFuture<MediaBrowser>? = null
+    private var smartSeekActive = false
+    private var smartSeekPaused = false
     private val customCommandListenersImpl = LifecycleCallbackListImpl<
                 (MediaController, SessionCommand, Bundle) -> ListenableFuture<SessionResult>>()
     private val connectionListenersImpl =
@@ -141,6 +144,64 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
             return controllerFuture!!.get()
         }
         return null
+    }
+
+    fun startSmartSeek(mode: SmartSeekMode) {
+        if (mode != SmartSeekMode.MANUAL) return
+        val controller = get() ?: return
+        smartSeekActive = true
+        smartSeekPaused = false
+        controller.sendCustomCommand(
+            SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
+                customExtras.putBoolean("enabled", true)
+                customExtras.putString("mode", mode.name)
+            },
+            Bundle.EMPTY
+        )
+    }
+
+    fun stopSmartSeek() {
+        smartSeekActive = false
+        smartSeekPaused = false
+        get()?.sendCustomCommand(
+            SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
+                customExtras.putBoolean("enabled", false)
+            },
+            Bundle.EMPTY
+        )
+    }
+
+    fun isSmartSeekActive(): Boolean = smartSeekActive
+
+    fun isSmartSeekPaused(): Boolean = smartSeekPaused
+
+    fun updateSmartSeekActive(active: Boolean) {
+        smartSeekActive = active
+        if (!active) smartSeekPaused = false
+    }
+
+    fun updateSmartSeekPaused(paused: Boolean) {
+        smartSeekPaused = smartSeekActive && paused
+    }
+
+    fun resumeSmartSeek() {
+        val controller = get() ?: return
+        if (!smartSeekActive || !smartSeekPaused) return
+        controller.sendCustomCommand(
+            SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
+                customExtras.putBoolean("resume", true)
+            },
+            Bundle.EMPTY
+        )
+    }
+
+    fun refreshSmartSeekConfiguration() {
+        get()?.sendCustomCommand(
+            SessionCommand(GramophonePlaybackService.SERVICE_SMART_SEEK, Bundle.EMPTY).apply {
+                customExtras.putBoolean("configure", true)
+            },
+            Bundle.EMPTY
+        )
     }
 
     override fun onDisconnected(controller: MediaController) {

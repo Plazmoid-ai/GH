@@ -67,6 +67,26 @@
         app:layout_constraintVertical_bias="0.0"
         app:tooltipText="@string/timer" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/smart_seek"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:background="@drawable/rp_buttons"
+        android:checkable="true"
+        android:contentDescription="@string/smart_seek"
+        android:saveEnabled="false"
+        app:toggleCheckedStateOnClick="false"
+        app:icon="@drawable/ic_skip_next"
+        app:iconGravity="textStart"
+        app:iconPadding="0dp"
+        app:iconSize="24dp"
+        app:iconTint="?attr/colorOnSurface"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintTop_toBottomOf="@id/timer"
+        app:layout_constraintVertical_bias="0.0"
+        app:tooltipText="@string/smart_seek" />
+
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/album_cover_frame"
         android:layout_width="0dp"

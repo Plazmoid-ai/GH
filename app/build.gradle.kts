@@ -338,6 +338,7 @@ dependencies {
     implementation("androidx.preference:preference-ktx:1.2.1")
     implementation("androidx.transition:transition-ktx:1.6.0") // <-- for predictive back TODO can we remove explicit dep now?
     implementation("com.mikepenz:aboutlibraries-compose-m3:$aboutLibsVersion")
+    implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("com.google.android.material:material:1.13.0")
     implementation("me.zhanghai.android.fastscroll:library:1.3.0")
     val coilVersion = "3.4.0"

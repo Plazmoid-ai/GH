@@ -110,6 +110,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.GramophonePlaybackService
+import org.akanework.gramophone.logic.SmartSeekMode
+import androidx.palette.graphics.Palette
 import org.akanework.gramophone.logic.clone
 import org.akanework.gramophone.logic.dpToPx
 import org.akanework.gramophone.logic.fadInAnimation
@@ -262,6 +264,12 @@ class FullBottomSheet
     private val bottomSheetLoopButton: MaterialButton
     private val bottomSheetPlaylistButton: MaterialButton
     private val bottomSheetTimerButton: MaterialButton
+    private val bottomSheetSmartSeekButton: MaterialButton?
+    private var smartSeekDynamicAccentColor: Int? = null
+    private var smartSeekDynamicAccentArtworkUri: Uri? = null
+    private var smartSeekDynamicAccentPaletteResolved = false
+    private var smartSeekDynamicAccentScope: CoroutineScope? = null
+    private var smartSeekDynamicAccentDisposable: Disposable? = null
     private val bottomSheetPlaybackSpeedButton: MaterialButton
     private val bottomSheetFavoriteButton: MaterialButton
     val bottomSheetLyricButton: MaterialButton
@@ -289,6 +297,7 @@ class FullBottomSheet
         bottomSheetShuffleButton = findViewById(R.id.sheet_random)
         bottomSheetLoopButton = findViewById(R.id.sheet_loop)
         bottomSheetTimerButton = findViewById(R.id.timer)
+        bottomSheetSmartSeekButton = findViewById(R.id.smart_seek)
         bottomSheetPlaybackSpeedButton = findViewById(R.id.playback_speed)
         bottomSheetFavoriteButton = findViewById(R.id.favor)
         bottomSheetPlaylistButton = findViewById(R.id.playlist)
@@ -296,9 +305,15 @@ class FullBottomSheet
         bottomSheetFullQualityDetails = findViewById(R.id.quality_details)
         refreshSettings(null)
         prefs.registerOnSharedPreferenceChangeListener(this)
-        activity.controllerViewModel.customCommandListeners.addCallback(activity.lifecycle) { _, command, _ ->
+        activity.controllerViewModel.customCommandListeners.addCallback(activity.lifecycle) { _, command, args ->
             when (command.customAction) {
                 GramophonePlaybackService.SERVICE_TIMER_CHANGED -> updateTimer()
+
+                GramophonePlaybackService.SERVICE_SMART_SEEK -> {
+                    activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
+                    activity.controllerViewModel.updateSmartSeekPaused(args.getBoolean("paused", false))
+                    updateSmartSeekButton()
+                }
 
                 GramophonePlaybackService.SERVICE_GET_LYRICS -> {
                     val parsedLyrics = instance?.getLyrics()
@@ -321,6 +336,27 @@ class FullBottomSheet
                 }
             }
             return@addCallback Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        updateSmartSeekButton()
+        requestSmartSeekDynamicAccent()
+        bottomSheetSmartSeekButton?.setOnClickListener {
+            if (!prefs.getBoolean("smart_seek_enabled", true)) return@setOnClickListener
+            ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
+            if (activity.controllerViewModel.isSmartSeekActive()) {
+                activity.controllerViewModel.stopSmartSeek()
+            } else {
+                activity.controllerViewModel.startSmartSeek(SmartSeekMode.MANUAL)
+            }
+            updateSmartSeekButton()
+        }
+        bottomSheetSmartSeekButton?.setOnLongClickListener {
+            ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
+            SmartSeekSettingsBottomSheet(context, prefs) {
+                updateSmartSeekButton()
+                requestSmartSeekDynamicAccent()
+            }.show()
+            true
         }
 
         val seekBarProgressWavelength =
@@ -656,6 +692,12 @@ class FullBottomSheet
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
+        if (key == null || key.startsWith("smart_seek_")) {
+            updateSmartSeekButton()
+            if (key == null || key == "smart_seek_marker_color" || key == "smart_seek_custom_accent_enabled") {
+                requestSmartSeekDynamicAccent()
+            }
+        }
         if (key == "color_accuracy" || key == "content_based_color") {
             if (DynamicColors.isDynamicColorAvailable() &&
                 prefs.getBooleanStrict("content_based_color", true)
@@ -711,6 +753,125 @@ class FullBottomSheet
         if (key == null || key == "cookie_cover") {
             bottomSheetFullCover.setClip(prefs.getBooleanStrict("cookie_cover", false))
         }
+    }
+
+    private fun smartSeekThemeAccentColor(): Int =
+        MaterialColors.getColor(
+            this,
+            androidx.appcompat.R.attr.colorPrimary,
+            Color.rgb(26, 79, 163)
+        )
+
+    private fun smartSeekContrastColor(): Int {
+        val surfaceColor = (background as? ColorDrawable)?.color
+            ?: MaterialColors.getColor(
+                this,
+                com.google.android.material.R.attr.colorSurface,
+                Color.WHITE
+            )
+        return if (androidx.core.graphics.ColorUtils.calculateLuminance(surfaceColor) < 0.5) Color.WHITE else Color.BLACK
+    }
+
+    private fun smartSeekMarkerColor(): Int {
+        if (!prefs.getBoolean("smart_seek_custom_accent_enabled", true)) return smartSeekThemeAccentColor()
+        return when (prefs.getString("smart_seek_marker_color", "blue")) {
+            "orange" -> Color.rgb(255, 109, 0)
+            "cyan" -> Color.rgb(0, 184, 212)
+            "lime" -> Color.rgb(124, 179, 66)
+            "pink" -> Color.rgb(245, 0, 87)
+            "violet" -> Color.rgb(124, 77, 255)
+            "dynamic" -> smartSeekDynamicAccentColor ?: smartSeekThemeAccentColor()
+            "contrast" -> smartSeekContrastColor()
+            else -> Color.rgb(26, 79, 163)
+        }
+    }
+
+    private fun updateSmartSeekButton() {
+        val button = bottomSheetSmartSeekButton ?: return
+        val enabled = prefs.getBoolean("smart_seek_enabled", true)
+        button.visibility = if (enabled) VISIBLE else GONE
+        val active = enabled && activity.controllerViewModel.isSmartSeekActive()
+        val customAccent = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
+        val color = smartSeekMarkerColor()
+        val monochrome = customAccent && prefs.getString("smart_seek_marker_color", "blue") == "contrast"
+        button.isChecked = active
+        button.isActivated = active
+        button.contentDescription = context.getString(
+            if (active) R.string.smart_seek_stop else R.string.smart_seek_start
+        )
+        val backgroundColor = if (monochrome) {
+            if (color == Color.BLACK) Color.WHITE else Color.BLACK
+        } else {
+            MaterialColors.getColor(
+                button,
+                if (active) com.google.android.material.R.attr.colorPrimaryContainer
+                else com.google.android.material.R.attr.colorSurfaceVariant,
+                Color.TRANSPARENT
+            )
+        }
+        val iconColor = if (customAccent && (active || monochrome)) color else {
+            MaterialColors.getColor(button, com.google.android.material.R.attr.colorOnSurface, Color.WHITE)
+        }
+        button.backgroundTintList = ColorStateList.valueOf(backgroundColor)
+        button.iconTint = ColorStateList.valueOf(iconColor)
+        TooltipCompat.setTooltipText(
+            button,
+            context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
+        )
+    }
+
+    private fun requestSmartSeekDynamicAccent(mediaItem: MediaItem? = instance?.currentMediaItem) {
+        if (prefs.getString("smart_seek_marker_color", "blue") != "dynamic" ||
+            !prefs.getBoolean("smart_seek_custom_accent_enabled", true)
+        ) return
+        val artworkUri = mediaItem?.mediaMetadata?.artworkUri
+        if (smartSeekDynamicAccentPaletteResolved && smartSeekDynamicAccentArtworkUri == artworkUri) return
+        smartSeekDynamicAccentScope?.cancel()
+        smartSeekDynamicAccentDisposable?.dispose()
+        smartSeekDynamicAccentScope = null
+        smartSeekDynamicAccentDisposable = null
+        smartSeekDynamicAccentArtworkUri = artworkUri
+        smartSeekDynamicAccentPaletteResolved = true
+        smartSeekDynamicAccentColor = null
+        if (artworkUri == null) {
+            updateSmartSeekButton()
+            return
+        }
+        val scope = CoroutineScope(Dispatchers.Default)
+        smartSeekDynamicAccentScope = scope
+        smartSeekDynamicAccentDisposable = context.imageLoader.enqueue(
+            ImageRequest.Builder(context).apply {
+                data(artworkUri)
+                size(256, 256)
+                allowConversionToBitmap(true)
+                allowHardware(false)
+                scale(Scale.FILL)
+                target(onSuccess = { image ->
+                    val drawable = image.asDrawable(context.resources)
+                    val bitmap = (drawable as? BitmapDrawable)?.bitmap
+                    if (bitmap != null) {
+                        scope.launch {
+                            val paletteColor = runCatching {
+                                val palette = Palette.from(bitmap).maximumColorCount(16).generate()
+                                palette.vibrantSwatch?.rgb
+                                    ?: palette.lightVibrantSwatch?.rgb
+                                    ?: palette.darkVibrantSwatch?.rgb
+                                    ?: palette.dominantSwatch?.rgb
+                                    ?: palette.mutedSwatch?.rgb
+                            }.getOrNull()
+                            withContext(Dispatchers.Main) {
+                                if (smartSeekDynamicAccentArtworkUri != artworkUri ||
+                                    prefs.getString("smart_seek_marker_color", "blue") != "dynamic" ||
+                                    !prefs.getBoolean("smart_seek_custom_accent_enabled", true)
+                                ) return@withContext
+                                smartSeekDynamicAccentColor = paletteColor
+                                updateSmartSeekButton()
+                            }
+                        }
+                    }
+                })
+            }.build()
+        )
     }
 
     private fun showPlaybackSpeedDialog() {
@@ -1426,6 +1587,8 @@ class FullBottomSheet
         mediaItem: MediaItem?,
         reason: Int
     ) {
+        requestSmartSeekDynamicAccent(mediaItem)
+        updateSmartSeekButton()
         if (instance?.mediaItemCount != 0) {
             bottomSheetFullCover.dispose()
             bottomSheetFullCover.loadNoPlaceholder(mediaItem?.mediaMetadata?.artworkUri) {

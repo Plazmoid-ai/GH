@@ -23,6 +23,8 @@ import android.os.Bundle
 import androidx.core.content.FileProvider
 import androidx.media3.common.util.Log
 import androidx.preference.Preference
+import androidx.preference.PreferenceManager
+import org.akanework.gramophone.ui.components.SmartSeekSettingsBottomSheet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,7 +58,13 @@ class ExperimentalSettingsFragment : BasePreferenceFragment() {
     }
 
     override fun onPreferenceTreeClick(preference: Preference): Boolean {
-        if (preference.key == "crash" && BuildConfig.DEBUG) {
+        if (preference.key == "smart_seek_config") {
+            SmartSeekSettingsBottomSheet(
+                requireContext(),
+                PreferenceManager.getDefaultSharedPreferences(requireContext())
+            ).show()
+            return true
+        } else if (preference.key == "crash" && BuildConfig.DEBUG) {
             throw IllegalArgumentException("I crashed your app >:)", e)
         } else if (preference.key == "self_log") {
             Log.w("Gramophone", "Exporting logs...")
