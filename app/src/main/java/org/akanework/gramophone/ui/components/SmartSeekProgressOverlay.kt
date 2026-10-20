@@ -15,8 +15,10 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -36,7 +38,19 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val phaseColorEvaluator = ArgbEvaluator()
+    private val capsuleBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.rgb(224, 224, 224)
+    }
+    private val capsuleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val capsuleRect = RectF()
+    private val capsuleFillRect = RectF()
+    private val capsuleClipPath = Path()
+    private val draggingHudRect = RectF()
+    private val cursorRect = RectF()
+    private val segmentRect = RectF()
     private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create("sans-serif", Typeface.BOLD)
         textSize = sp(12f)
@@ -65,6 +79,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var hudSkipLabel = "30"
     private var hudListenedMs = 0L
     private var hudCurrentIntervalRemainingMs = 0L
+    private var hudTimerUpdateElapsedRealtimeMs = 0L
     private var hudPassedPeriods = 0
     private var hudRemainingPeriods = 0
     private var hudCapsuleCenterYOverride = Float.NaN
@@ -124,6 +139,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.hudSkipLabel = hudSkipLabel
         this.hudListenedMs = hudListenedMs.coerceAtLeast(0L)
         this.hudCurrentIntervalRemainingMs = hudCurrentIntervalRemainingMs.coerceAtLeast(0L)
+        this.hudTimerUpdateElapsedRealtimeMs = SystemClock.elapsedRealtime()
         this.hudPassedPeriods = hudPassedPeriods.coerceAtLeast(0)
         this.hudRemainingPeriods = hudRemainingPeriods.coerceAtLeast(0)
         this.hudAccentColor = hudAccentColor
@@ -254,6 +270,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         } else {
             drawHud(canvas, cursorX, barTop, barBottom)
         }
+
+        if (active && playWhenReady) {
+            postInvalidateOnAnimation()
+        }
     }
 
     /** Draws listened play-time and the remaining interval count, plus a right-aligned static label. */
@@ -308,7 +328,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         )
     }
 
-    /** Draws a centered phase capsule under the bar, colored directly from the current interval progress. */
+    /** Draws a centered capsule whose accent fill drains with the active-interval timer. */
     private fun drawPhaseCapsule(
         canvas: Canvas,
         barBottom: Float,
@@ -319,34 +339,57 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val cycleMs = (playMs + skipMs).coerceAtLeast(1L)
         val safePositionMs = positionMs.coerceIn(0L, durationMs)
         val positionInCycleMs = safePositionMs % cycleMs
-        val progress = if (positionInCycleMs < playMs) {
-            positionInCycleMs.toFloat() / playMs.toFloat()
-        } else {
-            1f
-        }.coerceIn(0f, 1f)
+        val isActiveInterval = positionInCycleMs < playMs
 
-        val silenceColor = Color.rgb(158, 158, 158)
-        val animatedColor = phaseColorEvaluator.evaluate(
-            progress,
-            hudAccentColor,
-            silenceColor
-        ) as Int
-        val capsuleWidth = dp(80f)
-        val capsuleHeight = dp(14f)
+        // Continue the countdown between player callbacks so the capsule moves smoothly.
+        val elapsedSinceUpdateMs = if (playWhenReady && !isDragging) {
+            (SystemClock.elapsedRealtime() - hudTimerUpdateElapsedRealtimeMs).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        val liveRemainingMs = (hudCurrentIntervalRemainingMs - elapsedSinceUpdateMs)
+            .coerceIn(0L, playMs)
+        val elapsedPlayTimeMs = when {
+            !isActiveInterval -> playMs
+            isDragging -> positionInCycleMs.coerceIn(0L, playMs)
+            else -> (playMs - liveRemainingMs).coerceIn(0L, playMs)
+        }
+        val progress = (elapsedPlayTimeMs.toFloat() / playMs.toFloat()).coerceIn(0.0f, 1.0f)
+
+        val capsuleWidth = dp(200f)
+        val capsuleHeight = dp(16f)
+        val radius = dp(8f)
         val centerX = width / 2f
-        val centerY = barBottom + dp(34f)
-        val capsule = RectF(
+        // 30dp gap is measured from the progress-bar's lower edge to the capsule's upper edge.
+        val capsuleTop = barBottom + dp(30f)
+        capsuleRect.set(
             centerX - capsuleWidth / 2f,
-            centerY - capsuleHeight / 2f,
+            capsuleTop,
             centerX + capsuleWidth / 2f,
-            centerY + capsuleHeight / 2f
+            capsuleTop + capsuleHeight
         )
 
-        paint.style = Paint.Style.FILL
-        paint.shader = null
-        paint.color = animatedColor
-        paint.alpha = 255
-        canvas.drawRoundRect(capsule, capsuleHeight / 2f, capsuleHeight / 2f, paint)
+        canvas.drawRoundRect(capsuleRect, radius, radius, capsuleBackgroundPaint)
+
+        val fillWidth = capsuleWidth * (1.0f - progress)
+        if (fillWidth > 0f) {
+            capsuleFillRect.set(
+                capsuleRect.left,
+                capsuleRect.top,
+                capsuleRect.left + fillWidth,
+                capsuleRect.bottom
+            )
+            capsuleFillPaint.color = hudAccentColor
+            capsuleFillPaint.alpha = 255
+
+            // Clip to the capsule bounds and round the moving edge of the remaining fill.
+            capsuleClipPath.reset()
+            capsuleClipPath.addRoundRect(capsuleRect, radius, radius, Path.Direction.CW)
+            val saveCount = canvas.save()
+            canvas.clipPath(capsuleClipPath)
+            canvas.drawRoundRect(capsuleFillRect, radius, radius, capsuleFillPaint)
+            canvas.restoreToCount(saveCount)
+        }
     }
 
     /**
@@ -379,7 +422,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val textWidth = hudTextPaint.measureText(hudText)
         val cardWidth = (textWidth + dp(32f))
             .coerceAtMost((width.toFloat() - dp(16f)).coerceAtLeast(0f))
-        val card = RectF(
+        draggingHudRect.set(
             centerX - cardWidth / 2f,
             cardCenterY - dp(16f),
             centerX + cardWidth / 2f,
@@ -390,12 +433,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         paint.shader = null
         paint.color = Color.rgb(26, 26, 26)
         paint.alpha = 255
-        canvas.drawRoundRect(card, dp(20f), dp(20f), paint)
+        canvas.drawRoundRect(draggingHudRect, dp(20f), dp(20f), paint)
 
         hudTextPaint.color = Color.WHITE
         hudTextPaint.alpha = 255
         hudTextPaint.textAlign = Paint.Align.CENTER
-        val textBaseline = card.centerY() -
+        val textBaseline = draggingHudRect.centerY() -
             (hudTextPaint.ascent() + hudTextPaint.descent()) / 2f
         canvas.drawText(hudText, centerX, textBaseline, hudTextPaint)
         hudTextPaint.textAlign = Paint.Align.LEFT
@@ -424,6 +467,30 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         rightEdgeX: Float? = null,
         anchorPartIndex: Int? = null
     ) {
+        val originalTextSize = textPaint.textSize
+
+        // The colon remains exactly over the cursor. If the cursor is near an edge,
+        // shrink this one HUD line just enough to keep both counters inside the view.
+        if (anchorPartIndex != null && parts.isNotEmpty()) {
+            val anchorIndex = anchorPartIndex.coerceIn(0, parts.lastIndex)
+            val widthBeforeAnchor = parts.take(anchorIndex)
+                .sumOf { textPaint.measureText(it.first).toDouble() }.toFloat()
+            val anchorWidth = textPaint.measureText(parts[anchorIndex].first)
+            val widthAfterAnchor = parts.drop(anchorIndex + 1)
+                .sumOf { textPaint.measureText(it.first).toDouble() }.toFloat()
+            val leftExtent = widthBeforeAnchor + spacing * anchorIndex + anchorWidth / 2f
+            val rightExtent = anchorWidth / 2f + widthAfterAnchor +
+                spacing * (parts.size - anchorIndex - 1)
+            val leftSpace = (cursorX - margin).coerceAtLeast(0f)
+            val rightSpace = (width.toFloat() - margin - cursorX).coerceAtLeast(0f)
+            val scale = minOf(
+                1f,
+                if (leftExtent > 0f) leftSpace / leftExtent else 1f,
+                if (rightExtent > 0f) rightSpace / rightExtent else 1f
+            ).coerceIn(0.05f, 1f)
+            textPaint.textSize = originalTextSize * scale
+        }
+
         val textWidth = parts.sumOf { textPaint.measureText(it.first).toDouble() }.toFloat()
         val lineWidth = textWidth + spacing * (parts.size - 1)
         val maxStartX = (width.toFloat() - margin - lineWidth).coerceAtLeast(margin)
@@ -447,6 +514,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             if (index != parts.lastIndex) x += spacing
         }
         textPaint.alpha = 255
+        textPaint.textSize = originalTextSize
     }
 
     /** Playback mode: the timeline starts at a fixed x-position and represents only the future. */
@@ -691,8 +759,9 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val rawLeft = if (leftEdge) 0f else cursorX - cursorWidth / 2f
         val left = rawLeft.coerceIn(0f, (width.toFloat() - cursorWidth).coerceAtLeast(0f))
         val right = left + cursorWidth
+        cursorRect.set(left, top - cursorExtension, right, bottom + cursorExtension)
         canvas.drawRoundRect(
-            RectF(left, top - cursorExtension, right, bottom + cursorExtension),
+            cursorRect,
             cursorWidth / 2f,
             cursorWidth / 2f,
             paint
@@ -714,12 +783,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         paint.shader = null
         paint.color = color
         paint.alpha = alpha
-        canvas.drawRoundRect(
-            RectF(left, top, left + segmentWidth, bottom),
-            radius,
-            radius,
-            paint
-        )
+        segmentRect.set(left, top, left + segmentWidth, bottom)
+        canvas.drawRoundRect(segmentRect, radius, radius, paint)
     }
 
     /** Jump to the start of the adjacent play interval without entering drag-HUD mode. */
