@@ -319,6 +319,7 @@ class FullBottomSheet
     private var smartSeekDurationPanelCacheKey: String? = null
     private var lastSmartSeekButtonActive: Boolean? = null
     private val bottomSheetFullCoverFrame: MaterialCardView
+    private val bottomSheetFullTextLayout: View
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
     private val progressDrawable: SquigglyProgress
     private var pqs: PlaylistQueueSheet? = null
@@ -329,6 +330,7 @@ class FullBottomSheet
         clipToPadding = false
         inflate(context, R.layout.full_player, this)
         bottomSheetFullCoverFrame = findViewById(R.id.album_cover_frame)
+        bottomSheetFullTextLayout = findViewById(R.id.textLayout)
         bottomSheetFullCover = findViewById(R.id.full_sheet_cover)
         bottomSheetFullTitle = findViewById(R.id.full_song_name)
         bottomSheetFullSubtitle = findViewById(R.id.full_song_artist)
@@ -1131,6 +1133,8 @@ class FullBottomSheet
             hudPlayLabel = playLabel,
             hudSkipLabel = skipLabel,
             hudListenedMs = calculateSmartSeekListenedMs(currentPositionMs, playMs, skipMs),
+            hudCurrentIntervalRemainingMs = remainingMs.coerceIn(0L, playMs),
+            hudPassedPeriods = passedPeriods.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             hudRemainingPeriods = remainingPeriods.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             hudAccentColor = accentColor,
             hudOnSurfaceColor = if (contrastAccentEnabled) accentColor else onSurfaceColor,
@@ -1148,12 +1152,13 @@ class FullBottomSheet
         // shortening the timeline to only a small part of the screen.
         overlay.setTimelineRightEdgeX(overlay.width.toFloat())
 
+        val overlayLocation = IntArray(2)
+        overlay.getLocationOnScreen(overlayLocation)
+
         // Anchor the fixed cursor precisely at the right edge of the lower elapsed-time label.
         val listenedTime = smartSeekListenedTime
         if (listenedTime.visibility == VISIBLE && listenedTime.width > 0) {
-            val overlayLocation = IntArray(2)
             val listenedLocation = IntArray(2)
-            overlay.getLocationOnScreen(overlayLocation)
             listenedTime.getLocationOnScreen(listenedLocation)
             overlay.setCursorX(
                 (listenedLocation[0] + listenedTime.width - overlayLocation[0]).toFloat()
@@ -1161,6 +1166,20 @@ class FullBottomSheet
         } else {
             // Fallback for the brief period before the label is laid out or when it is hidden.
             overlay.setCursorX(50f * resources.displayMetrics.density)
+        }
+
+        // Place the capsule halfway between the bottom of the track-title area and the bar.
+        if (bottomSheetFullTextLayout.height > 0 && overlay.height > 0) {
+            val titleLocation = IntArray(2)
+            bottomSheetFullTextLayout.getLocationOnScreen(titleLocation)
+            val titleBottomInOverlay = (
+                titleLocation[1] + bottomSheetFullTextLayout.height - overlayLocation[1]
+            ).toFloat()
+            val density = resources.displayMetrics.density
+            val barTopInOverlay = (overlay.height - 6f * density) / 2f
+            overlay.setHudCapsuleCenterY((titleBottomInOverlay + barTopInOverlay) / 2f)
+        } else {
+            overlay.setHudCapsuleCenterY(Float.NaN)
         }
     }
 

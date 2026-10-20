@@ -63,7 +63,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
     private var hudPlayLabel = "15"
     private var hudSkipLabel = "30"
     private var hudListenedMs = 0L
+    private var hudCurrentIntervalRemainingMs = 0L
+    private var hudPassedPeriods = 0
     private var hudRemainingPeriods = 0
+    private var hudCapsuleCenterYOverride = Float.NaN
     private var hudAccentColor = Color.rgb(124, 77, 255)
     private var hudOnSurfaceColor = Color.rgb(51, 51, 51)
     private var hudCustomAccentEnabled = true
@@ -99,6 +102,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         hudPlayLabel: String = "15",
         hudSkipLabel: String = "30",
         hudListenedMs: Long = 0L,
+        hudCurrentIntervalRemainingMs: Long = 0L,
+        hudPassedPeriods: Int = 0,
         hudRemainingPeriods: Int = 0,
         hudAccentColor: Int = Color.rgb(124, 77, 255),
         hudOnSurfaceColor: Int = Color.rgb(51, 51, 51),
@@ -117,6 +122,8 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         this.hudPlayLabel = hudPlayLabel
         this.hudSkipLabel = hudSkipLabel
         this.hudListenedMs = hudListenedMs.coerceAtLeast(0L)
+        this.hudCurrentIntervalRemainingMs = hudCurrentIntervalRemainingMs.coerceAtLeast(0L)
+        this.hudPassedPeriods = hudPassedPeriods.coerceAtLeast(0)
         this.hudRemainingPeriods = hudRemainingPeriods.coerceAtLeast(0)
         this.hudAccentColor = hudAccentColor
         this.hudOnSurfaceColor = hudOnSurfaceColor
@@ -180,6 +187,14 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             50f * resources.displayMetrics.density
         }
 
+    /** Centers the dragging capsule between the track title and progress bar. */
+    fun setHudCapsuleCenterY(centerY: Float) {
+        if (hudCapsuleCenterYOverride != centerY) {
+            hudCapsuleCenterYOverride = centerY
+            postInvalidateOnAnimation()
+        }
+    }
+
     /**
      * Smoothly blends the trail color when the current interval changes from play to skip
      * or back. Updates received during the same interval do not restart the animator.
@@ -235,7 +250,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         if (isDragging && showDraggingHud) {
             drawDraggingHud(canvas, selectedPositionMs, barTop)
         } else {
-            drawHud(canvas, cursorX, barTop, barBottom, timelineEndX)
+            drawHud(canvas, cursorX, barTop, barBottom)
         }
     }
 
@@ -244,8 +259,7 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         canvas: Canvas,
         cursorX: Float,
         barTop: Float,
-        barBottom: Float,
-        timelineRightEdgeX: Float
+        barBottom: Float
     ) {
         val gray = if (hudMonochromeAccent) hudAccentColor else Color.rgb(158, 158, 158)
         val margin = dp(4f)
@@ -255,9 +269,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         val spacing = dp(6f)
 
         hudTextPaint.textSize = sp(12f)
-        val timer = CalculationUtils.convertDurationToTimeStamp(hudListenedMs)
+        val countdown = CalculationUtils.convertDurationToTimeStamp(hudCurrentIntervalRemainingMs)
         val topParts = listOf(
-            Triple(timer, if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor, 255),
+            Triple(hudPassedPeriods.toString(), if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor, 255),
+            Triple("[$countdown]", if (hudMonochromeAccent) hudAccentColor else hudOnSurfaceColor, 255),
             Triple(hudRemainingPeriods.toString(), hudAccentColor, 255)
         )
         drawHudLine(canvas, cursorX, topBaseline, hudTextPaint, topParts, spacing, margin)
@@ -270,9 +285,10 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
             Triple(hudPlayLabel, hudAccentColor, 255),
             Triple("]", gray, 255)
         )
+        // The interval-length label belongs directly under the fixed cursor, not at the bar's right edge.
         drawHudLine(
             canvas, cursorX, bottomBaseline, hudCounterPaint, bottomParts,
-            0f, margin, timelineRightEdgeX
+            0f, margin
         )
     }
 
@@ -286,8 +302,12 @@ class SmartSeekProgressOverlay @JvmOverloads constructor(
         barTop: Float
     ) {
         val centerX = width / 2f
-        // Keep the capsule inside the slider frame instead of letting the title row clip it.
-        val cardCenterY = barTop - dp(18f)
+        // Fall back to a centered position if layout coordinates are not available yet.
+        val cardCenterY = if (hudCapsuleCenterYOverride.isFinite()) {
+            hudCapsuleCenterYOverride.coerceIn(dp(16f), height.toFloat() - dp(16f))
+        } else {
+            barTop - dp(22f)
+        }
         val cycleMs = (playDurationMs + skipDurationMs).coerceAtLeast(1L)
         val totalPeriods = if (durationMs > 0L) durationMs / cycleMs else 0L
         val passedPeriods = (positionMs.coerceAtLeast(0L) / cycleMs)
