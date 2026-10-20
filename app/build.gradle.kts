@@ -1,6 +1,9 @@
 @file:Suppress("UnstableApiUsage")
 
+import com.android.build.api.dsl.ApkSigningConfig
 import com.android.build.gradle.tasks.PackageAndroidArtifact
+import org.gradle.api.GradleException
+import org.gradle.api.Project
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.util.removeSuffixIfPresent
 import java.util.Properties
@@ -18,6 +21,45 @@ plugins {
     id("com.mikepenz.aboutlibraries.plugin.android")
     id("pt.jcosta.resourceplaceholders")
 }
+
+fun ApkSigningConfig.configureFromEnv(project: Project, prefix: String) {
+    val storeFileEnv = System.getenv("${prefix}_STORE_FILE")
+    val storePassEnv = System.getenv("${prefix}_STORE_PASSWORD")
+    val aliasEnv = System.getenv("${prefix}_KEY_ALIAS")
+    val keyPassEnv = System.getenv("${prefix}_KEY_PASSWORD")
+
+    val missing = listOf(
+        "${prefix}_STORE_FILE" to storeFileEnv,
+        "${prefix}_STORE_PASSWORD" to storePassEnv,
+        "${prefix}_KEY_ALIAS" to aliasEnv,
+        "${prefix}_KEY_PASSWORD" to keyPassEnv,
+    ).filter { (_, value) -> value.isNullOrBlank() }
+        .map { (name, _) -> name }
+
+    // Переменных нет вообще — локальная сборка без подписи, пропускаем
+    if (missing.size == 4) return
+
+    if (missing.isNotEmpty()) {
+        throw GradleException(
+            "Signing config '$prefix' is incomplete. " +
+            "Missing env vars: ${missing.joinToString(", ")}. " +
+            "Check CI secrets and the env block in the workflow."
+        )
+    }
+
+    val keystore = project.file(storeFileEnv!!)
+    require(keystore.exists()) {
+        "Keystore file not found: ${keystore.absolutePath}. " +
+        "Check the base64 decode step in the workflow."
+    }
+
+    storeFile = keystore
+    storePassword = storePassEnv
+    keyAlias = aliasEnv
+    keyPassword = keyPassEnv
+}
+
+val targetAbi = providers.gradleProperty("targetAbi").orElse("arm64-v8a").get()
 
 android {
     val packageProperties = readProperties(file("../package.properties"))
@@ -40,20 +82,10 @@ android {
 
     signingConfigs {
         create("release") {
-            if (resolveProperties("AKANE_RELEASE_KEY_ALIAS") != null) {
-                storeFile = file(resolveProperties("AKANE_RELEASE_STORE_FILE")!!)
-                storePassword = resolveProperties("AKANE_RELEASE_STORE_PASSWORD")
-                keyAlias = resolveProperties("AKANE_RELEASE_KEY_ALIAS")
-                keyPassword = resolveProperties("AKANE_RELEASE_KEY_PASSWORD")
-            }
+            configureFromEnv(project, "AKANE_RELEASE")
         }
         create("release2") {
-            if (resolveProperties("AKANE2_RELEASE_KEY_ALIAS")!= null) {
-                storeFile = file(resolveProperties("AKANE2_RELEASE_STORE_FILE")!!)
-                storePassword = resolveProperties("AKANE2_RELEASE_STORE_PASSWORD")
-                keyAlias = resolveProperties("AKANE2_RELEASE_KEY_ALIAS")
-                keyPassword = resolveProperties("AKANE2_RELEASE_KEY_PASSWORD")
-            }
+            configureFromEnv(project, "AKANE2_RELEASE")
         }
     }
 
@@ -102,6 +134,9 @@ android {
 
     defaultConfig {
         applicationId = appIdOverride ?: "org.akanework.gramophone"
+        ndk {
+            abiFilters += targetAbi
+        }
         minSdk = 23
         targetSdk = 37
         versionCode = 24
@@ -222,10 +257,6 @@ android {
         forEach {
             it.vcsInfo {
                 include = false
-            }
-            if (project.hasProperty("AKANE_RELEASE_KEY_ALIAS") || project.hasProperty("signing2")) {
-                it.signingConfig = signingConfigs[if (project.hasProperty("signing2"))
-                    "release2" else "release"]
             }
             it.isCrunchPngs = false // for reproducible builds TODO how much size impact does this have? where are the pngs from? can we use webp?
         }
