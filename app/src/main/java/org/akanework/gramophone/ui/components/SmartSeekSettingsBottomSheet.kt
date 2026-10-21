@@ -140,11 +140,6 @@ class SmartSeekSettingsBottomSheet(
                 ).apply {
                     if (optionRow.childCount == 0) marginEnd = dp(5f) else marginStart = dp(5f)
                 }
-                setOnClickListener {
-                    enabled = !enabled
-                    renderState()
-                    onChanged(enabled)
-                }
             }
             fun renderState() {
                 button.text = "$prefix: " + if (enabled) "Вкл" else "Выкл"
@@ -156,6 +151,11 @@ class SmartSeekSettingsBottomSheet(
                 )
                 button.setTextColor(if (enabled) capsuleTextDark else capsuleTextOff)
                 button.contentDescription = button.text
+            }
+            button.setOnClickListener {
+                enabled = !enabled
+                renderState()
+                onChanged(enabled)
             }
             renderState()
             optionRow.addView(button)
@@ -287,7 +287,7 @@ class SmartSeekSettingsBottomSheet(
             setText(value)
             textSize = 18f
             gravity = Gravity.CENTER
-            singleLine = true
+            isSingleLine = true
             setPadding(dp(4f), dp(5f), dp(4f), dp(5f))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
