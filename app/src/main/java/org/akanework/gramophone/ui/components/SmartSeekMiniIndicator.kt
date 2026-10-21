@@ -9,21 +9,19 @@
 
 package org.akanework.gramophone.ui.components
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import android.view.animation.LinearInterpolator
 import com.google.android.material.slider.Slider
 import kotlin.math.max
 
 /**
- * Timer-driven scanner over the stock progress bar. Animation never uses track position.
+ * Scans across the stock progress bar at a fixed speed based on the configured play duration.
+ * The player's playback position drives elapsed time; intervalId resets the capsule for each cycle.
  */
 class SmartSeekMiniIndicator @JvmOverloads constructor(
     context: Context,
@@ -31,9 +29,9 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
     private val density = resources.displayMetrics.density
-    private val capsuleWidthPx = 48f * density
-    private val capsuleHeightPx = 24f * density
-    private val capsuleRadiusPx = 12f * density
+    private val capsuleWidthPx = 32f * density
+    private val capsuleHeightPx = 14f * density
+    private val capsuleRadiusPx = 7f * density
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -45,9 +43,10 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
     private var sliderView: View? = null
     private var phaseActive = false
     private var activeDurationMs = 0L
-    private var phaseStartElapsedRealtimeMs = 0L
-    private var progress = 0f
-    private var valueAnimator: ValueAnimator? = null
+    private var activeIntervalId = Long.MIN_VALUE
+    private var activePlayStartPositionMs = 0L
+    private var currentPositionProvider: (() -> Long)? = null
+    private var playbackIsPlaying = false
     private var lastAccentColor: Int? = null
 
     init {
@@ -64,9 +63,12 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
     fun updatePlaybackState(
         smartSeekActive: Boolean,
         hasPlayInterval: Boolean,
+        intervalId: Long,
         isPlaying: Boolean,
         isSkipping: Boolean,
+        playStartPositionMs: Long,
         playDurationMs: Long,
+        currentPositionProvider: () -> Long,
         accentColor: Int,
         showIndicator: Boolean
     ) {
@@ -75,104 +77,126 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
             fillPaint.color = accentColor
             lastAccentColor = accentColor
         }
-        val phaseShouldRun = smartSeekActive && hasPlayInterval && isPlaying &&
-            !isSkipping && playDurationMs > 0L
-        if (!phaseShouldRun || (phaseActive && activeDurationMs != playDurationMs)) {
+
+        val playbackStateChanged = playbackIsPlaying != isPlaying
+        playbackIsPlaying = isPlaying
+        this.currentPositionProvider = currentPositionProvider
+
+        // Keep an active interval alive while Smart Seek performs its seek. This leaves
+        // the capsule at the right edge until the service announces the next interval.
+        val phaseShouldRun = smartSeekActive && hasPlayInterval && playDurationMs > 0L &&
+            (!isSkipping || phaseActive)
+        if (!phaseShouldRun) {
             stopPlayPhase()
-            if (!phaseShouldRun) {
-                if (visibility != GONE) visibility = GONE
-                return
-            }
+            if (visibility != GONE) visibility = GONE
+            return
         }
 
-        // The phase clock persists if the drawing is toggled off and back on mid-interval.
-        if (!phaseActive) {
+        val intervalChanged = !phaseActive ||
+            activeIntervalId != intervalId ||
+            activeDurationMs != playDurationMs ||
+            activePlayStartPositionMs != playStartPositionMs
+
+        if (intervalChanged) {
             phaseActive = true
+            activeIntervalId = intervalId
             activeDurationMs = playDurationMs
-            phaseStartElapsedRealtimeMs = SystemClock.elapsedRealtime()
-            progress = 0f
+            activePlayStartPositionMs = playStartPositionMs
+            // The old interval may have been drawn at the right edge; redraw immediately
+            // so the new interval appears at its actual start.
+            invalidate()
         }
-        val elapsedMs = (SystemClock.elapsedRealtime() - phaseStartElapsedRealtimeMs).coerceAtLeast(0L)
-        progress = (elapsedMs.toFloat() / activeDurationMs.toFloat()).coerceIn(0f, 1f)
 
+        // Hiding the drawing never discards the interval or its position-based progress.
         if (!showIndicator) {
-            valueAnimator?.cancel()
-            valueAnimator = null
             if (visibility != GONE) visibility = GONE
             return
         }
 
         val becameVisible = visibility != VISIBLE
         if (becameVisible) visibility = VISIBLE
-        if (progress >= 1f) {
-            valueAnimator?.cancel()
-            valueAnimator = null
-            if (becameVisible || accentChanged) invalidate()
-            return
-        }
-
-        // Only one animator runs per play phase. It resumes from elapsed timer progress
-        // if the user temporarily hid the indicator.
-        if (valueAnimator?.isRunning != true) {
-            val remainingMs = (activeDurationMs - elapsedMs).coerceAtLeast(1L)
-            valueAnimator = ValueAnimator.ofFloat(progress, 1f).apply {
-                duration = remainingMs
-                interpolator = LinearInterpolator()
-                addUpdateListener { animation ->
-                    if (phaseActive && visibility == VISIBLE) {
-                        progress = (animation.animatedValue as Float).coerceIn(0f, 1f)
-                        invalidate()
-                    }
-                }
-                start()
-            }
-        }
-        if (becameVisible || accentChanged) invalidate()
+        if (becameVisible || accentChanged || playbackStateChanged) invalidate()
     }
 
     private fun stopPlayPhase() {
         phaseActive = false
-        valueAnimator?.cancel()
-        valueAnimator = null
         activeDurationMs = 0L
-        phaseStartElapsedRealtimeMs = 0L
-        progress = 0f
+        activeIntervalId = Long.MIN_VALUE
+        activePlayStartPositionMs = 0L
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (!phaseActive || visibility != VISIBLE || width <= 0 || height <= 0) return
-        val trackView = when {
-            sliderView?.visibility == VISIBLE -> sliderView
-            seekBarView?.visibility == VISIBLE -> seekBarView
-            else -> null
-        } ?: return
-        if (trackView.width <= 0) return
 
-        val sliderInsetPx = if (trackView is Slider) 10f * density else 0f
-        val trackOriginX = (trackView.left - left).toFloat()
-        val startX = trackOriginX + max(trackView.paddingLeft.toFloat(), sliderInsetPx)
-        val endX = trackOriginX + trackView.width - max(trackView.paddingRight.toFloat(), sliderInsetPx)
-        val trackWidth = (endX - startX).coerceAtLeast(0f)
-        val availableWidth = (trackWidth - capsuleWidthPx).coerceAtLeast(0f)
-        val capsuleLeft = startX + availableWidth * progress
-        val capsuleTop = (height - capsuleHeightPx) / 2f
+        if (phaseActive && visibility == VISIBLE && width > 0 && height > 0 &&
+            activeDurationMs > 0L
+        ) {
+            // Use the player's position as the clock: it stops advancing while playback is paused.
+            val currentPositionMs =
+                currentPositionProvider?.invoke() ?: activePlayStartPositionMs
+            val elapsedTimeInPlayMs =
+                (currentPositionMs - activePlayStartPositionMs).coerceAtLeast(0L)
 
-        canvas.drawRoundRect(
-            capsuleLeft, capsuleTop, capsuleLeft + capsuleWidthPx, capsuleTop + capsuleHeightPx,
-            capsuleRadiusPx, capsuleRadiusPx, fillPaint
-        )
-        canvas.drawRoundRect(
-            capsuleLeft, capsuleTop, capsuleLeft + capsuleWidthPx, capsuleTop + capsuleHeightPx,
-            capsuleRadiusPx, capsuleRadiusPx, outlinePaint
-        )
+            val trackView = when {
+                sliderView?.visibility == VISIBLE -> sliderView
+                seekBarView?.visibility == VISIBLE -> seekBarView
+                else -> null
+            }
+            if (trackView != null && trackView.width > 0) {
+                val sliderInsetPx = if (trackView is Slider) 10f * density else 0f
+                val trackOriginX = (trackView.left - left).toFloat()
+                val startX = trackOriginX + max(trackView.paddingLeft.toFloat(), sliderInsetPx)
+                val endX = trackOriginX + trackView.width -
+                    max(trackView.paddingRight.toFloat(), sliderInsetPx)
+                // Track width is the full distance available to the capsule's left edge.
+                val trackWidth = (endX - startX - capsuleWidthPx).coerceAtLeast(0f)
+                val configuredPlayDurationMs = activeDurationMs
+                val speed = trackWidth / configuredPlayDurationMs.toFloat()
+                // Hold the capsule at the right edge until the next play interval is announced.
+                val distance = (elapsedTimeInPlayMs.toFloat() * speed).coerceAtMost(trackWidth)
+                val capsuleLeft = startX + distance
+                val capsuleTop = (height - capsuleHeightPx) / 2f
+
+                canvas.drawRoundRect(
+                    capsuleLeft, capsuleTop,
+                    capsuleLeft + capsuleWidthPx, capsuleTop + capsuleHeightPx,
+                    capsuleRadiusPx, capsuleRadiusPx, fillPaint
+                )
+                canvas.drawRoundRect(
+                    capsuleLeft, capsuleTop,
+                    capsuleLeft + capsuleWidthPx, capsuleTop + capsuleHeightPx,
+                    capsuleRadiusPx, capsuleRadiusPx, outlinePaint
+                )
+            }
+        }
+
+        // Never stop the redraw loop while the active Smart Seek capsule is visible.
+        // Its position comes from the player, so it naturally stays still during pause.
+        if (phaseActive && visibility == VISIBLE) {
+            postInvalidateOnAnimation()
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean = false
 
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (phaseActive && visibility == VISIBLE) {
+            invalidate()
+            postInvalidateOnAnimation()
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (phaseActive && visibility == VISIBLE) {
+            invalidate()
+            postInvalidateOnAnimation()
+        }
+    }
+
     override fun onDetachedFromWindow() {
-        stopPlayPhase()
-        visibility = GONE
+        // Preserve phase state across temporary detach/reattach; the service owns its lifecycle.
         super.onDetachedFromWindow()
     }
 }

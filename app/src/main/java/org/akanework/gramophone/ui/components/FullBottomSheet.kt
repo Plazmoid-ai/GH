@@ -110,6 +110,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.GramophonePlaybackService
+import org.akanework.gramophone.logic.SmartSeekConfig
+import org.akanework.gramophone.logic.SmartSeekCycle
 import org.akanework.gramophone.logic.SmartSeekMode
 import androidx.palette.graphics.Palette
 import org.akanework.gramophone.logic.clone
@@ -166,6 +168,7 @@ class FullBottomSheet
     private var currentJob: CoroutineScope? = null
     private var currentDisposable: Disposable? = null
     private var isUserTracking = false
+    private var pendingScrubSeekPositionMs: Long? = null
     private var runnableRunning = false
     private var firstTime = false
     private var enableQualityInfo = false
@@ -185,11 +188,7 @@ class FullBottomSheet
         object : SeekBar.OnSeekBarChangeListener, Slider.OnSliderTouchListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    val dest = instance?.mediaMetadata?.durationMs
-                    if (dest != null) {
-                        bottomSheetFullPosition.text =
-                            CalculationUtils.convertDurationToTimeStamp((progress.toLong()))
-                    }
+                    updateDisplayedSmartSeekTimes(progress.toLong())
                 }
             }
 
@@ -199,16 +198,19 @@ class FullBottomSheet
             }
 
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                val mediaId = instance?.currentMediaItem
-                if (mediaId != null) {
-                    if (seekBar != null) {
-                        instance?.seekTo((seekBar.progress.toLong()))
-                        bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
-                    }
+                var targetPositionMs: Long? = null
+                val player = instance
+                if (player?.currentMediaItem != null && seekBar != null) {
+                    val target = resolveScrubSeekTargetPosition(seekBar.progress.toLong())
+                    targetPositionMs = target
+                    pendingScrubSeekPositionMs = target.takeIf { it != player.currentPosition }
+                    player.seekTo(target)
+                    bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
                 }
                 isUserTracking = false
                 progressDrawable.animate =
                     instance?.isPlaying == true || instance?.playWhenReady == true
+                updateDisplayedSmartSeekTimes(targetPositionMs)
             }
 
             override fun onStartTrackingTouch(slider: Slider) {
@@ -216,12 +218,17 @@ class FullBottomSheet
             }
 
             override fun onStopTrackingTouch(slider: Slider) {
-                val mediaId = instance?.currentMediaItem
-                if (mediaId != null) {
-                    instance?.seekTo((slider.value.toLong()))
+                var targetPositionMs: Long? = null
+                val player = instance
+                if (player?.currentMediaItem != null) {
+                    val target = resolveScrubSeekTargetPosition(slider.value.toLong())
+                    targetPositionMs = target
+                    pendingScrubSeekPositionMs = target.takeIf { it != player.currentPosition }
+                    player.seekTo(target)
                     bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
                 }
                 isUserTracking = false
+                updateDisplayedSmartSeekTimes(targetPositionMs)
             }
         }
     private val formatUpdateRunnable = Runnable {
@@ -270,6 +277,8 @@ class FullBottomSheet
     private var smartSeekIndicatorPaused = false
     private var smartSeekIndicatorSeeking = false
     private var smartSeekIndicatorHasPlayInterval = false
+    private var smartSeekIndicatorIntervalId = 0L
+    private var smartSeekIndicatorPlayStartPositionMs = 0L
     private var smartSeekIndicatorPlayDurationMs = 0L
     private var smartSeekDynamicAccentColor: Int? = null
     private var smartSeekDynamicAccentArtworkUri: Uri? = null
@@ -319,13 +328,31 @@ class FullBottomSheet
 
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
                     smartSeekIndicatorActive = args.getBoolean("active", false)
+                    val wasSmartSeekPaused = smartSeekIndicatorPaused
                     smartSeekIndicatorPaused = args.getBoolean("paused", false)
                     smartSeekIndicatorSeeking = args.getBoolean("seeking", false)
-                    smartSeekIndicatorHasPlayInterval = args.getLong("nextPositionMs", -1L) > 0L
-                    smartSeekIndicatorPlayDurationMs = args.getLong("playDurationMs", 0L)
+
+                    val nextPositionMs = args.getLong("nextPositionMs", -1L)
+                    val playDurationMs = args.getLong("playDurationMs", 0L)
+                    if (nextPositionMs >= 0L && playDurationMs > 0L) {
+                        smartSeekIndicatorHasPlayInterval = true
+                        smartSeekIndicatorIntervalId = args.getLong("intervalId", 0L)
+                        smartSeekIndicatorPlayDurationMs = playDurationMs
+                        // Service defines nextPositionMs = playStartPositionMs + playDurationMs.
+                        smartSeekIndicatorPlayStartPositionMs = nextPositionMs - playDurationMs
+                    } else if (!smartSeekIndicatorActive ||
+                        (!smartSeekIndicatorPaused && !wasSmartSeekPaused)
+                    ) {
+                        // Preserve the last interval across the pause/resume state transition,
+                        // but clear it when the service definitively reports no active interval.
+                        smartSeekIndicatorHasPlayInterval = false
+                    }
+
                     activity.controllerViewModel.updateSmartSeekActive(smartSeekIndicatorActive)
                     activity.controllerViewModel.updateSmartSeekPaused(smartSeekIndicatorPaused)
                     updateSmartSeekButton()
+                    if (isUserTracking) updateDisplayedSmartSeekDuration()
+                    else updateDisplayedSmartSeekTimes()
                 }
 
                 GramophonePlaybackService.SERVICE_GET_LYRICS -> {
@@ -362,6 +389,8 @@ class FullBottomSheet
                 activity.controllerViewModel.startSmartSeek(SmartSeekMode.MANUAL)
             }
             updateSmartSeekButton()
+            if (isUserTracking) updateDisplayedSmartSeekDuration()
+            else updateDisplayedSmartSeekTimes()
         }
         bottomSheetSmartSeekButton?.setOnLongClickListener {
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
@@ -578,11 +607,7 @@ class FullBottomSheet
 
         bottomSheetFullSlider.addOnChangeListener { _, value, isUser ->
             if (isUser) {
-                val dest = instance?.mediaMetadata?.durationMs
-                if (dest != null) {
-                    bottomSheetFullPosition.text =
-                        CalculationUtils.convertDurationToTimeStamp((value).toLong())
-                }
+                updateDisplayedSmartSeekTimes(value.toLong())
             }
         }
 
@@ -707,6 +732,8 @@ class FullBottomSheet
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         if (key == null || key.startsWith("smart_seek_")) {
             updateSmartSeekButton()
+            if (isUserTracking) updateDisplayedSmartSeekDuration()
+            else updateDisplayedSmartSeekTimes()
             if (key == null || key == "smart_seek_marker_color" || key == "smart_seek_custom_accent_enabled") {
                 requestSmartSeekDynamicAccent()
             }
@@ -788,6 +815,7 @@ class FullBottomSheet
     private fun smartSeekMarkerColor(): Int {
         if (!prefs.getBoolean("smart_seek_custom_accent_enabled", true)) return smartSeekThemeAccentColor()
         return when (prefs.getString("smart_seek_marker_color", "blue")) {
+            "red" -> Color.RED
             "orange" -> Color.rgb(255, 109, 0)
             "cyan" -> Color.rgb(0, 184, 212)
             "lime" -> Color.rgb(124, 179, 66)
@@ -844,8 +872,13 @@ class FullBottomSheet
             smartSeekActive = prefs.getBoolean("smart_seek_enabled", true) && smartSeekIndicatorActive,
             isPlaying = instance?.isPlaying == true && !smartSeekIndicatorPaused,
             hasPlayInterval = smartSeekIndicatorHasPlayInterval,
+            intervalId = smartSeekIndicatorIntervalId,
             isSkipping = smartSeekIndicatorSeeking,
+            playStartPositionMs = smartSeekIndicatorPlayStartPositionMs,
             playDurationMs = smartSeekIndicatorPlayDurationMs,
+            currentPositionProvider = {
+                instance?.currentPosition ?: smartSeekIndicatorPlayStartPositionMs
+            },
             accentColor = smartSeekMarkerColor(),
             showIndicator = prefs.getBoolean("smart_seek_show_indicator", true)
         )
@@ -1618,6 +1651,7 @@ class FullBottomSheet
         mediaItem: MediaItem?,
         reason: Int
     ) {
+        pendingScrubSeekPositionMs = null
         requestSmartSeekDynamicAccent(mediaItem)
         updateSmartSeekButton()
         if (instance?.mediaItemCount != 0) {
@@ -1655,9 +1689,117 @@ class FullBottomSheet
         bottomSheetFavoriteButton.addOnCheckedChangeListener(this) // see onCheckedChanged
     }
 
-    private fun updateDuration() {
-        val duration = instance?.contentDuration?.let { if (it == C.TIME_UNSET) null else it }
+    private fun currentTrackDurationMs(): Long? =
+        instance?.duration?.takeIf { it != C.TIME_UNSET && it > 0L }
+            ?: instance?.contentDuration?.takeIf { it != C.TIME_UNSET && it > 0L }
             ?: instance?.currentMediaItem?.mediaMetadata?.durationMs
+                ?.takeIf { it != C.TIME_UNSET && it > 0L }
+
+    private fun isSmartSeekTimerActive(): Boolean =
+        prefs.getBoolean("smart_seek_enabled", true) &&
+            activity.controllerViewModel.isSmartSeekActive()
+
+    /**
+     * Convert a real timeline position to the cumulative time inside Smart Seek play intervals.
+     * Time in a skip interval contributes only the play duration already completed in that cycle.
+     */
+    private fun calculateSmartSeekListenedMs(
+        positionMs: Long,
+        trackDurationMs: Long,
+        cycle: SmartSeekCycle
+    ): Long {
+        val safeDurationMs = trackDurationMs.coerceAtLeast(0L)
+        val safePositionMs = positionMs.coerceIn(0L, safeDurationMs)
+        val cycleDurationMs = cycle.playDurationMs + cycle.skipDurationMs
+        if (cycleDurationMs <= 0L) return safePositionMs
+
+        val pastCycles = safePositionMs / cycleDurationMs
+        val remainderInCurrentCycle = safePositionMs % cycleDurationMs
+        return (pastCycles * cycle.playDurationMs +
+            min(remainderInCurrentCycle, cycle.playDurationMs)).coerceAtMost(safeDurationMs)
+    }
+
+    /**
+     * Snap a manual seek to a playable interval: play -> current play start;
+     * skip -> next play start when it exists, otherwise the last available play start.
+     */
+    private fun resolveScrubSeekTargetPosition(requestedPositionMs: Long): Long {
+        val durationMs = currentTrackDurationMs()
+            ?: return requestedPositionMs.coerceAtLeast(0L)
+        val safePositionMs = requestedPositionMs.coerceIn(0L, durationMs)
+        if (!isSmartSeekTimerActive()) return safePositionMs
+
+        val cycle = SmartSeekConfig.load(prefs).resolveCycle(durationMs)
+        val cycleDurationMs = cycle.playDurationMs + cycle.skipDurationMs
+        if (cycleDurationMs <= 0L) return safePositionMs
+
+        val cycleStartMs = (safePositionMs / cycleDurationMs) * cycleDurationMs
+        val remainderInCycleMs = safePositionMs % cycleDurationMs
+        if (remainderInCycleMs < cycle.playDurationMs && cycleStartMs < durationMs) {
+            return cycleStartMs
+        }
+
+        val nextPlayStartMs = cycleStartMs + cycleDurationMs
+        if (nextPlayStartMs < durationMs) return nextPlayStartMs
+        return if (cycleStartMs < durationMs) {
+            cycleStartMs
+        } else {
+            (cycleStartMs - cycleDurationMs).coerceAtLeast(0L)
+        }
+    }
+
+    /**
+     * Update only timer text. Progress widgets and the timers' visual styling are not changed.
+     * While a seek is pending during Smart Seek, keep displaying its target until confirmed.
+     */
+    private fun updateDisplayedSmartSeekTimes(positionOverrideMs: Long? = null) {
+        val player = instance ?: return
+        val durationMs = currentTrackDurationMs()
+        val smartSeekActive = isSmartSeekTimerActive()
+        val pendingPositionMs = if (smartSeekActive) pendingScrubSeekPositionMs else null
+        val positionMs = (
+            positionOverrideMs ?: pendingPositionMs ?: player.currentPosition
+        ).coerceAtLeast(0L)
+
+        if (durationMs == null) {
+            bottomSheetFullPosition.text =
+                CalculationUtils.convertDurationToTimeStamp(positionMs)
+            return
+        }
+
+        val safeDurationMs = durationMs.coerceAtLeast(0L)
+        val safePositionMs = positionMs.coerceIn(0L, safeDurationMs)
+        if (smartSeekActive && safeDurationMs > 0L) {
+            val cycle = SmartSeekConfig.load(prefs).resolveCycle(safeDurationMs)
+            bottomSheetFullPosition.text = CalculationUtils.convertDurationToTimeStamp(
+                calculateSmartSeekListenedMs(safePositionMs, safeDurationMs, cycle)
+            )
+            bottomSheetFullDuration.text = CalculationUtils.convertDurationToTimeStamp(
+                calculateSmartSeekListenedMs(safeDurationMs, safeDurationMs, cycle)
+            )
+        } else {
+            bottomSheetFullPosition.text =
+                CalculationUtils.convertDurationToTimeStamp(safePositionMs)
+            bottomSheetFullDuration.text =
+                CalculationUtils.convertDurationToTimeStamp(safeDurationMs)
+        }
+    }
+
+    private fun updateDisplayedSmartSeekDuration() {
+        val durationMs = currentTrackDurationMs() ?: return
+        val safeDurationMs = durationMs.coerceAtLeast(0L)
+        val displayedDurationMs = if (isSmartSeekTimerActive() && safeDurationMs > 0L) {
+            val cycle = SmartSeekConfig.load(prefs).resolveCycle(safeDurationMs)
+            calculateSmartSeekListenedMs(safeDurationMs, safeDurationMs, cycle)
+        } else {
+            safeDurationMs
+        }
+        bottomSheetFullDuration.text =
+            CalculationUtils.convertDurationToTimeStamp(displayedDurationMs)
+    }
+
+    private fun updateDuration() {
+        val duration = currentTrackDurationMs()
         if (duration != null && duration.toInt() != bottomSheetFullSeekBar.max) {
             bottomSheetFullDuration.setTextAnimation(
                 CalculationUtils.convertDurationToTimeStamp(duration)
@@ -1674,6 +1816,9 @@ class FullBottomSheet
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
         }
+
+        if (isUserTracking) updateDisplayedSmartSeekDuration()
+        else updateDisplayedSmartSeekTimes()
     }
 
     override fun onCheckedChanged(button: MaterialButton?, isChecked: Boolean) {
@@ -1690,6 +1835,9 @@ class FullBottomSheet
         newPosition: Player.PositionInfo,
         reason: Int
     ) {
+        if (pendingScrubSeekPositionMs == newPosition.positionMs) {
+            pendingScrubSeekPositionMs = null
+        }
         positionRunnable.run()
     }
 
@@ -1788,13 +1936,10 @@ class FullBottomSheet
     private val positionRunnable = object : Runnable {
         override fun run() {
             updateDuration() // TODO: figure out which callback this can be put in.
-            val position =
-                CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
             if (!isUserTracking) {
                 bottomSheetFullSeekBar.progress = instance?.currentPosition?.toInt() ?: 0
                 bottomSheetFullSlider.value =
                     min(instance?.currentPosition?.toFloat() ?: 0f, bottomSheetFullSlider.valueTo)
-                bottomSheetFullPosition.text = position
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
             if (instance?.isPlaying == true && runnableRunning) {

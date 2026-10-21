@@ -64,19 +64,13 @@
             app:iconSpaceReserved="false"
             app:useSimpleSummaryProvider="true" />
 
-        <SwitchPreferenceCompat
+        <org.akanework.gramophone.ui.fragments.settings.SmartSeekEnabledPreference
             android:defaultValue="true"
             android:key="smart_seek_enabled"
             android:layout="@layout/preference_switch"
+            android:summary="@string/settings_smart_seek_enabled_summary"
             android:title="@string/settings_smart_seek_enabled"
             android:widgetLayout="@layout/preference_switch_widget"
-            app:iconSpaceReserved="false" />
-
-        <Preference
-            android:key="smart_seek_config"
-            android:layout="@layout/preference_basic"
-            android:summary="@string/settings_smart_seek_enabled_summary"
-            android:title="@string/smart_seek_settings_title"
             app:iconSpaceReserved="false" />
 
         <SwitchPreferenceCompat

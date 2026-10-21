@@ -51,6 +51,7 @@
 
     <string-array name="smart_seek_marker_color_entries" translatable="false">
         <item>@string/smart_seek_color_blue</item>
+        <item>@string/smart_seek_color_red</item>
         <item>@string/smart_seek_color_orange</item>
         <item>@string/smart_seek_color_cyan</item>
         <item>@string/smart_seek_color_lime</item>
@@ -64,6 +65,7 @@
 
     <string-array name="smart_seek_marker_color_values" translatable="false">
         <item>blue</item>
+        <item>red</item>
         <item>orange</item>
         <item>cyan</item>
         <item>lime</item>

@@ -1329,6 +1329,7 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_marker_color">Accent</string>
     <string name="smart_seek_show_indicator">Show indicator</string>
     <string name="smart_seek_color_blue">Blue</string>
+    <string name="smart_seek_color_red">Red</string>
     <string name="smart_seek_color_orange">Orange</string>
     <string name="smart_seek_color_cyan">Cyan</string>
     <string name="smart_seek_color_lime">Green</string>
@@ -1340,11 +1341,12 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_color_none">Default theme accent</string>
     <string name="smart_seek_boost_buffer">Boost buffering</string>
     <string name="smart_seek_boost_buffer_help">Use larger buffers for more frequent seeks. Restart the app to apply this option.</string>
+    <string name="smart_seek_experimental">Experimental</string>
     <string name="smart_seek_cancel">Cancel</string>
     <string name="smart_seek_save">Save</string>
     <string name="smart_seek_invalid_value">Enter a value from 1 to %1$d.</string>
     <string name="smart_seek_config_summary">Configure intervals, indicator visibility, accent, and buffering.</string>
     <string name="settings_smart_seek_enabled">Enable Smart Seek</string>
-    <string name="settings_smart_seek_enabled_summary">Show Smart Seek controls and allow Smart Seek actions. Disabling stops the current Smart Seek session.</string>
+    <string name="settings_smart_seek_enabled_summary">Show Smart Seek controls and allow Smart Seek actions. Disabling stops the current Smart Seek session. (Tap to configure)</string>
 
 </resources>

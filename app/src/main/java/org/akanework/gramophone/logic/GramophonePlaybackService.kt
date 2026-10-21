@@ -257,6 +257,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private var smartSeekSeeking = false
     private var smartSeekTrackIndex = C.INDEX_UNSET
     private var smartSeekNextPositionMs = -1L
+    private var smartSeekIntervalId = 0L
     private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
     private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
     private val lastPlaylistLoaded = CompletableDeferred<Unit>()
@@ -894,6 +895,18 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         }
     }
 
+    /**
+     * Publish one play interval for the capsule. For a final partial interval, nextPositionMs
+     * intentionally means start + configured play duration, not the end of the track.
+     */
+    private fun announceSmartSeekPlayInterval(startPositionMs: Long, cycle: SmartSeekCycle) {
+        smartSeekNextPlayDurationMs = cycle.playDurationMs
+        smartSeekNextSkipDurationMs = cycle.skipDurationMs
+        smartSeekIntervalId += 1L
+        smartSeekNextPositionMs = startPositionMs + cycle.playDurationMs
+        broadcastSmartSeekState()
+    }
+
     private fun startSmartSeekLoop() {
         if (!isSmartSeekEnabled() || !smartSeekActive || smartSeekPaused || smartSeekJob?.isActive == true) return
         val player = controller ?: return
@@ -944,27 +957,25 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                             SmartSeekConfig.MAX_CYCLE_DURATION_MS
                         )
                     ) {
-                        // Leave the final cycle to play normally so the track always ends with sound.
-                        Log.i(TAG, "Smart Seek finished for this track: entering the final audible tail")
-                        finishSmartSeekTrack()
+                        // Leave the final tail untouched, but keep a partial play interval visible
+                        // so the capsule moves at the configured speed until the track ends.
+                        Log.i(TAG, "Smart Seek: displaying the final audible tail without another skip")
+                        announceSmartSeekPlayInterval(currentPlayer.currentPosition, cycle)
                         break
                     }
                     if (
                         smartSeekConfig.inputMode != SmartSeekInputMode.CYCLE &&
                         remainingMs <= cycle.playDurationMs
                     ) {
-                        Log.i(TAG, "Smart Seek finished for this track: not enough time remains for another interval")
-                        finishSmartSeekTrack()
+                        Log.i(TAG, "Smart Seek: displaying the final partial play interval without another skip")
+                        announceSmartSeekPlayInterval(currentPlayer.currentPosition, cycle)
                         break
                     }
 
                     // Show where the next automatic jump will occur. Pausing resets this marker.
-                    smartSeekNextPlayDurationMs = cycle.playDurationMs
-                    smartSeekNextSkipDurationMs = cycle.skipDurationMs
-                    smartSeekNextPositionMs = currentPlayer.currentPosition + cycle.playDurationMs
-                    broadcastSmartSeekState()
+                    announceSmartSeekPlayInterval(currentPlayer.currentPosition, cycle)
 
-                    // The UI scanner follows this interval timer, independently of track position.
+                    // Wait for the configured play interval before the next skip attempt.
                     delay(cycle.playDurationMs)
                     if (!isActive || !smartSeekActive) break
 
@@ -996,8 +1007,8 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     val currentPosition = seekPlayer.currentPosition
                     val targetPosition = currentPosition + cycle.skipDurationMs
                     if (targetPosition >= seekPlayer.duration) {
-                        Log.i(TAG, "Smart Seek finished for this track: next target is beyond the current track")
-                        finishSmartSeekTrack()
+                        Log.i(TAG, "Smart Seek: preserving the final audible tail without another skip")
+                        announceSmartSeekPlayInterval(currentPosition, cycle)
                         break
                     }
                     if (
@@ -1005,17 +1016,18 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         seekPlayer.duration - targetPosition <= cycle.playDurationMs
                     ) {
                         // If the remaining tail is no longer than one sound segment, do not skip it.
-                        Log.i(TAG, "Smart Seek finished for this track: preserving the final audible tail")
-                        finishSmartSeekTrack()
+                        Log.i(TAG, "Smart Seek: preserving the final audible tail without another skip")
+                        announceSmartSeekPlayInterval(currentPosition, cycle)
                         break
                     }
 
                     smartSeekSeeking = true
                     broadcastSmartSeekState()
                     Log.i(TAG, "Smart Seek: seeking from $currentPosition to $targetPosition")
-                    seekPlayer.seekTo(targetPosition)
 
-                    // Wait for Media3 to report the seek before scheduling the next cycle.
+                    // Keep the Smart Seek loop minimal: wait for the configured interval,
+                    // seek, then clear the pending-seek marker.
+                    seekPlayer.seekTo(targetPosition)
                     var waitCount = 0
                     while (smartSeekSeeking && waitCount < 40 && isActive) {
                         delay(50L)
@@ -1047,6 +1059,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         putBoolean("active", smartSeekActive)
         putBoolean("paused", smartSeekPaused)
         putLong("nextPositionMs", smartSeekNextPositionMs)
+        putLong("intervalId", smartSeekIntervalId)
         putLong("playDurationMs", smartSeekNextPlayDurationMs)
         putLong("skipDurationMs", smartSeekNextSkipDurationMs)
         putBoolean("seeking", smartSeekSeeking)

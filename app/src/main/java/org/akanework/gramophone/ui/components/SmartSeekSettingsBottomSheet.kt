@@ -23,7 +23,6 @@ import android.view.WindowManager
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -217,9 +216,33 @@ class SmartSeekSettingsBottomSheet(
             loadModeValues(mode)
         }
 
-        addLabel(context.getString(R.string.smart_seek_marker_color))
         val colorValues = context.resources.getStringArray(R.array.smart_seek_marker_color_values)
         val colorEntries = context.resources.getStringArray(R.array.smart_seek_marker_color_entries)
+        val accentHeader = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val accentTitle = TextView(context).apply {
+            setText(R.string.smart_seek_marker_color)
+            textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
+        }
+        val accentName = TextView(context).apply {
+            textSize = 14f
+            gravity = Gravity.END
+            setTextColor(MaterialColors.getColor(
+                root, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY
+            ))
+        }
+        accentHeader.addView(accentTitle, LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+        ))
+        accentHeader.addView(accentName, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        form.addView(accentHeader, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(12f) })
         val accentEnabled = preferences.getBoolean("smart_seek_custom_accent_enabled", true)
         var selectedAccent = if (accentEnabled) {
             preferences.getString("smart_seek_marker_color", "blue") ?: "blue"
@@ -227,6 +250,12 @@ class SmartSeekSettingsBottomSheet(
             "none"
         }
         if (selectedAccent !in colorValues) selectedAccent = "blue"
+        fun updateAccentName() {
+            val index = colorValues.indexOf(selectedAccent)
+            accentName.text = colorEntries.getOrElse(index) { selectedAccent }
+        }
+        updateAccentName()
+
 
         val themeAccentColor = MaterialColors.getColor(
             root, androidx.appcompat.R.attr.colorPrimary, Color.rgb(26, 79, 163)
@@ -234,24 +263,34 @@ class SmartSeekSettingsBottomSheet(
         val outlineColor = MaterialColors.getColor(
             root, com.google.android.material.R.attr.colorOutlineVariant, Color.GRAY
         )
-        val colorStrip = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val colorScroll = HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            clipToPadding = false
+        // Two fixed rows: six swatches above, five centered beneath them.
+        // Each cell is 48dp wide, so the six-item row fits typical phone content widths.
+        val colorGrid = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, dp(4f), 0, dp(4f))
-            addView(colorStrip, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, dp(48f)
-            ))
         }
-        form.addView(colorScroll, LinearLayout.LayoutParams(
+        val topColorRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val bottomColorRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        colorGrid.addView(topColorRow, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f)
+        ))
+        colorGrid.addView(bottomColorRow, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f)
+        ))
+        form.addView(colorGrid, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
 
         val colorSwatches = linkedMapOf<String, FrameLayout>()
         fun swatchFillColor(value: String): Int = when (value) {
+            "red" -> Color.RED
             "orange" -> Color.rgb(255, 109, 0)
             "cyan" -> Color.rgb(0, 184, 212)
             "lime" -> Color.rgb(124, 179, 66)
@@ -292,9 +331,14 @@ class SmartSeekSettingsBottomSheet(
                 swatch.isSelected = value == selectedAccent
             }
         }
-        colorValues.forEachIndexed { index, value ->
+        val orderedColorValues = listOf(
+            "none", "dynamic", "transparent", "black", "red", "orange",
+            "cyan", "lime", "pink", "violet", "blue"
+        )
+        orderedColorValues.forEachIndexed { index, value ->
+            val entryIndex = colorValues.indexOf(value)
             val swatch = FrameLayout(context).apply {
-                contentDescription = colorEntries.getOrElse(index) { value }
+                contentDescription = colorEntries.getOrElse(entryIndex) { value }
                 isClickable = true
                 isFocusable = true
                 layoutParams = LinearLayout.LayoutParams(dp(44f), dp(44f)).apply {
@@ -306,15 +350,18 @@ class SmartSeekSettingsBottomSheet(
                 )
                 setOnClickListener {
                     selectedAccent = value
+                    updateAccentName()
                     updateAccentSelection()
                 }
             }
             colorSwatches[value] = swatch
-            colorStrip.addView(swatch)
+            val targetRow = if (index < 6) topColorRow else bottomColorRow
+            targetRow.addView(swatch)
         }
         updateAccentSelection()
 
-        addLabel(context.getString(R.string.smart_seek_boost_buffer))
+        addLabel(context.getString(R.string.smart_seek_experimental), dp(16f))
+        addLabel(context.getString(R.string.smart_seek_boost_buffer), dp(8f))
         val boostBuffer = CheckBox(context).apply {
             setText(R.string.smart_seek_boost_buffer_help)
             isChecked = current.boostBuffer
@@ -323,7 +370,7 @@ class SmartSeekSettingsBottomSheet(
 
         val actions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER
             setPadding(0, dp(8f), 0, 0)
         }
         val cancelButton = MaterialButton(context).apply {
@@ -331,8 +378,12 @@ class SmartSeekSettingsBottomSheet(
             setOnClickListener { dialog.dismiss() }
         }
         val saveButton = MaterialButton(context).apply { setText(R.string.smart_seek_save) }
-        actions.addView(cancelButton)
-        actions.addView(saveButton)
+        actions.addView(cancelButton, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = dp(16f) })
+        actions.addView(saveButton, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { marginStart = dp(16f) })
         root.addView(
             actions,
             LinearLayout.LayoutParams(
