@@ -265,6 +265,13 @@ class FullBottomSheet
     private val bottomSheetPlaylistButton: MaterialButton
     private val bottomSheetTimerButton: MaterialButton
     private val bottomSheetSmartSeekButton: MaterialButton?
+    private val bottomSheetSmartSeekIndicator: SmartSeekMiniIndicator
+    private var smartSeekIndicatorActive = false
+    private var smartSeekIndicatorPaused = false
+    private var smartSeekIndicatorSeeking = false
+    private var smartSeekIndicatorNextPositionMs = -1L
+    private var smartSeekIndicatorPlayDurationMs = 0L
+    private var smartSeekIndicatorCurrentPositionMs = 0L
     private var smartSeekDynamicAccentColor: Int? = null
     private var smartSeekDynamicAccentArtworkUri: Uri? = null
     private var smartSeekDynamicAccentPaletteResolved = false
@@ -293,6 +300,8 @@ class FullBottomSheet
         bottomSheetFullDuration = findViewById(R.id.duration)
         bottomSheetFullSeekBar = findViewById(R.id.slider_squiggly)
         bottomSheetFullSlider = findViewById(R.id.slider_vert)
+        bottomSheetSmartSeekIndicator = findViewById(R.id.smart_seek_mini_indicator)
+        bottomSheetSmartSeekIndicator.setSeekableViews(bottomSheetFullSeekBar, bottomSheetFullSlider)
         bottomSheetFullSlideUpButton = findViewById(R.id.slide_down)
         bottomSheetShuffleButton = findViewById(R.id.sheet_random)
         bottomSheetLoopButton = findViewById(R.id.sheet_loop)
@@ -310,9 +319,22 @@ class FullBottomSheet
                 GramophonePlaybackService.SERVICE_TIMER_CHANGED -> updateTimer()
 
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
-                    activity.controllerViewModel.updateSmartSeekActive(args.getBoolean("active", false))
-                    activity.controllerViewModel.updateSmartSeekPaused(args.getBoolean("paused", false))
-                    updateSmartSeekButton()
+                    smartSeekIndicatorCurrentPositionMs = args.getLong(
+                        "currentPositionMs",
+                        instance?.currentPosition ?: 0L
+                    )
+                    if (args.getBoolean("progressOnly", false)) {
+                        updateSmartSeekMiniIndicator()
+                    } else {
+                        smartSeekIndicatorActive = args.getBoolean("active", false)
+                        smartSeekIndicatorPaused = args.getBoolean("paused", false)
+                        smartSeekIndicatorSeeking = args.getBoolean("seeking", false)
+                        smartSeekIndicatorNextPositionMs = args.getLong("nextPositionMs", -1L)
+                        smartSeekIndicatorPlayDurationMs = args.getLong("playDurationMs", 0L)
+                        activity.controllerViewModel.updateSmartSeekActive(smartSeekIndicatorActive)
+                        activity.controllerViewModel.updateSmartSeekPaused(smartSeekIndicatorPaused)
+                        updateSmartSeekButton()
+                    }
                 }
 
                 GramophonePlaybackService.SERVICE_GET_LYRICS -> {
@@ -817,6 +839,19 @@ class FullBottomSheet
         TooltipCompat.setTooltipText(
             button,
             context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
+        )
+        updateSmartSeekMiniIndicator()
+    }
+
+    private fun updateSmartSeekMiniIndicator() {
+        bottomSheetSmartSeekIndicator.updatePlaybackState(
+            smartSeekActive = prefs.getBoolean("smart_seek_enabled", true) && smartSeekIndicatorActive,
+            isPlaying = instance?.isPlaying == true && !smartSeekIndicatorPaused,
+            isSkipping = smartSeekIndicatorSeeking,
+            currentPositionMs = smartSeekIndicatorCurrentPositionMs,
+            intervalEndPositionMs = smartSeekIndicatorNextPositionMs,
+            playDurationMs = smartSeekIndicatorPlayDurationMs,
+            accentColor = smartSeekMarkerColor()
         )
     }
 

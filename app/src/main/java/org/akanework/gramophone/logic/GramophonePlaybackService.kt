@@ -179,6 +179,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         const val PENDING_INTENT_NOTIFY_ID = 1
         const val PENDING_INTENT_WIDGET_ID = 2
         const val PENDING_INTENT_FAVE_ID = 3
+        private const val SMART_SEEK_PROGRESS_UPDATE_INTERVAL_MS = 200L
 
         const val SERVICE_SET_TIMER = "set_timer"
         const val SERVICE_QUERY_TIMER = "query_timer"
@@ -964,9 +965,16 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     smartSeekNextPositionMs = currentPlayer.currentPosition + cycle.playDurationMs
                     broadcastSmartSeekState()
 
-                    // Known behavior: a pause cancels this delay; resume starts a fresh interval.
-                    delay(cycle.playDurationMs)
-                    if (!isActive || !smartSeekActive) break
+                    // Publish the current media position while the play interval is active.
+                    val playIntervalEndPositionMs = smartSeekNextPositionMs
+                    while (isActive && smartSeekActive && !smartSeekPaused) {
+                        val currentPositionMs = currentPlayer.currentPosition
+                        val remainingMs = playIntervalEndPositionMs - currentPositionMs
+                        if (remainingMs <= 0L || !currentPlayer.isPlaying) break
+                        broadcastSmartSeekProgress(currentPositionMs)
+                        delay(minOf(SMART_SEEK_PROGRESS_UPDATE_INTERVAL_MS, remainingMs))
+                    }
+                    if (!isActive || !smartSeekActive || smartSeekPaused || !currentPlayer.isPlaying) break
 
                     val seekPlayer = controller ?: break
                     if (!seekPlayer.isPlaying) break
@@ -1047,6 +1055,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         putBoolean("active", smartSeekActive)
         putBoolean("paused", smartSeekPaused)
         putLong("nextPositionMs", smartSeekNextPositionMs)
+        putLong("currentPositionMs", controller?.currentPosition ?: 0L)
         putLong("playDurationMs", smartSeekNextPlayDurationMs)
         putLong("skipDurationMs", smartSeekNextSkipDurationMs)
         putBoolean("seeking", smartSeekSeeking)
@@ -1054,6 +1063,16 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         putInt("skipValue", smartSeekConfig.skipValue)
         putBoolean("usePercent", smartSeekConfig.usePercent)
         putString("pattern", smartSeekConfig.pattern.name)
+    }
+
+    private fun broadcastSmartSeekProgress(currentPositionMs: Long) {
+        mediaSession?.broadcastCustomCommand(
+            SessionCommand(SERVICE_SMART_SEEK, Bundle.EMPTY),
+            Bundle().apply {
+                putBoolean("progressOnly", true)
+                putLong("currentPositionMs", currentPositionMs)
+            }
+        )
     }
 
     private fun broadcastSmartSeekState() {
