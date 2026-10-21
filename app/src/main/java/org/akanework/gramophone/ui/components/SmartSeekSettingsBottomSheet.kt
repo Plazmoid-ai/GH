@@ -10,675 +10,108 @@
 package org.akanework.gramophone.ui.components
 
 import android.content.Context
-import android.content.res.ColorStateList
 import android.content.SharedPreferences
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.CheckBox
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.color.MaterialColors
-import org.akanework.gramophone.R
-import org.akanework.gramophone.logic.SmartSeekConfig
+import java.util.Locale
+
+private object IntervalPlayPalette {
+    val background = Color(0xFF121212)
+    val accent = Color(0xFF9B8AF5)
+    val inactive = Color(0xFF1C1C24)
+    val outline = Color(0xFF2A2A35)
+    val grayText = Color(0xFFA8A8A8)
+    val previewBackground = Color(0xFF18181B)
+    val previewSkip = Color(0xFF4A4D52)
+    val darkText = Color(0xFF121212)
+    val whiteText = Color(0xFFF3F3F6)
+}
+
+private data class IntervalPlayPreset(
+    val playSeconds: Int,
+    val skipSeconds: Int
+) {
+    fun label(): String = "$playSeconds / $skipSeconds"
+}
 
 /**
- * IntervalPlay settings screen scaffolding. The sheet is locked; only the title handles dismissal.
+ * IntervalPlay settings UI prototype.
+ *
+ * SharedPreferences and the save callback remain in the constructor to preserve existing callers,
+ * but this screen intentionally uses only local Compose state and does not persist settings.
  */
 class SmartSeekSettingsBottomSheet(
     private val context: Context,
-    private val preferences: SharedPreferences,
-    private val onSaved: (() -> Unit)? = null
+    @Suppress("UNUSED_PARAMETER") preferences: SharedPreferences,
+    @Suppress("UNUSED_PARAMETER") onSaved: (() -> Unit)? = null
 ) {
-    private fun dp(value: Float): Int =
-        (value * context.resources.displayMetrics.density).toInt()
-
     fun show(): BottomSheetDialog {
-        val current = SmartSeekConfig.load(preferences)
         val dialog = BottomSheetDialog(context)
-        val root = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16f), dp(8f), dp(16f), dp(12f))
-        }
-
-        val title = TextView(context).apply {
-            setText(R.string.smart_seek_settings_title)
-            textSize = 20f
-            setTypeface(typeface, Typeface.BOLD)
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4f), dp(8f), dp(4f), dp(14f))
-            contentDescription = context.getString(R.string.smart_seek_settings_title)
-        }
-        root.addView(title)
-
-        val scroll = ScrollView(context).apply {
-            isFillViewport = true
-            clipToPadding = false
-            setPadding(dp(2f), 0, dp(2f), dp(8f))
-        }
-        val form = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(form)
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                (context.resources.displayMetrics.heightPixels * 0.60f).toInt()
+        val composeView = ComposeView(context).apply {
+            setViewCompositionStrategy(
+                ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
             )
-        )
-
-        fun addLabel(text: CharSequence, topMargin: Int = dp(12f)) {
-            form.addView(
-                TextView(context).apply {
-                    this.text = text
-                    textSize = 14f
-                    setTypeface(typeface, Typeface.BOLD)
-                },
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { this.topMargin = topMargin }
-            )
-        }
-
-        val outlineColor = MaterialColors.getColor(
-            root, com.google.android.material.R.attr.colorOutlineVariant, Color.GRAY
-        )
-        val surfaceColor = MaterialColors.getColor(
-            root, com.google.android.material.R.attr.colorSurfaceVariant, Color.LTGRAY
-        )
-        val onSurfaceColor = MaterialColors.getColor(
-            root, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY
-        )
-        val primaryColor = MaterialColors.getColor(
-            root, androidx.appcompat.R.attr.colorPrimary, Color.rgb(26, 79, 163)
-        )
-        fun pillBackground(fillColor: Int, strokeColor: Int = outlineColor, radiusDp: Float = 24f) =
-            GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(radiusDp).toFloat()
-                setColor(fillColor)
-                setStroke(dp(1f), strokeColor)
-            }
-
-        // Each setting is one MaterialButton capsule (no separate label or Switch).
-        val optionRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val capsuleAccent = Color.rgb(0x9b, 0x8a, 0xf5)
-        val capsuleTextDark = Color.rgb(0x12, 0x12, 0x12)
-        val capsuleTextOff = Color.rgb(0x9e, 0x9e, 0x9e)
-        fun makeStateCapsule(
-            prefix: String,
-            initial: Boolean,
-            onChanged: (Boolean) -> Unit
-        ): MaterialButton {
-            var enabled = initial
-            val button = MaterialButton(context).apply {
-                isAllCaps = false
-                textSize = 12f
-                minHeight = dp(44f)
-                minimumHeight = dp(44f)
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = dp(24f)
-                strokeWidth = dp(1f)
-                setPadding(dp(5f), 0, dp(5f), 0)
-                layoutParams = LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                ).apply {
-                    if (optionRow.childCount == 0) marginEnd = dp(5f) else marginStart = dp(5f)
-                }
-            }
-            fun renderState() {
-                button.text = "$prefix: " + if (enabled) "Вкл" else "Выкл"
-                button.backgroundTintList = ColorStateList.valueOf(
-                    if (enabled) capsuleAccent else Color.TRANSPARENT
+            setContent {
+                IntervalPlaySettingsContent(
+                    onCancel = { dialog.dismiss() },
+                    onSave = { dialog.dismiss() }
                 )
-                button.strokeColor = ColorStateList.valueOf(
-                    if (enabled) capsuleAccent else outlineColor
-                )
-                button.setTextColor(if (enabled) capsuleTextDark else capsuleTextOff)
-                button.contentDescription = button.text
             }
-            button.setOnClickListener {
-                enabled = !enabled
-                renderState()
-                onChanged(enabled)
-            }
-            renderState()
-            optionRow.addView(button)
-            return button
         }
-        val showIndicator = makeStateCapsule(
-            "Показывать",
-            preferences.getBoolean("smart_seek_show_indicator", true)
-        ) { }
-        val persistent = makeStateCapsule(
-            "Постоянный",
-            preferences.getBoolean("smart_seek_persistent", false)
-        ) { }
-        form.addView(
-            optionRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(2f)
-                bottomMargin = dp(10f)
-            }
-        )
-
-        // A non-scrollable two-segment selector.
-        var selectedMode = current.mode
-        val tabStrip = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
-            background = pillBackground(surfaceColor)
-        }
-        val simpleTab = TextView(context).apply {
-            setText(R.string.smart_seek_mode_simple)
-            gravity = Gravity.CENTER
-            textSize = 14f
-            setPadding(dp(8f), dp(10f), dp(8f), dp(10f))
-            isClickable = true
-            isFocusable = true
-        }
-        val fixedTab = TextView(context).apply {
-            setText(R.string.smart_seek_mode_fixed)
-            gravity = Gravity.CENTER
-            textSize = 14f
-            setPadding(dp(8f), dp(10f), dp(8f), dp(10f))
-            isClickable = true
-            isFocusable = true
-        }
-        tabStrip.addView(
-            simpleTab,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        )
-        tabStrip.addView(
-            fixedTab,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        )
-        val intervalTypeLabel = TextView(context).apply {
-            text = "Тип интервалов"
-            textSize = 12f
-            setTextColor(capsuleTextOff)
-            setPadding(dp(2f), 0, 0, dp(5f))
-        }
-        form.addView(
-            intervalTypeLabel,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(2f) }
-        )
-        form.addView(
-            tabStrip,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+        dialog.setContentView(
+            composeView,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
         )
-
-        fun emptyModeContainer(): LinearLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            minimumHeight = dp(92f)
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
-            background = pillBackground(surfaceColor, outlineColor, 14f)
-        }
-        val simpleContent = emptyModeContainer()
-        val fixedContent = emptyModeContainer()
-        form.addView(
-            simpleContent,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8f)
-                bottomMargin = dp(4f)
-            }
-        )
-        form.addView(
-            fixedContent,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8f)
-                bottomMargin = dp(4f)
-            }
-        )
-
-        // Fixed intervals: UI-only controls, values and presets are placeholders for the next step.
-        val previewBar = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            background = pillBackground(Color.rgb(0x27, 0x27, 0x2d), outlineColor, 8f)
-            clipToOutline = true
-        }
-        previewBar.addView(
-            View(context).apply { setBackgroundColor(capsuleAccent) },
-            LinearLayout.LayoutParams(0, dp(8f), 3f)
-        )
-        previewBar.addView(
-            View(context).apply { setBackgroundColor(Color.rgb(0x60, 0x60, 0x68)) },
-            LinearLayout.LayoutParams(0, dp(8f), 1f)
-        )
-        fixedContent.addView(
-            previewBar,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(8f)
-            ).apply { bottomMargin = dp(14f) }
-        )
-
-        fun dashedField(value: String): EditText = EditText(context).apply {
-            setText(value)
-            textSize = 18f
-            gravity = Gravity.CENTER
-            isSingleLine = true
-            setPadding(dp(4f), dp(5f), dp(4f), dp(5f))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(10f).toFloat()
-                setColor(Color.TRANSPARENT)
-                setStroke(dp(1f), outlineColor, dp(5f).toFloat(), dp(3f).toFloat())
-            }
-            inputType = android.text.InputType.TYPE_CLASS_DATETIME or
-                android.text.InputType.TYPE_DATETIME_VARIATION_TIME
-        }
-        fun stepButtons(): LinearLayout = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            val plus = MaterialButton(context).apply {
-                text = "+"
-                isAllCaps = false
-                minWidth = dp(52f)
-                setPadding(0, 0, 0, 0)
-                setOnClickListener { /* UI placeholder: interval adjustment comes later. */ }
-            }
-            val divider = View(context).apply {
-                setBackgroundColor(outlineColor)
-            }
-            val minus = MaterialButton(context).apply {
-                text = "−"
-                isAllCaps = false
-                minWidth = dp(52f)
-                setPadding(0, 0, 0, 0)
-                setOnClickListener { /* UI placeholder: interval adjustment comes later. */ }
-            }
-            addView(plus, LinearLayout.LayoutParams(0, dp(40f), 1f))
-            addView(divider, LinearLayout.LayoutParams(dp(1f), dp(22f)))
-            addView(minus, LinearLayout.LayoutParams(0, dp(40f), 1f))
-        }
-
-        val intervalFieldsRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        val playColumn = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-        }
-        val skipColumn = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-        }
-        playColumn.addView(
-            dashedField("00:30"),
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)
-            )
-        )
-        playColumn.addView(
-            stepButtons(),
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)
-            ).apply { topMargin = dp(5f) }
-        )
-        skipColumn.addView(
-            dashedField("00:10"),
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)
-            )
-        )
-        skipColumn.addView(
-            stepButtons(),
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)
-            ).apply { topMargin = dp(5f) }
-        )
-        intervalFieldsRow.addView(
-            playColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        )
-        intervalFieldsRow.addView(
-            TextView(context).apply {
-                text = "🔒"
-                textSize = 20f
-                gravity = Gravity.CENTER
-                contentDescription = "Lock"
-            },
-            LinearLayout.LayoutParams(dp(42f), dp(48f))
-        )
-        intervalFieldsRow.addView(
-            skipColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        )
-        fixedContent.addView(
-            intervalFieldsRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        fixedContent.addView(
-            TextView(context).apply {
-                text = "Тап — применить, долгое нажатие — сохранить"
-                textSize = 12f
-                setTextColor(capsuleTextOff)
-                gravity = Gravity.CENTER
-                setPadding(0, dp(12f), 0, dp(10f))
-            },
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-        val presetsRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        repeat(3) { index ->
-            val active = index == 0
-            val preset = MaterialButton(context).apply {
-                text = listOf("30 / 10", "45 / 15", "60 / 20")[index]
-                isAllCaps = false
-                textSize = 12f
-                cornerRadius = dp(12f)
-                strokeWidth = dp(if (active) 2f else 1f)
-                strokeColor = ColorStateList.valueOf(if (active) capsuleAccent else outlineColor)
-                backgroundTintList = ColorStateList.valueOf(
-                    if (active) Color.rgb(0x31, 0x2b, 0x43) else Color.rgb(0x20, 0x20, 0x25)
-                )
-                setTextColor(if (active) capsuleAccent else capsuleTextOff)
-                setOnClickListener { /* UI placeholder: preset behavior comes later. */ }
-            }
-            presetsRow.addView(
-                preset,
-                LinearLayout.LayoutParams(0, dp(42f), 1f).apply {
-                    if (index > 0) marginStart = dp(5f)
-                    if (index < 2) marginEnd = dp(5f)
-                }
-            )
-        }
-        fixedContent.addView(
-            presetsRow,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        fun selectedTabBackground(selected: Boolean) = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(20f).toFloat()
-            setColor(if (selected) Color.rgb(0xee, 0xee, 0xf4) else Color.rgb(0x20, 0x20, 0x25))
-        }
-        fun refreshModeTabs() {
-            val simpleSelected = selectedMode == SmartSeekConfig.MODE_SIMPLE
-            simpleTab.background = selectedTabBackground(simpleSelected)
-            fixedTab.background = selectedTabBackground(!simpleSelected)
-            simpleTab.setTextColor(if (simpleSelected) Color.rgb(0x12, 0x12, 0x12) else capsuleTextOff)
-            fixedTab.setTextColor(if (!simpleSelected) Color.rgb(0x12, 0x12, 0x12) else capsuleTextOff)
-            simpleContent.visibility = if (simpleSelected) View.VISIBLE else View.GONE
-            fixedContent.visibility = if (simpleSelected) View.GONE else View.VISIBLE
-        }
-        simpleTab.setOnClickListener {
-            selectedMode = SmartSeekConfig.MODE_SIMPLE
-            refreshModeTabs()
-        }
-        fixedTab.setOnClickListener {
-            selectedMode = SmartSeekConfig.MODE_FIXED
-            refreshModeTabs()
-        }
-        refreshModeTabs()
-
-        // Accent selector retained as the current fixed two-row grid.
-        val colorValues = context.resources.getStringArray(R.array.smart_seek_marker_color_values)
-        val colorEntries = context.resources.getStringArray(R.array.smart_seek_marker_color_entries)
-        val accentHeader = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val accentTitle = TextView(context).apply {
-            setText(R.string.smart_seek_marker_color)
-            textSize = 14f
-            setTypeface(typeface, Typeface.BOLD)
-        }
-        val accentName = TextView(context).apply {
-            textSize = 14f
-            gravity = Gravity.END
-            setTextColor(onSurfaceColor)
-        }
-        accentHeader.addView(
-            accentTitle,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        )
-        accentHeader.addView(
-            accentName,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-        form.addView(
-            accentHeader,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12f) }
-        )
-
-        val accentEnabled = preferences.getBoolean("smart_seek_custom_accent_enabled", true)
-        var selectedAccent = if (accentEnabled) {
-            preferences.getString("smart_seek_marker_color", "blue") ?: "blue"
-        } else {
-            "none"
-        }
-        if (selectedAccent !in colorValues) selectedAccent = "blue"
-        fun updateAccentName() {
-            val index = colorValues.indexOf(selectedAccent)
-            accentName.text = colorEntries.getOrElse(index) { selectedAccent }
-        }
-        updateAccentName()
-
-        val themeAccentColor = MaterialColors.getColor(
-            root, androidx.appcompat.R.attr.colorPrimary, Color.rgb(26, 79, 163)
-        )
-        val colorSwatches = linkedMapOf<String, FrameLayout>()
-        fun swatchFillColor(value: String): Int = when (value) {
-            "red" -> Color.RED
-            "orange" -> Color.rgb(255, 109, 0)
-            "cyan" -> Color.rgb(0, 184, 212)
-            "lime" -> Color.rgb(124, 179, 66)
-            "pink" -> Color.rgb(245, 0, 87)
-            "violet" -> Color.rgb(124, 77, 255)
-            "black" -> Color.BLACK
-            "none" -> themeAccentColor
-            else -> Color.rgb(26, 79, 163)
-        }
-        fun swatchDrawable(value: String): GradientDrawable = when (value) {
-            "dynamic" -> GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(33, 150, 243), Color.rgb(156, 39, 176), Color.rgb(255, 152, 0))
-            ).apply { shape = GradientDrawable.OVAL }
-            "transparent" -> GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.TRANSPARENT)
-                setStroke(dp(2f), Color.WHITE)
-            }
-            else -> GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(swatchFillColor(value))
-            }
-        }
-        fun updateAccentSelection() {
-            val selectedRingColor = MaterialColors.getColor(
-                root, androidx.appcompat.R.attr.colorPrimary, Color.WHITE
-            )
-            colorSwatches.forEach { (value, swatch) ->
-                swatch.background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(Color.TRANSPARENT)
-                    setStroke(
-                        dp(if (value == selectedAccent) 2.5f else 1f),
-                        if (value == selectedAccent) selectedRingColor else outlineColor
-                    )
-                }
-                swatch.isSelected = value == selectedAccent
-            }
-        }
-        val orderedColorValues = listOf(
-            "none", "dynamic", "transparent", "black", "red", "orange",
-            "cyan", "lime", "pink", "violet", "blue"
-        )
-        val colorGrid = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(4f), 0, dp(4f))
-        }
-        val topColorRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        val bottomColorRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        colorGrid.addView(
-            topColorRow,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f))
-        )
-        colorGrid.addView(
-            bottomColorRow,
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f))
-        )
-        form.addView(
-            colorGrid,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-        orderedColorValues.forEachIndexed { index, value ->
-            val entryIndex = colorValues.indexOf(value)
-            val swatch = FrameLayout(context).apply {
-                contentDescription = colorEntries.getOrElse(entryIndex) { value }
-                isClickable = true
-                isFocusable = true
-                layoutParams = LinearLayout.LayoutParams(dp(44f), dp(44f)).apply {
-                    marginEnd = dp(4f)
-                }
-                addView(
-                    View(context).apply { background = swatchDrawable(value) },
-                    FrameLayout.LayoutParams(dp(28f), dp(28f), Gravity.CENTER)
-                )
-                setOnClickListener {
-                    selectedAccent = value
-                    updateAccentName()
-                    updateAccentSelection()
-                }
-            }
-            colorSwatches[value] = swatch
-            (if (index < 6) topColorRow else bottomColorRow).addView(swatch)
-        }
-        updateAccentSelection()
-
-        addLabel(context.getString(R.string.smart_seek_experimental), dp(16f))
-        addLabel(context.getString(R.string.smart_seek_boost_buffer), dp(8f))
-        val boostBuffer = CheckBox(context).apply {
-            setText(R.string.smart_seek_boost_buffer_help)
-            isChecked = current.boostBuffer
-        }
-        form.addView(boostBuffer)
-
-        val actions = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(8f), 0, 0)
-        }
-        val cancelButton = MaterialButton(context).apply {
-            setText(R.string.smart_seek_cancel)
-            setOnClickListener { dialog.dismiss() }
-        }
-        val saveButton = MaterialButton(context).apply { setText(R.string.smart_seek_save) }
-        actions.addView(
-            cancelButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(16f) }
-        )
-        actions.addView(
-            saveButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = dp(16f) }
-        )
-        root.addView(
-            actions,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
-        dialog.setContentView(root)
-
-        saveButton.setOnClickListener {
-            SmartSeekConfig(mode = selectedMode, boostBuffer = boostBuffer.isChecked).save(preferences) {
-                putBoolean("smart_seek_show_indicator", showIndicator.text.toString().endsWith("Вкл"))
-                putBoolean("smart_seek_persistent", persistent.text.toString().endsWith("Вкл"))
-                putBoolean("smart_seek_custom_accent_enabled", selectedAccent != "none")
-                putString("smart_seek_marker_color", if (selectedAccent == "none") "blue" else selectedAccent)
-            }
-            dialog.dismiss()
-            onSaved?.invoke()
-        }
-
-        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-        val dismissDistance = maxOf(dp(56f), touchSlop * 2)
-        var startY = 0f
-        var maxDownDistance = 0f
-        title.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    startY = event.rawY
-                    maxDownDistance = 0f
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    maxDownDistance = maxOf(maxDownDistance, event.rawY - startY)
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    val distance = event.rawY - startY
-                    if (maxOf(distance, maxDownDistance) >= dismissDistance) dialog.dismiss()
-                    true
-                }
-                MotionEvent.ACTION_CANCEL -> true
-                else -> true
-            }
-        }
-
         dialog.setOnShowListener {
             dialog.behavior.isDraggable = false
             dialog.behavior.skipCollapsed = true
@@ -687,9 +120,686 @@ class SmartSeekSettingsBottomSheet(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.WRAP_CONTENT
             )
-            dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            dialog.window?.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            )
         }
         dialog.show()
         return dialog
     }
 }
+
+@Composable
+private fun IntervalPlaySettingsContent(
+    onCancel: () -> Unit,
+    onSave: () -> Unit
+) {
+    val isIndicatorOn = remember { mutableStateOf(true) }
+    val isPersistentOn = remember { mutableStateOf(false) }
+    val activeTab = remember { mutableStateOf(0) }
+    val isScissorsActive = remember { mutableStateOf(false) }
+    val isPercentMode = remember { mutableStateOf(false) }
+    val simpleValue = remember { mutableStateOf(30) }
+    val isLocked = remember { mutableStateOf(true) }
+    val playValue = remember { mutableStateOf(30) }
+    val skipValue = remember { mutableStateOf(10) }
+    val selectedPreset = remember { mutableStateOf(0) }
+    val presets = remember {
+        mutableStateOf(
+            listOf<IntervalPlayPreset?>(
+                IntervalPlayPreset(30, 10),
+                IntervalPlayPreset(45, 15),
+                null
+            )
+        )
+    }
+
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = screenHeight * 0.92f)
+            .background(IntervalPlayPalette.background)
+            .padding(start = 18.dp, top = 12.dp, end = 18.dp, bottom = 14.dp)
+    ) {
+        Text(
+            text = "Настройки IntervalPlay",
+            color = IntervalPlayPalette.whiteText,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 2.dp, bottom = 14.dp)
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StateCapsule(
+                    modifier = Modifier.weight(1f),
+                    label = "Показывать",
+                    state = isIndicatorOn
+                )
+                StateCapsule(
+                    modifier = Modifier.weight(1f),
+                    label = "Постоянный",
+                    state = isPersistentOn
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Тип интервалов",
+                    color = IntervalPlayPalette.grayText,
+                    fontSize = 12.sp
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(IntervalPlayPalette.inactive)
+                        .padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    ModeTab(
+                        modifier = Modifier.weight(1f),
+                        label = "Простой",
+                        selected = activeTab.value == 0,
+                        onClick = { activeTab.value = 0 }
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(
+                                width = 1.dp,
+                                color = if (isScissorsActive.value) {
+                                    IntervalPlayPalette.accent
+                                } else {
+                                    IntervalPlayPalette.outline
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .clickable {
+                                isScissorsActive.value = !isScissorsActive.value
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.ContentCut,
+                            contentDescription = "Ножницы",
+                            tint = if (isScissorsActive.value) {
+                                IntervalPlayPalette.accent
+                            } else {
+                                IntervalPlayPalette.grayText
+                            },
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    ModeTab(
+                        modifier = Modifier.weight(1f),
+                        label = "Фиксированные",
+                        selected = activeTab.value == 1,
+                        onClick = { activeTab.value = 1 }
+                    )
+                }
+            }
+
+            PreviewBar()
+
+            if (activeTab.value == 0) {
+                SimpleSettings(
+                    isPercentMode = isPercentMode.value,
+                    onPercentModeChange = { isPercentMode.value = it },
+                    simpleValue = simpleValue.value,
+                    onSimpleValueChange = { simpleValue.value = it.coerceAtLeast(0) }
+                )
+            } else {
+                FixedSettings(
+                    playValue = playValue.value,
+                    skipValue = skipValue.value,
+                    isLocked = isLocked.value,
+                    onLockToggle = { isLocked.value = !isLocked.value },
+                    onAdjust = { isPlayValue, delta ->
+                        if (isLocked.value) {
+                            playValue.value = (playValue.value + delta).coerceAtLeast(0)
+                            skipValue.value = (skipValue.value + delta).coerceAtLeast(0)
+                        } else if (isPlayValue) {
+                            playValue.value = (playValue.value + delta).coerceAtLeast(0)
+                        } else {
+                            skipValue.value = (skipValue.value + delta).coerceAtLeast(0)
+                        }
+                    }
+                )
+
+                PresetSelector(
+                    presets = presets.value,
+                    selectedIndex = selectedPreset.value,
+                    onSelect = { index ->
+                        presets.value[index]?.let { preset ->
+                            playValue.value = preset.playSeconds
+                            skipValue.value = preset.skipSeconds
+                            selectedPreset.value = index
+                        }
+                    },
+                    onSave = { index ->
+                        val updated = presets.value.toMutableList()
+                        updated[index] = IntervalPlayPreset(
+                            playSeconds = playValue.value,
+                            skipSeconds = skipValue.value
+                        )
+                        presets.value = updated
+                        selectedPreset.value = index
+                    }
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            BottomActionButton(
+                modifier = Modifier.weight(1f),
+                label = "Отмена",
+                primary = false,
+                onClick = onCancel
+            )
+            BottomActionButton(
+                modifier = Modifier.weight(1f),
+                label = "Сохранить",
+                primary = true,
+                onClick = onSave
+            )
+        }
+    }
+}
+
+@Composable
+private fun StateCapsule(
+    modifier: Modifier,
+    label: String,
+    state: MutableState<Boolean>
+) {
+    val enabled = state.value
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(
+                if (enabled) IntervalPlayPalette.accent else IntervalPlayPalette.inactive
+            )
+            .then(
+                if (enabled) Modifier
+                else Modifier.border(
+                    1.dp,
+                    IntervalPlayPalette.outline,
+                    RoundedCornerShape(24.dp)
+                )
+            )
+            .clickable { state.value = !state.value },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "$label: ${if (enabled) "Вкл" else "Выкл"}",
+            color = if (enabled) IntervalPlayPalette.darkText else IntervalPlayPalette.grayText,
+            fontSize = 12.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ModeTab(
+    modifier: Modifier,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (selected) IntervalPlayPalette.accent else Color.Transparent
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = if (selected) IntervalPlayPalette.darkText else IntervalPlayPalette.grayText,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun PreviewBar() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(25.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(IntervalPlayPalette.previewBackground)
+            .padding(start = 0.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(7.dp))
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(IntervalPlayPalette.accent)
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(IntervalPlayPalette.previewSkip)
+            )
+        }
+        Spacer(Modifier.width(9.dp))
+        Text(
+            text = "12 инт.",
+            color = IntervalPlayPalette.grayText,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "03:45",
+            color = IntervalPlayPalette.whiteText,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun SimpleSettings(
+    isPercentMode: Boolean,
+    onPercentModeChange: (Boolean) -> Unit,
+    simpleValue: Int,
+    onSimpleValueChange: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "Воспроизведение",
+            color = IntervalPlayPalette.grayText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .width(58.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(IntervalPlayPalette.inactive)
+                    .padding(3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                UnitModeOption(
+                    label = "Часы",
+                    selected = !isPercentMode,
+                    onClick = { onPercentModeChange(false) }
+                )
+                UnitModeOption(
+                    label = "%",
+                    selected = isPercentMode,
+                    onClick = { onPercentModeChange(true) }
+                )
+            }
+            Text(
+                text = simpleValue.toString(),
+                modifier = Modifier.weight(1f),
+                color = IntervalPlayPalette.whiteText,
+                fontSize = 44.sp,
+                fontFamily = FontFamily.Monospace,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+            Stepper(
+                modifier = Modifier.width(112.dp),
+                onDecrease = { onSimpleValueChange(simpleValue - 1) },
+                onIncrease = { onSimpleValueChange(simpleValue + 1) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun UnitModeOption(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(29.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (selected) IntervalPlayPalette.accent else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = if (selected) IntervalPlayPalette.darkText else IntervalPlayPalette.grayText,
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+private fun FixedSettings(
+    playValue: Int,
+    skipValue: Int,
+    isLocked: Boolean,
+    onLockToggle: () -> Unit,
+    onAdjust: (isPlayValue: Boolean, delta: Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Воспроизведение",
+                modifier = Modifier.weight(1f),
+                color = IntervalPlayPalette.grayText,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.width(44.dp))
+            Text(
+                text = "Пропуск",
+                modifier = Modifier.weight(1f),
+                color = IntervalPlayPalette.grayText,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            TimeValueField(
+                value = formatInterval(playValue),
+                isLocked = isLocked,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(IntervalPlayPalette.inactive)
+                    .border(
+                        width = 1.dp,
+                        color = if (isLocked) IntervalPlayPalette.accent else IntervalPlayPalette.outline,
+                        shape = RoundedCornerShape(9.dp)
+                    )
+                    .clickable(onClick = onLockToggle),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = if (isLocked) {
+                        androidx.compose.material.icons.Icons.Default.Lock
+                    } else {
+                        androidx.compose.material.icons.Icons.Default.LockOpen
+                    },
+                    contentDescription = if (isLocked) "Замок закрыт" else "Замок открыт",
+                    tint = if (isLocked) IntervalPlayPalette.accent else IntervalPlayPalette.grayText,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+            TimeValueField(
+                value = formatInterval(skipValue),
+                isLocked = isLocked,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(49.dp)
+        ) {
+            Stepper(
+                modifier = Modifier.weight(1f),
+                onDecrease = { onAdjust(true, -1) },
+                onIncrease = { onAdjust(true, 1) }
+            )
+            Stepper(
+                modifier = Modifier.weight(1f),
+                onDecrease = { onAdjust(false, -1) },
+                onIncrease = { onAdjust(false, 1) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimeValueField(
+    value: String,
+    isLocked: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(54.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(IntervalPlayPalette.inactive)
+            .drawBehind {
+                if (isLocked) {
+                    drawRoundRect(
+                        color = IntervalPlayPalette.accent,
+                        cornerRadius = CornerRadius(9.dp.toPx()),
+                        style = Stroke(
+                            width = 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(
+                                floatArrayOf(5.dp.toPx(), 4.dp.toPx())
+                            )
+                        )
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = value,
+            color = IntervalPlayPalette.whiteText,
+            fontSize = 22.sp,
+            fontFamily = FontFamily.Monospace,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun Stepper(
+    modifier: Modifier = Modifier,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        StepperButton(
+            label = "−",
+            modifier = Modifier.weight(1f),
+            onClick = onDecrease
+        )
+        StepperButton(
+            label = "+",
+            modifier = Modifier.weight(1f),
+            onClick = onIncrease
+        )
+    }
+}
+
+@Composable
+private fun StepperButton(
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(IntervalPlayPalette.inactive)
+            .border(1.dp, IntervalPlayPalette.outline, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = IntervalPlayPalette.whiteText,
+            fontSize = 21.sp,
+            fontFamily = FontFamily.Monospace
+        )
+    }
+}
+
+@Composable
+private fun PresetSelector(
+    presets: List<IntervalPlayPreset?>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onSave: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Тап — применить, долгое нажатие — сохранить",
+            color = IntervalPlayPalette.grayText,
+            fontSize = 11.sp
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            presets.forEachIndexed { index, preset ->
+                val selected = selectedIndex == index
+                val empty = preset == null
+                val buttonLabel = preset?.label() ?: "Пусто"
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(
+                            if (selected) Color(0xFF29243B) else IntervalPlayPalette.inactive
+                        )
+                        .then(
+                            if (empty) {
+                                Modifier.drawBehind {
+                                    drawRoundRect(
+                                        color = IntervalPlayPalette.outline,
+                                        cornerRadius = CornerRadius(9.dp.toPx()),
+                                        style = Stroke(
+                                            width = 1.dp.toPx(),
+                                            pathEffect = PathEffect.dashPathEffect(
+                                                floatArrayOf(5.dp.toPx(), 4.dp.toPx())
+                                            )
+                                        )
+                                    )
+                                }
+                            } else {
+                                Modifier.border(
+                                    width = if (selected) 1.5.dp else 1.dp,
+                                    color = if (selected) IntervalPlayPalette.accent else IntervalPlayPalette.outline,
+                                    shape = RoundedCornerShape(9.dp)
+                                )
+                            }
+                        )
+                        .combinedClickable(
+                            onClick = { onSelect(index) },
+                            onLongClick = { onSave(index) }
+                        )
+                        .padding(horizontal = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = buttonLabel,
+                        color = if (selected) IntervalPlayPalette.accent else IntervalPlayPalette.grayText,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BottomActionButton(
+    modifier: Modifier = Modifier,
+    label: String,
+    primary: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (primary) IntervalPlayPalette.accent else IntervalPlayPalette.inactive
+            )
+            .then(
+                if (primary) Modifier else Modifier.border(
+                    1.dp,
+                    IntervalPlayPalette.outline,
+                    RoundedCornerShape(12.dp)
+                )
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = if (primary) IntervalPlayPalette.darkText else IntervalPlayPalette.whiteText,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+private fun formatInterval(seconds: Int): String =
+    String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
