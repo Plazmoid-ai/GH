@@ -10,6 +10,7 @@
 package org.akanework.gramophone.ui.components
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
@@ -20,6 +21,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -28,7 +30,6 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
-import com.google.android.material.materialswitch.MaterialSwitch
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.SmartSeekConfig
 
@@ -110,57 +111,62 @@ class SmartSeekSettingsBottomSheet(
                 setStroke(dp(1f), strokeColor)
             }
 
-        // Two compact capsule switches in one row.
+        // Each setting is one MaterialButton capsule (no separate label or Switch).
         val optionRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        fun addCapsuleToggle(labelRes: Int, checked: Boolean, onChanged: (Boolean) -> Unit): MaterialSwitch {
-            val toggle = MaterialSwitch(context).apply {
-                isChecked = checked
-                contentDescription = context.getString(labelRes)
-                setOnCheckedChangeListener { _, isChecked -> onChanged(isChecked) }
-            }
-            val capsule = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(9f), dp(3f), dp(6f), dp(3f))
-                background = pillBackground(surfaceColor)
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { toggle.isChecked = !toggle.isChecked }
-            }
-            capsule.addView(
-                TextView(context).apply {
-                    setText(labelRes)
-                    textSize = 12f
-                    maxLines = 2
-                    setTextColor(onSurfaceColor)
-                },
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            )
-            capsule.addView(
-                toggle,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            )
-            optionRow.addView(
-                capsule,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    if (optionRow.childCount == 0) marginEnd = dp(6f) else marginStart = dp(6f)
+        val capsuleAccent = Color.rgb(0x9b, 0x8a, 0xf5)
+        val capsuleTextDark = Color.rgb(0x12, 0x12, 0x12)
+        val capsuleTextOff = Color.rgb(0x9e, 0x9e, 0x9e)
+        fun makeStateCapsule(
+            prefix: String,
+            initial: Boolean,
+            onChanged: (Boolean) -> Unit
+        ): MaterialButton {
+            var enabled = initial
+            val button = MaterialButton(context).apply {
+                isAllCaps = false
+                textSize = 12f
+                minHeight = dp(44f)
+                minimumHeight = dp(44f)
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dp(24f)
+                strokeWidth = dp(1f)
+                setPadding(dp(5f), 0, dp(5f), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply {
+                    if (optionRow.childCount == 0) marginEnd = dp(5f) else marginStart = dp(5f)
                 }
-            )
-            return toggle
+                setOnClickListener {
+                    enabled = !enabled
+                    renderState()
+                    onChanged(enabled)
+                }
+            }
+            fun renderState() {
+                button.text = "$prefix: " + if (enabled) "Вкл" else "Выкл"
+                button.backgroundTintList = ColorStateList.valueOf(
+                    if (enabled) capsuleAccent else Color.TRANSPARENT
+                )
+                button.strokeColor = ColorStateList.valueOf(
+                    if (enabled) capsuleAccent else outlineColor
+                )
+                button.setTextColor(if (enabled) capsuleTextDark else capsuleTextOff)
+                button.contentDescription = button.text
+            }
+            renderState()
+            optionRow.addView(button)
+            return button
         }
-
-        val showIndicator = addCapsuleToggle(
-            R.string.smart_seek_show_indicator,
+        val showIndicator = makeStateCapsule(
+            "Показывать",
             preferences.getBoolean("smart_seek_show_indicator", true)
         ) { }
-        val persistent = addCapsuleToggle(
-            R.string.settings_smart_seek_persistent,
+        val persistent = makeStateCapsule(
+            "Постоянный",
             preferences.getBoolean("smart_seek_persistent", false)
         ) { }
         form.addView(
@@ -206,6 +212,19 @@ class SmartSeekSettingsBottomSheet(
             fixedTab,
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         )
+        val intervalTypeLabel = TextView(context).apply {
+            text = "Тип интервалов"
+            textSize = 12f
+            setTextColor(capsuleTextOff)
+            setPadding(dp(2f), 0, 0, dp(5f))
+        }
+        form.addView(
+            intervalTypeLabel,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(2f) }
+        )
         form.addView(
             tabStrip,
             LinearLayout.LayoutParams(
@@ -214,8 +233,10 @@ class SmartSeekSettingsBottomSheet(
             )
         )
 
-        fun emptyModeContainer(): FrameLayout = FrameLayout(context).apply {
+        fun emptyModeContainer(): LinearLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             minimumHeight = dp(92f)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
             background = pillBackground(surfaceColor, outlineColor, 14f)
         }
         val simpleContent = emptyModeContainer()
@@ -241,17 +262,182 @@ class SmartSeekSettingsBottomSheet(
             }
         )
 
-        fun selectedTabBackground() = GradientDrawable().apply {
+        // Fixed intervals: UI-only controls, values and presets are placeholders for the next step.
+        val previewBar = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = pillBackground(Color.rgb(0x27, 0x27, 0x2d), outlineColor, 8f)
+            clipToOutline = true
+        }
+        previewBar.addView(
+            View(context).apply { setBackgroundColor(capsuleAccent) },
+            LinearLayout.LayoutParams(0, dp(8f), 3f)
+        )
+        previewBar.addView(
+            View(context).apply { setBackgroundColor(Color.rgb(0x60, 0x60, 0x68)) },
+            LinearLayout.LayoutParams(0, dp(8f), 1f)
+        )
+        fixedContent.addView(
+            previewBar,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(8f)
+            ).apply { bottomMargin = dp(14f) }
+        )
+
+        fun dashedField(value: String): EditText = EditText(context).apply {
+            setText(value)
+            textSize = 18f
+            gravity = Gravity.CENTER
+            singleLine = true
+            setPadding(dp(4f), dp(5f), dp(4f), dp(5f))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(10f).toFloat()
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(1f), outlineColor, dp(5f).toFloat(), dp(3f).toFloat())
+            }
+            inputType = android.text.InputType.TYPE_CLASS_DATETIME or
+                android.text.InputType.TYPE_DATETIME_VARIATION_TIME
+        }
+        fun stepButtons(): LinearLayout = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            val plus = MaterialButton(context).apply {
+                text = "+"
+                isAllCaps = false
+                minWidth = dp(52f)
+                setPadding(0, 0, 0, 0)
+                setOnClickListener { /* UI placeholder: interval adjustment comes later. */ }
+            }
+            val divider = View(context).apply {
+                setBackgroundColor(outlineColor)
+            }
+            val minus = MaterialButton(context).apply {
+                text = "−"
+                isAllCaps = false
+                minWidth = dp(52f)
+                setPadding(0, 0, 0, 0)
+                setOnClickListener { /* UI placeholder: interval adjustment comes later. */ }
+            }
+            addView(plus, LinearLayout.LayoutParams(0, dp(40f), 1f))
+            addView(divider, LinearLayout.LayoutParams(dp(1f), dp(22f)))
+            addView(minus, LinearLayout.LayoutParams(0, dp(40f), 1f))
+        }
+
+        val intervalFieldsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val playColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        val skipColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        playColumn.addView(
+            dashedField("00:30"),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)
+            )
+        )
+        playColumn.addView(
+            stepButtons(),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)
+            ).apply { topMargin = dp(5f) }
+        )
+        skipColumn.addView(
+            dashedField("00:10"),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)
+            )
+        )
+        skipColumn.addView(
+            stepButtons(),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)
+            ).apply { topMargin = dp(5f) }
+        )
+        intervalFieldsRow.addView(
+            playColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        intervalFieldsRow.addView(
+            TextView(context).apply {
+                text = "🔒"
+                textSize = 20f
+                gravity = Gravity.CENTER
+                contentDescription = "Lock"
+            },
+            LinearLayout.LayoutParams(dp(42f), dp(48f))
+        )
+        intervalFieldsRow.addView(
+            skipColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        fixedContent.addView(
+            intervalFieldsRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        fixedContent.addView(
+            TextView(context).apply {
+                text = "Тап — применить, долгое нажатие — сохранить"
+                textSize = 12f
+                setTextColor(capsuleTextOff)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(12f), 0, dp(10f))
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        val presetsRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        repeat(3) { index ->
+            val active = index == 0
+            val preset = MaterialButton(context).apply {
+                text = listOf("30 / 10", "45 / 15", "60 / 20")[index]
+                isAllCaps = false
+                textSize = 12f
+                cornerRadius = dp(12f)
+                strokeWidth = dp(if (active) 2f else 1f)
+                strokeColor = ColorStateList.valueOf(if (active) capsuleAccent else outlineColor)
+                backgroundTintList = ColorStateList.valueOf(
+                    if (active) Color.rgb(0x31, 0x2b, 0x43) else Color.rgb(0x20, 0x20, 0x25)
+                )
+                setTextColor(if (active) capsuleAccent else capsuleTextOff)
+                setOnClickListener { /* UI placeholder: preset behavior comes later. */ }
+            }
+            presetsRow.addView(
+                preset,
+                LinearLayout.LayoutParams(0, dp(42f), 1f).apply {
+                    if (index > 0) marginStart = dp(5f)
+                    if (index < 2) marginEnd = dp(5f)
+                }
+            )
+        }
+        fixedContent.addView(
+            presetsRow,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        fun selectedTabBackground(selected: Boolean) = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(20f).toFloat()
-            setColor(primaryColor)
+            setColor(if (selected) Color.rgb(0xee, 0xee, 0xf4) else Color.rgb(0x20, 0x20, 0x25))
         }
         fun refreshModeTabs() {
             val simpleSelected = selectedMode == SmartSeekConfig.MODE_SIMPLE
-            simpleTab.background = if (simpleSelected) selectedTabBackground() else null
-            fixedTab.background = if (!simpleSelected) selectedTabBackground() else null
-            simpleTab.setTextColor(if (simpleSelected) Color.WHITE else onSurfaceColor)
-            fixedTab.setTextColor(if (!simpleSelected) Color.WHITE else onSurfaceColor)
+            simpleTab.background = selectedTabBackground(simpleSelected)
+            fixedTab.background = selectedTabBackground(!simpleSelected)
+            simpleTab.setTextColor(if (simpleSelected) Color.rgb(0x12, 0x12, 0x12) else capsuleTextOff)
+            fixedTab.setTextColor(if (!simpleSelected) Color.rgb(0x12, 0x12, 0x12) else capsuleTextOff)
             simpleContent.visibility = if (simpleSelected) View.VISIBLE else View.GONE
             fixedContent.visibility = if (simpleSelected) View.GONE else View.VISIBLE
         }
@@ -459,8 +645,8 @@ class SmartSeekSettingsBottomSheet(
 
         saveButton.setOnClickListener {
             SmartSeekConfig(mode = selectedMode, boostBuffer = boostBuffer.isChecked).save(preferences) {
-                putBoolean("smart_seek_show_indicator", showIndicator.isChecked)
-                putBoolean("smart_seek_persistent", persistent.isChecked)
+                putBoolean("smart_seek_show_indicator", showIndicator.text.toString().endsWith("Вкл"))
+                putBoolean("smart_seek_persistent", persistent.text.toString().endsWith("Вкл"))
                 putBoolean("smart_seek_custom_accent_enabled", selectedAccent != "none")
                 putString("smart_seek_marker_color", if (selectedAccent == "none") "blue" else selectedAccent)
             }
