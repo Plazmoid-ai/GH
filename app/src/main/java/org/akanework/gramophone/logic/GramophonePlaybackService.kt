@@ -172,6 +172,8 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
 
     companion object {
         private const val TAG = "GramoPlaybackService"
+        private const val SMART_SEEK_PLAY_DURATION_MS = 30_000L
+        private const val SMART_SEEK_SKIP_DURATION_MS = 10_000L
         const val NOTIFY_CHANNEL_ID = "serviceFgsError"
         const val NOTIFY_ID = 1
         private const val FAVE_ID = 2
@@ -248,8 +250,6 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private val scope = CoroutineScope(Dispatchers.Main)
     private val smartSeekScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     @Volatile
-    private var smartSeekConfig = SmartSeekConfig()
-    @Volatile
     private var smartSeekActive = false
     @Volatile
     private var smartSeekPaused = false
@@ -258,8 +258,8 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
     private var smartSeekTrackIndex = C.INDEX_UNSET
     private var smartSeekNextPositionMs = -1L
     private var smartSeekIntervalId = 0L
-    private var smartSeekNextPlayDurationMs = SmartSeekConfig.DEFAULT_CYCLE_PLAY_DURATION_MS
-    private var smartSeekNextSkipDurationMs = SmartSeekConfig.DEFAULT_CYCLE_SKIP_DURATION_MS
+    private var smartSeekNextPlayDurationMs = SMART_SEEK_PLAY_DURATION_MS
+    private var smartSeekNextSkipDurationMs = SMART_SEEK_SKIP_DURATION_MS
     private val lastPlaylistLoaded = CompletableDeferred<Unit>()
     private val lyricsFetcher = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
     private val bitrateFetcher = CoroutineScope(Dispatchers.IO.limitedParallelism(1))
@@ -346,7 +346,6 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         mainExecutor = ContextCompat.getMainExecutor(this)
         nm = NotificationManagerCompat.from(this)
         prefs = PreferenceManager.getDefaultSharedPreferences(applicationContext)
-        smartSeekConfig = SmartSeekConfig.load(prefs)
         qb = QueueBoard(this)
         setListener(this)
         setMediaNotificationProvider(
@@ -842,12 +841,11 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         }
         val player = controller
         if (player?.currentMediaItem == null) {
-            Log.i(TAG, "Smart Seek was not started because there is no current media item")
+            Log.i(TAG, "IntervalPlay was not started because there is no current media item")
             stopSmartSeek()
             return
         }
 
-        smartSeekConfig = SmartSeekConfig.load(prefs)
         smartSeekActive = true
         smartSeekPaused = !player.isPlaying
         smartSeekTrackIndex = player.currentMediaItemIndex
@@ -874,7 +872,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         isSmartSeekEnabled() && prefs.getBoolean("smart_seek_persistent", false)
 
     /**
-     * Finish Smart Seek for the current track without disabling the persistent mode.
+     * Finish IntervalPlay for the current track without disabling the persistent mode.
      * A later media-item transition will schedule a fresh interval for the next track.
      */
     private fun finishSmartSeekTrack() {
@@ -899,11 +897,12 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
      * Publish one play interval for the capsule. For a final partial interval, nextPositionMs
      * intentionally means start + configured play duration, not the end of the track.
      */
-    private fun announceSmartSeekPlayInterval(startPositionMs: Long, cycle: SmartSeekCycle) {
-        smartSeekNextPlayDurationMs = cycle.playDurationMs
-        smartSeekNextSkipDurationMs = cycle.skipDurationMs
+    /** Publish the fixed play interval used by the IntervalPlay indicator. */
+    private fun announceSmartSeekPlayInterval(startPositionMs: Long) {
+        smartSeekNextPlayDurationMs = SMART_SEEK_PLAY_DURATION_MS
+        smartSeekNextSkipDurationMs = SMART_SEEK_SKIP_DURATION_MS
         smartSeekIntervalId += 1L
-        smartSeekNextPositionMs = startPositionMs + cycle.playDurationMs
+        smartSeekNextPositionMs = startPositionMs + SMART_SEEK_PLAY_DURATION_MS
         broadcastSmartSeekState()
     }
 
@@ -940,43 +939,15 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         if (!isSmartSeekPersistent()) stopSmartSeek()
                         break
                     }
-                    if (currentPlayer.playbackState != Player.STATE_READY ||
-                        currentPlayer.duration <= 0L
-                    ) {
-                        Log.i(TAG, "Smart Seek stopped for this track: player is not ready or duration is unknown")
+                    if (currentPlayer.playbackState != Player.STATE_READY || currentPlayer.duration <= 0L) {
+                        Log.i(TAG, "IntervalPlay stopped for this track: player is not ready or duration is unknown")
                         finishSmartSeekTrack()
                         break
                     }
 
-                    val cycle = smartSeekConfig.resolveCycle(currentPlayer.duration)
-                    val remainingMs = currentPlayer.duration - currentPlayer.currentPosition
-                    if (
-                        smartSeekConfig.inputMode == SmartSeekInputMode.CYCLE &&
-                        remainingMs <= smartSeekConfig.cycleDurationMs.coerceIn(
-                            SmartSeekConfig.MIN_INTERVAL_MS,
-                            SmartSeekConfig.MAX_CYCLE_DURATION_MS
-                        )
-                    ) {
-                        // Leave the final tail untouched, but keep a partial play interval visible
-                        // so the capsule moves at the configured speed until the track ends.
-                        Log.i(TAG, "Smart Seek: displaying the final audible tail without another skip")
-                        announceSmartSeekPlayInterval(currentPlayer.currentPosition, cycle)
-                        break
-                    }
-                    if (
-                        smartSeekConfig.inputMode != SmartSeekInputMode.CYCLE &&
-                        remainingMs <= cycle.playDurationMs
-                    ) {
-                        Log.i(TAG, "Smart Seek: displaying the final partial play interval without another skip")
-                        announceSmartSeekPlayInterval(currentPlayer.currentPosition, cycle)
-                        break
-                    }
-
-                    // Show where the next automatic jump will occur. Pausing resets this marker.
-                    announceSmartSeekPlayInterval(currentPlayer.currentPosition, cycle)
-
-                    // Wait for the configured play interval before the next skip attempt.
-                    delay(cycle.playDurationMs)
+                    // Temporary fixed-interval stub: play for 30 seconds, then skip 10 seconds.
+                    announceSmartSeekPlayInterval(currentPlayer.currentPosition)
+                    delay(SMART_SEEK_PLAY_DURATION_MS)
                     if (!isActive || !smartSeekActive) break
 
                     val seekPlayer = controller ?: break
@@ -986,55 +957,42 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         break
                     }
                     if (seekPlayer.playbackState != Player.STATE_READY || seekPlayer.duration <= 0L) {
-                        Log.i(TAG, "Smart Seek finished for this track before seekTo: player is not ready or duration is unknown")
+                        Log.i(TAG, "IntervalPlay finished before seekTo: player is not ready or duration is unknown")
                         finishSmartSeekTrack()
                         break
                     }
 
                     if (smartSeekSeeking) {
-                        // A previous seek is still being acknowledged. Avoid a busy loop on the main thread.
                         var waitCount = 0
                         while (smartSeekSeeking && waitCount < 40 && isActive) {
                             delay(50L)
                             waitCount++
                         }
                         if (smartSeekSeeking) {
-                            Log.w(TAG, "Smart Seek timed out waiting for the previous seek")
+                            Log.w(TAG, "IntervalPlay timed out waiting for the previous seek")
                             smartSeekSeeking = false
                         }
                     }
 
                     val currentPosition = seekPlayer.currentPosition
-                    val targetPosition = currentPosition + cycle.skipDurationMs
+                    val targetPosition = currentPosition + SMART_SEEK_SKIP_DURATION_MS
                     if (targetPosition >= seekPlayer.duration) {
-                        Log.i(TAG, "Smart Seek: preserving the final audible tail without another skip")
-                        announceSmartSeekPlayInterval(currentPosition, cycle)
-                        break
-                    }
-                    if (
-                        smartSeekConfig.inputMode == SmartSeekInputMode.CYCLE &&
-                        seekPlayer.duration - targetPosition <= cycle.playDurationMs
-                    ) {
-                        // If the remaining tail is no longer than one sound segment, do not skip it.
-                        Log.i(TAG, "Smart Seek: preserving the final audible tail without another skip")
-                        announceSmartSeekPlayInterval(currentPosition, cycle)
+                        finishSmartSeekTrack()
                         break
                     }
 
                     smartSeekSeeking = true
                     broadcastSmartSeekState()
-                    Log.i(TAG, "Smart Seek: seeking from $currentPosition to $targetPosition")
-
-                    // Keep the Smart Seek loop minimal: wait for the configured interval,
-                    // seek, then clear the pending-seek marker.
+                    Log.i(TAG, "IntervalPlay: seeking from $currentPosition to $targetPosition")
                     seekPlayer.seekTo(targetPosition)
+
                     var waitCount = 0
                     while (smartSeekSeeking && waitCount < 40 && isActive) {
                         delay(50L)
                         waitCount++
                     }
                     if (smartSeekSeeking) {
-                        Log.w(TAG, "Smart Seek timed out waiting for seek discontinuity")
+                        Log.w(TAG, "IntervalPlay timed out waiting for seek discontinuity")
                         smartSeekSeeking = false
                     }
                     smartSeekNextPositionMs = -1L
@@ -1043,7 +1001,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                 throw e
             } catch (e: Exception) {
                 smartSeekSeeking = false
-                Log.e(TAG, "Smart Seek failed", e)
+                Log.e(TAG, "IntervalPlay failed", e)
                 stopSmartSeek()
             } finally {
                 if (smartSeekJob === coroutineContext[Job]) {
@@ -1063,10 +1021,6 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         putLong("playDurationMs", smartSeekNextPlayDurationMs)
         putLong("skipDurationMs", smartSeekNextSkipDurationMs)
         putBoolean("seeking", smartSeekSeeking)
-        putInt("playValue", smartSeekConfig.playValue)
-        putInt("skipValue", smartSeekConfig.skipValue)
-        putBoolean("usePercent", smartSeekConfig.usePercent)
-        putString("pattern", smartSeekConfig.pattern.name)
     }
 
     private fun broadcastSmartSeekState() {
@@ -1189,7 +1143,6 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         }
         if (key == SmartSeekConfig.PREF_CONFIG_REVISION) {
             handler.post {
-                smartSeekConfig = SmartSeekConfig.load(prefs)
                 if (smartSeekActive) {
                     cancelSmartSeekJob(resetPendingSeek = true)
                     smartSeekNextPositionMs = -1L
@@ -1366,7 +1319,6 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         } else if (configure && !isSmartSeekEnabled()) {
                             stopSmartSeek()
                         } else if (configure) {
-                            smartSeekConfig = SmartSeekConfig.load(prefs)
                             cancelSmartSeekJob(resetPendingSeek = true)
                             smartSeekNextPositionMs = -1L
                             if (smartSeekActive && this.controller?.isPlaying == true) {
@@ -1919,7 +1871,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                     startSmartSeekLoop()
                 }
             } else {
-                // Manual Smart Seek belongs to one track; let subsequent tracks play normally.
+                // Manual IntervalPlay belongs to one track; let subsequent tracks play normally.
                 stopSmartSeek()
             }
         }
@@ -1998,7 +1950,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                 broadcastSmartSeekState()
             }
         } else {
-            // Pausing playback suspends Smart Seek and exposes the normal seek control.
+            // Pausing playback suspends IntervalPlay and exposes the normal seek control.
             cancelSmartSeekJob()
             if (smartSeekActive) {
                 smartSeekPaused = true
@@ -2114,7 +2066,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         newPosition: Player.PositionInfo,
         reason: Int
     ) {
-        // Smart Seek jumps within the same track. Do not clear the active audio-format cache merely
+        // IntervalPlay jumps within the same track. Do not clear the active audio-format cache merely
         // because Media3 reports a different period after such a seek; the format may not be emitted
         // again when playback resumes, leaving the quality row empty.
         val isSmartSeekJump = smartSeekSeeking &&

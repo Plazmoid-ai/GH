@@ -1306,26 +1306,14 @@ supporting local search. This string is displayed in the search bar when using G
     <!-- Option to enable reordering mode for items in a list -->
     <string name="edit_mode">Enter edit mode</string>
 
-    <!-- Smart Seek playback and menu settings -->
-    <string name="smart_seek">Smart Seek · tap to toggle · hold for settings</string>
-    <string name="smart_seek_start">Tap to enable Smart Seek · hold for settings</string>
-    <string name="smart_seek_stop">Smart Seek is active · tap to disable · hold for settings</string>
-    <string name="settings_smart_seek_persistent">Persistent mode for all tracks</string>
-    <string name="smart_seek_settings_title">Smart Seek settings</string>
-    <string name="smart_seek_settings_intro">Play for the chosen interval, then jump forward by the skip amount. Settings are saved.</string>
-    <string name="smart_seek_play_interval">Play interval (seconds)</string>
-    <string name="smart_seek_skip_amount">Skip forward (seconds)</string>
-    <string name="smart_seek_input_mode">Input mode</string>
-    <string name="smart_seek_mode_absolute">Fixed seconds</string>
-    <string name="smart_seek_mode_percent">Percent of track duration</string>
-    <string name="smart_seek_mode_cycle">Fixed cycle duration</string>
-    <string name="smart_seek_absolute_help">Play and skip durations are set independently in seconds (1–600).</string>
-    <string name="smart_seek_percent_help">Play and skip amounts are set independently as percentages of the current track duration (1–99%).</string>
-    <string name="smart_seek_play_interval_percent">Play interval (%)</string>
-    <string name="smart_seek_skip_amount_percent">Skip amount (%)</string>
-    <string name="smart_seek_cycle_duration">Cycle duration (seconds)</string>
-    <string name="smart_seek_sound_ratio">Play ratio (%)</string>
-    <string name="smart_seek_cycle_help">Cycle length remains fixed; the selected play ratio runs with sound. The rest of each cycle is skipped.</string>
+    <!-- IntervalPlay playback and menu settings -->
+    <string name="smart_seek">IntervalPlay · tap to toggle · hold for settings</string>
+    <string name="smart_seek_start">Tap to enable IntervalPlay · hold for settings</string>
+    <string name="smart_seek_stop">IntervalPlay is active · tap to disable · hold for settings</string>
+    <string name="settings_smart_seek_persistent">Persistent mode</string>
+    <string name="smart_seek_settings_title">IntervalPlay settings</string>
+    <string name="smart_seek_mode_simple">Simple</string>
+    <string name="smart_seek_mode_fixed">Fixed intervals</string>
     <string name="smart_seek_marker_color">Accent</string>
     <string name="smart_seek_show_indicator">Show indicator</string>
     <string name="smart_seek_color_blue">Blue</string>
@@ -1344,9 +1332,8 @@ supporting local search. This string is displayed in the search bar when using G
     <string name="smart_seek_experimental">Experimental</string>
     <string name="smart_seek_cancel">Cancel</string>
     <string name="smart_seek_save">Save</string>
-    <string name="smart_seek_invalid_value">Enter a value from 1 to %1$d.</string>
     <string name="smart_seek_config_summary">Configure intervals, indicator visibility, accent, and buffering.</string>
-    <string name="settings_smart_seek_enabled">Enable Smart Seek</string>
-    <string name="settings_smart_seek_enabled_summary">Show Smart Seek controls and allow Smart Seek actions. Disabling stops the current Smart Seek session. (Tap to configure)</string>
+    <string name="settings_smart_seek_enabled">Enable IntervalPlay</string>
+    <string name="settings_smart_seek_enabled_summary">Tap to open IntervalPlay settings.</string>
 
 </resources>

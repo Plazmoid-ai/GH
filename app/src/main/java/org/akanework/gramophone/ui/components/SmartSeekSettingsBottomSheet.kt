@@ -2,9 +2,9 @@
  *     Copyright (C) 2026 Plazmoid-ai
  *
  *     Gramophone is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU General Public License as published by
- *     the Free Software Foundation, either version 3 of the License, or
- *     (at your option) any later version.
+ *     it under the terms of the GNU General Public License
+ *     as published by the Free Software Foundation, either version 3
+ *     of the License, or (at your option) any later version.
  */
 
 package org.akanework.gramophone.ui.components
@@ -14,21 +14,16 @@ import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.CheckBox
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
@@ -36,10 +31,9 @@ import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.SmartSeekConfig
-import org.akanework.gramophone.logic.SmartSeekInputMode
 
 /**
- * Smart Seek settings. The sheet itself is locked; only the title handles downward-dismiss gestures.
+ * IntervalPlay settings screen scaffolding. The sheet is locked; only the title handles dismissal.
  */
 class SmartSeekSettingsBottomSheet(
     private val context: Context,
@@ -96,126 +90,182 @@ class SmartSeekSettingsBottomSheet(
             )
         }
 
+        val outlineColor = MaterialColors.getColor(
+            root, com.google.android.material.R.attr.colorOutlineVariant, Color.GRAY
+        )
+        val surfaceColor = MaterialColors.getColor(
+            root, com.google.android.material.R.attr.colorSurfaceVariant, Color.LTGRAY
+        )
+        val onSurfaceColor = MaterialColors.getColor(
+            root, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.DKGRAY
+        )
+        val primaryColor = MaterialColors.getColor(
+            root, androidx.appcompat.R.attr.colorPrimary, Color.rgb(26, 79, 163)
+        )
+        fun pillBackground(fillColor: Int, strokeColor: Int = outlineColor, radiusDp: Float = 24f) =
+            GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(radiusDp).toFloat()
+                setColor(fillColor)
+                setStroke(dp(1f), strokeColor)
+            }
+
+        // Two compact capsule switches in one row.
+        val optionRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        fun addCapsuleToggle(labelRes: Int, checked: Boolean, onChanged: (Boolean) -> Unit): MaterialSwitch {
+            val toggle = MaterialSwitch(context).apply {
+                isChecked = checked
+                contentDescription = context.getString(labelRes)
+                setOnCheckedChangeListener { _, isChecked -> onChanged(isChecked) }
+            }
+            val capsule = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(9f), dp(3f), dp(6f), dp(3f))
+                background = pillBackground(surfaceColor)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { toggle.isChecked = !toggle.isChecked }
+            }
+            capsule.addView(
+                TextView(context).apply {
+                    setText(labelRes)
+                    textSize = 12f
+                    maxLines = 2
+                    setTextColor(onSurfaceColor)
+                },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            capsule.addView(
+                toggle,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            optionRow.addView(
+                capsule,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (optionRow.childCount == 0) marginEnd = dp(6f) else marginStart = dp(6f)
+                }
+            )
+            return toggle
+        }
+
+        val showIndicator = addCapsuleToggle(
+            R.string.smart_seek_show_indicator,
+            preferences.getBoolean("smart_seek_show_indicator", true)
+        ) { }
+        val persistent = addCapsuleToggle(
+            R.string.settings_smart_seek_persistent,
+            preferences.getBoolean("smart_seek_persistent", false)
+        ) { }
         form.addView(
-            TextView(context).apply {
-                setText(R.string.smart_seek_settings_intro)
-                textSize = 14f
-            },
+            optionRow,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(8f) }
+            ).apply {
+                topMargin = dp(2f)
+                bottomMargin = dp(10f)
+            }
         )
 
-        val showIndicator = MaterialSwitch(context).apply {
-            setText(R.string.smart_seek_show_indicator)
-            isChecked = preferences.getBoolean("smart_seek_show_indicator", true)
+        // A non-scrollable two-segment selector.
+        var selectedMode = current.mode
+        val tabStrip = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(4f), dp(4f), dp(4f), dp(4f))
+            background = pillBackground(surfaceColor)
         }
-        form.addView(showIndicator)
-
-        val persistent = CheckBox(context).apply {
-            setText(R.string.settings_smart_seek_persistent)
-            isChecked = preferences.getBoolean("smart_seek_persistent", false)
+        val simpleTab = TextView(context).apply {
+            setText(R.string.smart_seek_mode_simple)
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setPadding(dp(8f), dp(10f), dp(8f), dp(10f))
+            isClickable = true
+            isFocusable = true
         }
-        form.addView(persistent)
-
-        addLabel(context.getString(R.string.smart_seek_input_mode))
-        val modeGroup = RadioGroup(context).apply { orientation = LinearLayout.VERTICAL }
-
-        fun modeRadio(mode: SmartSeekInputMode, labelRes: Int) =
-            RadioButton(context).apply {
-                id = View.generateViewId()
-                tag = mode
-                setText(labelRes)
-            }
-
-        val absoluteRadio = modeRadio(SmartSeekInputMode.ABSOLUTE, R.string.smart_seek_mode_absolute)
-        val percentRadio = modeRadio(SmartSeekInputMode.PERCENT, R.string.smart_seek_mode_percent)
-        val cycleRadio = modeRadio(SmartSeekInputMode.CYCLE, R.string.smart_seek_mode_cycle)
-        modeGroup.addView(absoluteRadio)
-        modeGroup.addView(percentRadio)
-        modeGroup.addView(cycleRadio)
-        when (current.inputMode) {
-            SmartSeekInputMode.ABSOLUTE -> absoluteRadio.isChecked = true
-            SmartSeekInputMode.PERCENT -> percentRadio.isChecked = true
-            SmartSeekInputMode.CYCLE -> cycleRadio.isChecked = true
+        val fixedTab = TextView(context).apply {
+            setText(R.string.smart_seek_mode_fixed)
+            gravity = Gravity.CENTER
+            textSize = 14f
+            setPadding(dp(8f), dp(10f), dp(8f), dp(10f))
+            isClickable = true
+            isFocusable = true
         }
-        form.addView(modeGroup)
-
-        val playLabel = TextView(context)
-        val playInput = EditText(context).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setSingleLine(true)
-            setSelectAllOnFocus(true)
-        }
-        val skipLabel = TextView(context)
-        val skipInput = EditText(context).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setSingleLine(true)
-            setSelectAllOnFocus(true)
-        }
-        form.addView(playLabel)
-        form.addView(playInput)
-        form.addView(skipLabel)
-        form.addView(skipInput)
-
-        val modeHelp = TextView(context).apply {
-            textSize = 13f
-            setPadding(0, dp(4f), 0, dp(4f))
-        }
+        tabStrip.addView(
+            simpleTab,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        tabStrip.addView(
+            fixedTab,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
         form.addView(
-            modeHelp,
+            tabStrip,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(4f) }
+            )
         )
 
-        fun currentMode(): SmartSeekInputMode =
-            when (modeGroup.checkedRadioButtonId) {
-                absoluteRadio.id -> SmartSeekInputMode.ABSOLUTE
-                percentRadio.id -> SmartSeekInputMode.PERCENT
-                else -> SmartSeekInputMode.CYCLE
-            }
-
-        fun updateInputLabels(mode: SmartSeekInputMode) {
-            when (mode) {
-                SmartSeekInputMode.ABSOLUTE -> {
-                    playLabel.setText(R.string.smart_seek_play_interval)
-                    skipLabel.setText(R.string.smart_seek_skip_amount)
-                    modeHelp.setText(R.string.smart_seek_absolute_help)
-                }
-                SmartSeekInputMode.PERCENT -> {
-                    playLabel.setText(R.string.smart_seek_play_interval_percent)
-                    skipLabel.setText(R.string.smart_seek_skip_amount_percent)
-                    modeHelp.setText(R.string.smart_seek_percent_help)
-                }
-                SmartSeekInputMode.CYCLE -> {
-                    playLabel.setText(R.string.smart_seek_cycle_duration)
-                    skipLabel.setText(R.string.smart_seek_sound_ratio)
-                    modeHelp.setText(R.string.smart_seek_cycle_help)
-                }
-            }
+        fun emptyModeContainer(): FrameLayout = FrameLayout(context).apply {
+            minimumHeight = dp(92f)
+            background = pillBackground(surfaceColor, outlineColor, 14f)
         }
-
-        fun loadModeValues(mode: SmartSeekInputMode) {
-            val values = when (mode) {
-                SmartSeekInputMode.ABSOLUTE -> current.absolutePlaySeconds to current.absoluteSkipSeconds
-                SmartSeekInputMode.PERCENT -> current.playPercent to current.skipPercent
-                SmartSeekInputMode.CYCLE -> (current.cycleDurationMs / 1_000L).toInt() to current.soundRatioPercent
+        val simpleContent = emptyModeContainer()
+        val fixedContent = emptyModeContainer()
+        form.addView(
+            simpleContent,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(8f)
+                bottomMargin = dp(4f)
             }
-            playInput.setText(values.first.toString())
-            skipInput.setText(values.second.toString())
-        }
+        )
+        form.addView(
+            fixedContent,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(8f)
+                bottomMargin = dp(4f)
+            }
+        )
 
-        updateInputLabels(current.inputMode)
-        loadModeValues(current.inputMode)
-        modeGroup.setOnCheckedChangeListener { _, _ ->
-            val mode = currentMode()
-            updateInputLabels(mode)
-            loadModeValues(mode)
+        fun selectedTabBackground() = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(20f).toFloat()
+            setColor(primaryColor)
         }
+        fun refreshModeTabs() {
+            val simpleSelected = selectedMode == SmartSeekConfig.MODE_SIMPLE
+            simpleTab.background = if (simpleSelected) selectedTabBackground() else null
+            fixedTab.background = if (!simpleSelected) selectedTabBackground() else null
+            simpleTab.setTextColor(if (simpleSelected) Color.WHITE else onSurfaceColor)
+            fixedTab.setTextColor(if (!simpleSelected) Color.WHITE else onSurfaceColor)
+            simpleContent.visibility = if (simpleSelected) View.VISIBLE else View.GONE
+            fixedContent.visibility = if (simpleSelected) View.GONE else View.VISIBLE
+        }
+        simpleTab.setOnClickListener {
+            selectedMode = SmartSeekConfig.MODE_SIMPLE
+            refreshModeTabs()
+        }
+        fixedTab.setOnClickListener {
+            selectedMode = SmartSeekConfig.MODE_FIXED
+            refreshModeTabs()
+        }
+        refreshModeTabs()
 
+        // Accent selector retained as the current fixed two-row grid.
         val colorValues = context.resources.getStringArray(R.array.smart_seek_marker_color_values)
         val colorEntries = context.resources.getStringArray(R.array.smart_seek_marker_color_entries)
         val accentHeader = LinearLayout(context).apply {
@@ -230,19 +280,27 @@ class SmartSeekSettingsBottomSheet(
         val accentName = TextView(context).apply {
             textSize = 14f
             gravity = Gravity.END
-            setTextColor(MaterialColors.getColor(
-                root, com.google.android.material.R.attr.colorOnSurfaceVariant, Color.GRAY
-            ))
+            setTextColor(onSurfaceColor)
         }
-        accentHeader.addView(accentTitle, LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-        ))
-        accentHeader.addView(accentName, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-        form.addView(accentHeader, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(12f) })
+        accentHeader.addView(
+            accentTitle,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        accentHeader.addView(
+            accentName,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        form.addView(
+            accentHeader,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12f) }
+        )
+
         val accentEnabled = preferences.getBoolean("smart_seek_custom_accent_enabled", true)
         var selectedAccent = if (accentEnabled) {
             preferences.getString("smart_seek_marker_color", "blue") ?: "blue"
@@ -256,38 +314,9 @@ class SmartSeekSettingsBottomSheet(
         }
         updateAccentName()
 
-
         val themeAccentColor = MaterialColors.getColor(
             root, androidx.appcompat.R.attr.colorPrimary, Color.rgb(26, 79, 163)
         )
-        val outlineColor = MaterialColors.getColor(
-            root, com.google.android.material.R.attr.colorOutlineVariant, Color.GRAY
-        )
-        // Two fixed rows: six swatches above, five centered beneath them.
-        // Each cell is 48dp wide, so the six-item row fits typical phone content widths.
-        val colorGrid = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(4f), 0, dp(4f))
-        }
-        val topColorRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        val bottomColorRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        colorGrid.addView(topColorRow, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f)
-        ))
-        colorGrid.addView(bottomColorRow, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f)
-        ))
-        form.addView(colorGrid, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-
         val colorSwatches = linkedMapOf<String, FrameLayout>()
         fun swatchFillColor(value: String): Int = when (value) {
             "red" -> Color.RED
@@ -335,6 +364,34 @@ class SmartSeekSettingsBottomSheet(
             "none", "dynamic", "transparent", "black", "red", "orange",
             "cyan", "lime", "pink", "violet", "blue"
         )
+        val colorGrid = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(4f), 0, dp(4f))
+        }
+        val topColorRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val bottomColorRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        colorGrid.addView(
+            topColorRow,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f))
+        )
+        colorGrid.addView(
+            bottomColorRow,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f))
+        )
+        form.addView(
+            colorGrid,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
         orderedColorValues.forEachIndexed { index, value ->
             val entryIndex = colorValues.indexOf(value)
             val swatch = FrameLayout(context).apply {
@@ -355,8 +412,7 @@ class SmartSeekSettingsBottomSheet(
                 }
             }
             colorSwatches[value] = swatch
-            val targetRow = if (index < 6) topColorRow else bottomColorRow
-            targetRow.addView(swatch)
+            (if (index < 6) topColorRow else bottomColorRow).addView(swatch)
         }
         updateAccentSelection()
 
@@ -378,12 +434,20 @@ class SmartSeekSettingsBottomSheet(
             setOnClickListener { dialog.dismiss() }
         }
         val saveButton = MaterialButton(context).apply { setText(R.string.smart_seek_save) }
-        actions.addView(cancelButton, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { marginEnd = dp(16f) })
-        actions.addView(saveButton, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { marginStart = dp(16f) })
+        actions.addView(
+            cancelButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(16f) }
+        )
+        actions.addView(
+            saveButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(16f) }
+        )
         root.addView(
             actions,
             LinearLayout.LayoutParams(
@@ -394,47 +458,7 @@ class SmartSeekSettingsBottomSheet(
         dialog.setContentView(root)
 
         saveButton.setOnClickListener {
-            val mode = currentMode()
-            val playMax = if (mode == SmartSeekInputMode.PERCENT) 99 else 600
-            val skipMax = if (mode == SmartSeekInputMode.ABSOLUTE) 600 else 99
-            val play = playInput.text.toString().trim().toIntOrNull()
-            val skip = skipInput.text.toString().trim().toIntOrNull()
-            if (play == null || skip == null || play !in 1..playMax || skip !in 1..skipMax) {
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.smart_seek_invalid_value, minOf(playMax, skipMax)),
-                    Toast.LENGTH_LONG
-                ).show()
-                return@setOnClickListener
-            }
-
-            val updated = when (mode) {
-                SmartSeekInputMode.ABSOLUTE -> current.copy(
-                    playValue = play,
-                    skipValue = skip,
-                    usePercent = false,
-                    inputMode = mode,
-                    absolutePlaySeconds = play,
-                    absoluteSkipSeconds = skip
-                )
-                SmartSeekInputMode.PERCENT -> current.copy(
-                    playValue = play,
-                    skipValue = skip,
-                    usePercent = true,
-                    inputMode = mode,
-                    playPercent = play,
-                    skipPercent = skip
-                )
-                SmartSeekInputMode.CYCLE -> current.copy(
-                    playValue = (play * skip / 100).coerceAtLeast(1),
-                    skipValue = (play - play * skip / 100).coerceAtLeast(1),
-                    usePercent = false,
-                    inputMode = mode,
-                    cycleDurationMs = play.toLong() * 1_000L,
-                    soundRatioPercent = skip
-                )
-            }
-            updated.copy(boostBuffer = boostBuffer.isChecked).save(preferences) {
+            SmartSeekConfig(mode = selectedMode, boostBuffer = boostBuffer.isChecked).save(preferences) {
                 putBoolean("smart_seek_show_indicator", showIndicator.isChecked)
                 putBoolean("smart_seek_persistent", persistent.isChecked)
                 putBoolean("smart_seek_custom_accent_enabled", selectedAccent != "none")

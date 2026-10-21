@@ -542,26 +542,14 @@
     <string name="settings_always_skip_previous_summary">Мгновенное переключение на предыдущий трек вместо перемотки в начало при нажатии кнопки «Назад»</string>
     <string name="reverse_order">Инвертировать порядок</string>
 
-    <!-- Smart Seek: управление воспроизведением и настройки меню -->
-    <string name="smart_seek">Smart Seek · нажать — вкл./выкл. · удержать — настройки</string>
-    <string name="smart_seek_start">Нажмите, чтобы включить Smart Seek · удерживайте для настроек</string>
-    <string name="smart_seek_stop">Smart Seek включён · нажмите, чтобы выключить · удерживайте для настроек</string>
-    <string name="settings_smart_seek_persistent">Постоянный режим для всех треков</string>
-    <string name="smart_seek_settings_title">Настройки Smart Seek</string>
-    <string name="smart_seek_settings_intro">Воспроизведение выбранного интервала, затем переход вперёд на заданную величину пропуска. Настройки сохраняются.</string>
-    <string name="smart_seek_play_interval">Интервал воспроизведения (с)</string>
-    <string name="smart_seek_skip_amount">Пропуск вперёд (с)</string>
-    <string name="smart_seek_input_mode">Режим настройки</string>
-    <string name="smart_seek_mode_absolute">Фиксированные секунды</string>
-    <string name="smart_seek_mode_percent">Проценты от длительности трека</string>
-    <string name="smart_seek_mode_cycle">Длительность цикла</string>
-    <string name="smart_seek_absolute_help">Длительности воспроизведения и пропуска задаются отдельно в секундах (1–600).</string>
-    <string name="smart_seek_percent_help">Значения воспроизведения и пропуска задаются отдельно в процентах от текущей длительности трека (1–99%).</string>
-    <string name="smart_seek_play_interval_percent">Интервал воспроизведения (%)</string>
-    <string name="smart_seek_skip_amount_percent">Величина пропуска (%)</string>
-    <string name="smart_seek_cycle_duration">Длительность цикла (секунды)</string>
-    <string name="smart_seek_sound_ratio">Доля воспроизведения (%)</string>
-    <string name="smart_seek_cycle_help">Длительность цикла постоянна. Выбранная доля цикла воспроизводится со звуком, остальная часть пропускается.</string>
+    <!-- IntervalPlay: управление воспроизведением и настройки меню -->
+    <string name="smart_seek">IntervalPlay · нажать — вкл./выкл. · удержать — настройки</string>
+    <string name="smart_seek_start">Нажмите, чтобы включить IntervalPlay · удерживайте для настроек</string>
+    <string name="smart_seek_stop">IntervalPlay включён · нажмите, чтобы выключить · удерживайте для настроек</string>
+    <string name="settings_smart_seek_persistent">Постоянный режим</string>
+    <string name="smart_seek_settings_title">Настройки IntervalPlay</string>
+    <string name="smart_seek_mode_simple">Простой</string>
+    <string name="smart_seek_mode_fixed">Фикс. интервалы</string>
     <string name="smart_seek_marker_color">Акцент</string>
     <string name="smart_seek_show_indicator">Показывать индикатор</string>
     <string name="smart_seek_color_blue">Синий</string>
@@ -580,9 +568,8 @@
     <string name="smart_seek_experimental">Экспериментально</string>
     <string name="smart_seek_cancel">Отмена</string>
     <string name="smart_seek_save">Сохранить</string>
-    <string name="smart_seek_invalid_value">Введите значение от 1 до %1$d.</string>
     <string name="smart_seek_config_summary">Настройка интервалов, отображения индикатора, акцента и буфера.</string>
-    <string name="settings_smart_seek_enabled">Включить Smart Seek</string>
-    <string name="settings_smart_seek_enabled_summary">Отображать кнопку Smart Seek и разрешать его работу. Отключение останавливает текущую сессию. (Нажмите, чтобы настроить)</string>
+    <string name="settings_smart_seek_enabled">Включить IntervalPlay</string>
+    <string name="settings_smart_seek_enabled_summary">Нажмите, чтобы открыть настройки IntervalPlay.</string>
 
 </resources>

@@ -110,8 +110,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.GramophonePlaybackService
-import org.akanework.gramophone.logic.SmartSeekConfig
-import org.akanework.gramophone.logic.SmartSeekCycle
 import org.akanework.gramophone.logic.SmartSeekMode
 import androidx.palette.graphics.Palette
 import org.akanework.gramophone.logic.clone
@@ -1700,28 +1698,29 @@ class FullBottomSheet
             activity.controllerViewModel.isSmartSeekActive()
 
     /**
-     * Convert a real timeline position to the cumulative time inside Smart Seek play intervals.
+     * Convert a real timeline position to the cumulative time inside IntervalPlay play intervals.
      * Time in a skip interval contributes only the play duration already completed in that cycle.
+     */
+    /**
+     * Temporary timer estimate based on the fixed placeholder intervals: 30 seconds play, 10 skip.
      */
     private fun calculateSmartSeekListenedMs(
         positionMs: Long,
-        trackDurationMs: Long,
-        cycle: SmartSeekCycle
+        trackDurationMs: Long
     ): Long {
         val safeDurationMs = trackDurationMs.coerceAtLeast(0L)
         val safePositionMs = positionMs.coerceIn(0L, safeDurationMs)
-        val cycleDurationMs = cycle.playDurationMs + cycle.skipDurationMs
-        if (cycleDurationMs <= 0L) return safePositionMs
-
-        val pastCycles = safePositionMs / cycleDurationMs
-        val remainderInCurrentCycle = safePositionMs % cycleDurationMs
-        return (pastCycles * cycle.playDurationMs +
-            min(remainderInCurrentCycle, cycle.playDurationMs)).coerceAtMost(safeDurationMs)
+        val playDurationMs = 30_000L
+        val skipDurationMs = 10_000L
+        val intervalDurationMs = playDurationMs + skipDurationMs
+        val pastIntervals = safePositionMs / intervalDurationMs
+        val remainderInInterval = safePositionMs % intervalDurationMs
+        return (pastIntervals * playDurationMs +
+            min(remainderInInterval, playDurationMs)).coerceAtMost(safeDurationMs)
     }
 
     /**
-     * Snap a manual seek to a playable interval: play -> current play start;
-     * skip -> next play start when it exists, otherwise the last available play start.
+     * Temporary fixed-interval scrub snapping: 30 seconds play, then 10 seconds skip.
      */
     private fun resolveScrubSeekTargetPosition(requestedPositionMs: Long): Long {
         val durationMs = currentTrackDurationMs()
@@ -1729,28 +1728,27 @@ class FullBottomSheet
         val safePositionMs = requestedPositionMs.coerceIn(0L, durationMs)
         if (!isSmartSeekTimerActive()) return safePositionMs
 
-        val cycle = SmartSeekConfig.load(prefs).resolveCycle(durationMs)
-        val cycleDurationMs = cycle.playDurationMs + cycle.skipDurationMs
-        if (cycleDurationMs <= 0L) return safePositionMs
-
-        val cycleStartMs = (safePositionMs / cycleDurationMs) * cycleDurationMs
-        val remainderInCycleMs = safePositionMs % cycleDurationMs
-        if (remainderInCycleMs < cycle.playDurationMs && cycleStartMs < durationMs) {
-            return cycleStartMs
+        val playDurationMs = 30_000L
+        val skipDurationMs = 10_000L
+        val intervalDurationMs = playDurationMs + skipDurationMs
+        val intervalStartMs = (safePositionMs / intervalDurationMs) * intervalDurationMs
+        val remainderInIntervalMs = safePositionMs % intervalDurationMs
+        if (remainderInIntervalMs < playDurationMs && intervalStartMs < durationMs) {
+            return intervalStartMs
         }
 
-        val nextPlayStartMs = cycleStartMs + cycleDurationMs
+        val nextPlayStartMs = intervalStartMs + intervalDurationMs
         if (nextPlayStartMs < durationMs) return nextPlayStartMs
-        return if (cycleStartMs < durationMs) {
-            cycleStartMs
+        return if (intervalStartMs < durationMs) {
+            intervalStartMs
         } else {
-            (cycleStartMs - cycleDurationMs).coerceAtLeast(0L)
+            (intervalStartMs - intervalDurationMs).coerceAtLeast(0L)
         }
     }
 
     /**
      * Update only timer text. Progress widgets and the timers' visual styling are not changed.
-     * While a seek is pending during Smart Seek, keep displaying its target until confirmed.
+     * While a seek is pending during IntervalPlay, keep displaying its target until confirmed.
      */
     private fun updateDisplayedSmartSeekTimes(positionOverrideMs: Long? = null) {
         val player = instance ?: return
@@ -1770,12 +1768,11 @@ class FullBottomSheet
         val safeDurationMs = durationMs.coerceAtLeast(0L)
         val safePositionMs = positionMs.coerceIn(0L, safeDurationMs)
         if (smartSeekActive && safeDurationMs > 0L) {
-            val cycle = SmartSeekConfig.load(prefs).resolveCycle(safeDurationMs)
             bottomSheetFullPosition.text = CalculationUtils.convertDurationToTimeStamp(
-                calculateSmartSeekListenedMs(safePositionMs, safeDurationMs, cycle)
+                calculateSmartSeekListenedMs(safePositionMs, safeDurationMs)
             )
             bottomSheetFullDuration.text = CalculationUtils.convertDurationToTimeStamp(
-                calculateSmartSeekListenedMs(safeDurationMs, safeDurationMs, cycle)
+                calculateSmartSeekListenedMs(safeDurationMs, safeDurationMs)
             )
         } else {
             bottomSheetFullPosition.text =
@@ -1789,8 +1786,7 @@ class FullBottomSheet
         val durationMs = currentTrackDurationMs() ?: return
         val safeDurationMs = durationMs.coerceAtLeast(0L)
         val displayedDurationMs = if (isSmartSeekTimerActive() && safeDurationMs > 0L) {
-            val cycle = SmartSeekConfig.load(prefs).resolveCycle(safeDurationMs)
-            calculateSmartSeekListenedMs(safeDurationMs, safeDurationMs, cycle)
+            calculateSmartSeekListenedMs(safeDurationMs, safeDurationMs)
         } else {
             safeDurationMs
         }
