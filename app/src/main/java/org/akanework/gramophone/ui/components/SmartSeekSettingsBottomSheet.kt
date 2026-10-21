@@ -11,26 +11,30 @@ package org.akanework.gramophone.ui.components
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.materialswitch.MaterialSwitch
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.SmartSeekConfig
 import org.akanework.gramophone.logic.SmartSeekInputMode
@@ -103,6 +107,12 @@ class SmartSeekSettingsBottomSheet(
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(8f) }
         )
+
+        val showIndicator = MaterialSwitch(context).apply {
+            setText(R.string.smart_seek_show_indicator)
+            isChecked = preferences.getBoolean("smart_seek_show_indicator", true)
+        }
+        form.addView(showIndicator)
 
         val persistent = CheckBox(context).apply {
             setText(R.string.settings_smart_seek_persistent)
@@ -208,23 +218,101 @@ class SmartSeekSettingsBottomSheet(
         }
 
         addLabel(context.getString(R.string.smart_seek_marker_color))
-        val colorSpinner = Spinner(context)
-        colorSpinner.adapter = ArrayAdapter.createFromResource(
-            context,
-            R.array.smart_seek_marker_color_entries,
-            android.R.layout.simple_spinner_item
-        ).also {
-            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
         val colorValues = context.resources.getStringArray(R.array.smart_seek_marker_color_values)
+        val colorEntries = context.resources.getStringArray(R.array.smart_seek_marker_color_entries)
         val accentEnabled = preferences.getBoolean("smart_seek_custom_accent_enabled", true)
-        val selectedColor = if (accentEnabled) {
+        var selectedAccent = if (accentEnabled) {
             preferences.getString("smart_seek_marker_color", "blue") ?: "blue"
         } else {
             "none"
         }
-        colorSpinner.setSelection(colorValues.indexOf(selectedColor).coerceAtLeast(0))
-        form.addView(colorSpinner)
+        if (selectedAccent !in colorValues) selectedAccent = "blue"
+
+        val themeAccentColor = MaterialColors.getColor(
+            root, androidx.appcompat.R.attr.colorPrimary, Color.rgb(26, 79, 163)
+        )
+        val outlineColor = MaterialColors.getColor(
+            root, com.google.android.material.R.attr.colorOutlineVariant, Color.GRAY
+        )
+        val colorStrip = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val colorScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+            setPadding(0, dp(4f), 0, dp(4f))
+            addView(colorStrip, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, dp(48f)
+            ))
+        }
+        form.addView(colorScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+
+        val colorSwatches = linkedMapOf<String, FrameLayout>()
+        fun swatchFillColor(value: String): Int = when (value) {
+            "orange" -> Color.rgb(255, 109, 0)
+            "cyan" -> Color.rgb(0, 184, 212)
+            "lime" -> Color.rgb(124, 179, 66)
+            "pink" -> Color.rgb(245, 0, 87)
+            "violet" -> Color.rgb(124, 77, 255)
+            "black" -> Color.BLACK
+            "none" -> themeAccentColor
+            else -> Color.rgb(26, 79, 163)
+        }
+        fun swatchDrawable(value: String): GradientDrawable = when (value) {
+            "dynamic" -> GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(33, 150, 243), Color.rgb(156, 39, 176), Color.rgb(255, 152, 0))
+            ).apply { shape = GradientDrawable.OVAL }
+            "transparent" -> GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(2f), Color.WHITE)
+            }
+            else -> GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(swatchFillColor(value))
+            }
+        }
+        fun updateAccentSelection() {
+            val selectedRingColor = MaterialColors.getColor(
+                root, androidx.appcompat.R.attr.colorPrimary, Color.WHITE
+            )
+            colorSwatches.forEach { (value, swatch) ->
+                swatch.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.TRANSPARENT)
+                    setStroke(
+                        dp(if (value == selectedAccent) 2.5f else 1f),
+                        if (value == selectedAccent) selectedRingColor else outlineColor
+                    )
+                }
+                swatch.isSelected = value == selectedAccent
+            }
+        }
+        colorValues.forEachIndexed { index, value ->
+            val swatch = FrameLayout(context).apply {
+                contentDescription = colorEntries.getOrElse(index) { value }
+                isClickable = true
+                isFocusable = true
+                layoutParams = LinearLayout.LayoutParams(dp(44f), dp(44f)).apply {
+                    marginEnd = dp(4f)
+                }
+                addView(
+                    View(context).apply { background = swatchDrawable(value) },
+                    FrameLayout.LayoutParams(dp(28f), dp(28f), Gravity.CENTER)
+                )
+                setOnClickListener {
+                    selectedAccent = value
+                    updateAccentSelection()
+                }
+            }
+            colorSwatches[value] = swatch
+            colorStrip.addView(swatch)
+        }
+        updateAccentSelection()
 
         addLabel(context.getString(R.string.smart_seek_boost_buffer))
         val boostBuffer = CheckBox(context).apply {
@@ -295,8 +383,8 @@ class SmartSeekSettingsBottomSheet(
                     soundRatioPercent = skip
                 )
             }
-            val selectedAccent = colorValues[colorSpinner.selectedItemPosition]
             updated.copy(boostBuffer = boostBuffer.isChecked).save(preferences) {
+                putBoolean("smart_seek_show_indicator", showIndicator.isChecked)
                 putBoolean("smart_seek_persistent", persistent.isChecked)
                 putBoolean("smart_seek_custom_accent_enabled", selectedAccent != "none")
                 putString("smart_seek_marker_color", if (selectedAccent == "none") "blue" else selectedAccent)

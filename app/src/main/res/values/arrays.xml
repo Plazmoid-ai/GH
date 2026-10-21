@@ -56,8 +56,9 @@
         <item>@string/smart_seek_color_lime</item>
         <item>@string/smart_seek_color_pink</item>
         <item>@string/smart_seek_color_violet</item>
+        <item>@string/smart_seek_color_black</item>
+        <item>@string/smart_seek_color_transparent</item>
         <item>@string/smart_seek_color_dynamic</item>
-        <item>@string/smart_seek_color_contrast</item>
         <item>@string/smart_seek_color_none</item>
     </string-array>
 
@@ -68,8 +69,9 @@
         <item>lime</item>
         <item>pink</item>
         <item>violet</item>
+        <item>black</item>
+        <item>transparent</item>
         <item>dynamic</item>
-        <item>contrast</item>
         <item>none</item>
     </string-array>
 

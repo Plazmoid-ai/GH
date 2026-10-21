@@ -269,9 +269,8 @@ class FullBottomSheet
     private var smartSeekIndicatorActive = false
     private var smartSeekIndicatorPaused = false
     private var smartSeekIndicatorSeeking = false
-    private var smartSeekIndicatorNextPositionMs = -1L
+    private var smartSeekIndicatorHasPlayInterval = false
     private var smartSeekIndicatorPlayDurationMs = 0L
-    private var smartSeekIndicatorCurrentPositionMs = 0L
     private var smartSeekDynamicAccentColor: Int? = null
     private var smartSeekDynamicAccentArtworkUri: Uri? = null
     private var smartSeekDynamicAccentPaletteResolved = false
@@ -319,22 +318,14 @@ class FullBottomSheet
                 GramophonePlaybackService.SERVICE_TIMER_CHANGED -> updateTimer()
 
                 GramophonePlaybackService.SERVICE_SMART_SEEK -> {
-                    smartSeekIndicatorCurrentPositionMs = args.getLong(
-                        "currentPositionMs",
-                        instance?.currentPosition ?: 0L
-                    )
-                    if (args.getBoolean("progressOnly", false)) {
-                        updateSmartSeekMiniIndicator()
-                    } else {
-                        smartSeekIndicatorActive = args.getBoolean("active", false)
-                        smartSeekIndicatorPaused = args.getBoolean("paused", false)
-                        smartSeekIndicatorSeeking = args.getBoolean("seeking", false)
-                        smartSeekIndicatorNextPositionMs = args.getLong("nextPositionMs", -1L)
-                        smartSeekIndicatorPlayDurationMs = args.getLong("playDurationMs", 0L)
-                        activity.controllerViewModel.updateSmartSeekActive(smartSeekIndicatorActive)
-                        activity.controllerViewModel.updateSmartSeekPaused(smartSeekIndicatorPaused)
-                        updateSmartSeekButton()
-                    }
+                    smartSeekIndicatorActive = args.getBoolean("active", false)
+                    smartSeekIndicatorPaused = args.getBoolean("paused", false)
+                    smartSeekIndicatorSeeking = args.getBoolean("seeking", false)
+                    smartSeekIndicatorHasPlayInterval = args.getLong("nextPositionMs", -1L) > 0L
+                    smartSeekIndicatorPlayDurationMs = args.getLong("playDurationMs", 0L)
+                    activity.controllerViewModel.updateSmartSeekActive(smartSeekIndicatorActive)
+                    activity.controllerViewModel.updateSmartSeekPaused(smartSeekIndicatorPaused)
+                    updateSmartSeekButton()
                 }
 
                 GramophonePlaybackService.SERVICE_GET_LYRICS -> {
@@ -803,7 +794,8 @@ class FullBottomSheet
             "pink" -> Color.rgb(245, 0, 87)
             "violet" -> Color.rgb(124, 77, 255)
             "dynamic" -> smartSeekDynamicAccentColor ?: smartSeekThemeAccentColor()
-            "contrast" -> smartSeekContrastColor()
+            "black" -> Color.BLACK
+            "transparent" -> Color.TRANSPARENT
             else -> Color.rgb(26, 79, 163)
         }
     }
@@ -815,14 +807,14 @@ class FullBottomSheet
         val active = enabled && activity.controllerViewModel.isSmartSeekActive()
         val customAccent = prefs.getBoolean("smart_seek_custom_accent_enabled", true)
         val color = smartSeekMarkerColor()
-        val monochrome = customAccent && prefs.getString("smart_seek_marker_color", "blue") == "contrast"
+        val transparentAccent = customAccent && prefs.getString("smart_seek_marker_color", "blue") == "transparent"
         button.isChecked = active
         button.isActivated = active
         button.contentDescription = context.getString(
             if (active) R.string.smart_seek_stop else R.string.smart_seek_start
         )
-        val backgroundColor = if (monochrome) {
-            if (color == Color.BLACK) Color.WHITE else Color.BLACK
+        val backgroundColor = if (transparentAccent) {
+            Color.TRANSPARENT
         } else {
             MaterialColors.getColor(
                 button,
@@ -831,11 +823,15 @@ class FullBottomSheet
                 Color.TRANSPARENT
             )
         }
-        val iconColor = if (customAccent && (active || monochrome)) color else {
+        val iconColor = if (transparentAccent) Color.WHITE else if (customAccent && active) color else {
             MaterialColors.getColor(button, com.google.android.material.R.attr.colorOnSurface, Color.WHITE)
         }
         button.backgroundTintList = ColorStateList.valueOf(backgroundColor)
         button.iconTint = ColorStateList.valueOf(iconColor)
+        button.setStrokeColor(ColorStateList.valueOf(if (transparentAccent) Color.WHITE else Color.TRANSPARENT))
+        button.setStrokeWidth(if (transparentAccent) {
+            (2f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        } else 0)
         TooltipCompat.setTooltipText(
             button,
             context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
@@ -847,11 +843,11 @@ class FullBottomSheet
         bottomSheetSmartSeekIndicator.updatePlaybackState(
             smartSeekActive = prefs.getBoolean("smart_seek_enabled", true) && smartSeekIndicatorActive,
             isPlaying = instance?.isPlaying == true && !smartSeekIndicatorPaused,
+            hasPlayInterval = smartSeekIndicatorHasPlayInterval,
             isSkipping = smartSeekIndicatorSeeking,
-            currentPositionMs = smartSeekIndicatorCurrentPositionMs,
-            intervalEndPositionMs = smartSeekIndicatorNextPositionMs,
             playDurationMs = smartSeekIndicatorPlayDurationMs,
-            accentColor = smartSeekMarkerColor()
+            accentColor = smartSeekMarkerColor(),
+            showIndicator = prefs.getBoolean("smart_seek_show_indicator", true)
         )
     }
 
