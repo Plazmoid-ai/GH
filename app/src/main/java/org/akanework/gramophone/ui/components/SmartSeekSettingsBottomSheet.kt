@@ -79,12 +79,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.hapticfeedback.HapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
@@ -230,8 +227,10 @@ private fun IntervalPlaySettingsContent(
     val activeTab = remember { mutableStateOf(0) }
     val isScissorsActive = remember { mutableStateOf(false) }
     val isPercentMode = remember { mutableStateOf(false) }
-    val simpleValue = remember { mutableStateOf(2) }
-    val isLocked = remember { mutableStateOf(true) }
+    val simpleMinutes = remember { mutableStateOf(0) }
+    val simpleSeconds = remember { mutableStateOf(30) }
+    val simplePercent = remember { mutableStateOf(2) }
+    val isLocked = remember { mutableStateOf(false) }
     val playValue = remember { mutableStateOf(30) }
     val skipValue = remember { mutableStateOf(10) }
 
@@ -365,24 +364,31 @@ private fun IntervalPlaySettingsContent(
             }
 
             if (activeTab.value == 0) {
-                PreviewBar()
+                PreviewBar(
+                    playLabel = if (isPercentMode.value) {
+                        "${simplePercent.value}%"
+                    } else {
+                        formatInterval(simpleMinutes.value * 60 + simpleSeconds.value)
+                    }
+                )
                 SimpleSettings(
                     isPercentMode = isPercentMode.value,
                     wheelSwipeEnabled = wheelSwipeEnabled,
-                    onPercentModeChange = { percentMode ->
-                        isPercentMode.value = percentMode
-                        simpleValue.value = if (percentMode) {
-                            simpleValue.value.coerceIn(0, 100)
+                    minutes = simpleMinutes.value,
+                    seconds = simpleSeconds.value,
+                    percent = simplePercent.value,
+                    onPercentModeChange = { isPercentMode.value = it },
+                    onMinutesChange = { simpleMinutes.value = it },
+                    onSecondsChange = { simpleSeconds.value = it },
+                    onPercentChange = { simplePercent.value = it },
+                    onAdjust = { delta ->
+                        if (isPercentMode.value) {
+                            simplePercent.value = Math.floorMod(simplePercent.value + delta, 101)
                         } else {
-                            simpleValue.value.coerceIn(0, 10)
-                        }
-                    },
-                    simpleValue = simpleValue.value,
-                    onSimpleValueChange = { nextValue ->
-                        simpleValue.value = if (isPercentMode.value) {
-                            Math.floorMod(nextValue, 101)
-                        } else {
-                            nextValue.coerceIn(0, 10)
+                            val currentSeconds = simpleMinutes.value * 60 + simpleSeconds.value
+                            val nextSeconds = (currentSeconds + delta).coerceIn(0, 659)
+                            simpleMinutes.value = nextSeconds / 60
+                            simpleSeconds.value = nextSeconds % 60
                         }
                     }
                 )
@@ -394,17 +400,24 @@ private fun IntervalPlaySettingsContent(
                     onSelect = { index ->
                         simplePresets.value[index]?.let { preset ->
                             isPercentMode.value = preset.isPercent
-                            simpleValue.value = preset.value.coerceIn(
-                                0,
-                                if (preset.isPercent) 100 else 10
-                            )
+                            if (preset.isPercent) {
+                                simplePercent.value = preset.value.coerceIn(0, 100)
+                            } else {
+                                val seconds = preset.value.coerceIn(0, 659)
+                                simpleMinutes.value = seconds / 60
+                                simpleSeconds.value = seconds % 60
+                            }
                             selectedSimplePreset.value = index
                         }
                     },
                     onSave = { index ->
                         val updated = simplePresets.value.toMutableList()
                         updated[index] = SimpleIntervalPreset(
-                            value = simpleValue.value,
+                            value = if (isPercentMode.value) {
+                                simplePercent.value
+                            } else {
+                                simpleMinutes.value * 60 + simpleSeconds.value
+                            },
                             isPercent = isPercentMode.value
                         )
                         simplePresets.value = updated
@@ -422,35 +435,38 @@ private fun IntervalPlaySettingsContent(
                     skipValue = skipValue.value,
                     isLocked = isLocked.value,
                     wheelSwipeEnabled = wheelSwipeEnabled,
-                    onLockToggle = { isLocked.value = !isLocked.value },
+                    onLockToggle = {
+                        val enablingLink = !isLocked.value
+                        if (enablingLink) {
+                            skipValue.value = playValue.value
+                        }
+                        isLocked.value = enablingLink
+                    },
                     onPlayValueChange = { newValue ->
                         val clamped = newValue.coerceIn(0, 659)
+                        playValue.value = clamped
                         if (isLocked.value) {
-                            val delta = clamped - playValue.value
-                            playValue.value = clamped
-                            skipValue.value = (skipValue.value + delta).coerceIn(0, 659)
-                        } else {
-                            playValue.value = clamped
+                            skipValue.value = clamped
                         }
                     },
                     onSkipValueChange = { newValue ->
                         val clamped = newValue.coerceIn(0, 659)
+                        skipValue.value = clamped
                         if (isLocked.value) {
-                            val delta = clamped - skipValue.value
-                            skipValue.value = clamped
-                            playValue.value = (playValue.value + delta).coerceIn(0, 659)
-                        } else {
-                            skipValue.value = clamped
+                            playValue.value = clamped
                         }
                     },
                     onAdjust = { isPlayValue, delta ->
-                        if (isLocked.value) {
-                            playValue.value = (playValue.value + delta).coerceIn(0, 659)
-                            skipValue.value = (skipValue.value + delta).coerceIn(0, 659)
-                        } else if (isPlayValue) {
-                            playValue.value = (playValue.value + delta).coerceIn(0, 659)
+                        val current = if (isPlayValue) playValue.value else skipValue.value
+                        val next = (current + delta).coerceIn(0, 659)
+                        if (isPlayValue) {
+                            playValue.value = next
                         } else {
-                            skipValue.value = (skipValue.value + delta).coerceIn(0, 659)
+                            skipValue.value = next
+                        }
+                        if (isLocked.value) {
+                            playValue.value = next
+                            skipValue.value = next
                         }
                     }
                 )
@@ -576,9 +592,11 @@ private fun ModeTab(
     }
 }
 
-/** Decorative preview only; values are intentionally not connected to playback logic. */
+/** A UI preview of the simple-mode interval; it does not drive playback. */
 @Composable
-private fun PreviewBar() {
+private fun PreviewBar(
+    playLabel: String
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -586,7 +604,7 @@ private fun PreviewBar() {
     ) {
         PreviewCapsule(
             modifier = Modifier.weight(1f),
-            label = "00:30",
+            label = playLabel,
             isPlay = true
         )
         PreviewCapsule(
@@ -627,12 +645,15 @@ private fun PreviewCapsule(
 private fun SimpleSettings(
     isPercentMode: Boolean,
     wheelSwipeEnabled: Boolean,
+    minutes: Int,
+    seconds: Int,
+    percent: Int,
     onPercentModeChange: (Boolean) -> Unit,
-    simpleValue: Int,
-    onSimpleValueChange: (Int) -> Unit
+    onMinutesChange: (Int) -> Unit,
+    onSecondsChange: (Int) -> Unit,
+    onPercentChange: (Int) -> Unit,
+    onAdjust: (Int) -> Unit
 ) {
-    val range = if (isPercentMode) 0..100 else 0..10
-
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -668,19 +689,50 @@ private fun SimpleSettings(
                 )
             }
 
-            HybridWheelPicker(
-                value = simpleValue.coerceIn(range),
-                valueRange = range,
-                cyclic = isPercentMode,
-                onValueChange = onSimpleValueChange,
-                modifier = Modifier.weight(1f),
-                swipeEnabled = wheelSwipeEnabled
-            )
+            if (isPercentMode) {
+                HybridWheelPicker(
+                    value = percent,
+                    valueRange = 0..100,
+                    cyclic = true,
+                    onValueChange = onPercentChange,
+                    modifier = Modifier.weight(1f),
+                    swipeEnabled = wheelSwipeEnabled
+                )
+            } else {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HybridWheelPicker(
+                        value = minutes,
+                        valueRange = 0..10,
+                        cyclic = true,
+                        onValueChange = onMinutesChange,
+                        modifier = Modifier.weight(1f),
+                        swipeEnabled = wheelSwipeEnabled
+                    )
+                    Text(
+                        text = ":",
+                        color = IntervalPlayPalette.whiteText.copy(alpha = 0.6f),
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    HybridWheelPicker(
+                        value = seconds,
+                        valueRange = 0..59,
+                        cyclic = true,
+                        onValueChange = onSecondsChange,
+                        modifier = Modifier.weight(1f),
+                        swipeEnabled = wheelSwipeEnabled
+                    )
+                }
+            }
 
             Stepper(
                 modifier = Modifier.width(76.dp),
-                onDecrease = { onSimpleValueChange(simpleValue - 1) },
-                onIncrease = { onSimpleValueChange(simpleValue + 1) }
+                onDecrease = { onAdjust(-1) },
+                onIncrease = { onAdjust(1) }
             )
         }
     }
