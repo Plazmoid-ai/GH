@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -445,7 +446,7 @@ private fun StateCapsule(
     val enabled = state.value
     Box(
         modifier = modifier
-            .height(44.dp)
+            .height(36.dp)
             .clip(RoundedCornerShape(24.dp))
             .background(
                 if (enabled) IntervalPlayPalette.accent else IntervalPlayPalette.inactive
@@ -618,11 +619,29 @@ private fun UnitModeOption(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            color = if (selected) IntervalPlayPalette.darkText else IntervalPlayPalette.grayText,
-            fontSize = 12.sp
-        )
+        if (label == "Часы") {
+            Icon(
+                imageVector = Icons.Default.AccessTime,
+                contentDescription = "Часы",
+                tint = if (selected) {
+                    IntervalPlayPalette.darkText
+                } else {
+                    IntervalPlayPalette.grayText
+                },
+                modifier = Modifier.size(20.dp)
+            )
+        } else {
+            Text(
+                text = label,
+                color = if (selected) {
+                    IntervalPlayPalette.darkText
+                } else {
+                    IntervalPlayPalette.grayText
+                },
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
@@ -838,7 +857,7 @@ private fun PresetSelector(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(46.dp)
+                        .height(40.dp)
                         .clip(RoundedCornerShape(9.dp))
                         .background(
                             if (selected) Color(0xFF29243B) else IntervalPlayPalette.inactive
@@ -892,22 +911,39 @@ private fun PresetSelector(
 }
 
 @Composable
-private fun SimplePresetCardContent(preset: SimpleIntervalPreset?) {
+private fun SimplePresetCardContent(
+    preset: SimpleIntervalPreset?
+) {
     if (preset == null) return
+
     Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (preset.isPercent) {
+            Text(
+                text = "%",
+                color = IntervalPlayPalette.accent,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.AccessTime,
+                contentDescription = "Часы",
+                tint = IntervalPlayPalette.accent,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+
         Text(
-            text = if (preset.isPercent) "%" else "◷",
-            color = IntervalPlayPalette.accent,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Text(
-            text = if (preset.isPercent) "${preset.value}%" else preset.value.toString(),
+            text = if (preset.isPercent) {
+                "${preset.value}%"
+            } else {
+                preset.value.toString()
+            },
             color = IntervalPlayPalette.whiteText,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontFamily = FontFamily.Monospace,
             maxLines = 1
         )
@@ -915,33 +951,33 @@ private fun SimplePresetCardContent(preset: SimpleIntervalPreset?) {
 }
 
 @Composable
-private fun FixedPresetCardContent(preset: IntervalPlayPreset?) {
+private fun FixedPresetCardContent(
+    preset: IntervalPlayPreset?
+) {
     if (preset == null) return
+
     Row(
         horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "◷",
+            text = formatPresetInterval(preset.playSeconds),
             color = IntervalPlayPalette.accent,
-            fontSize = 13.sp
-        )
-        Text(
-            text = formatInterval(preset.playSeconds),
-            color = IntervalPlayPalette.accent,
-            fontSize = 9.sp,
+            fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             maxLines = 1
         )
+
         Text(
             text = "/",
             color = IntervalPlayPalette.grayText,
-            fontSize = 9.sp
+            fontSize = 10.sp
         )
+
         Text(
-            text = formatInterval(preset.skipSeconds),
+            text = formatPresetInterval(preset.skipSeconds),
             color = IntervalPlayPalette.grayText,
-            fontSize = 9.sp,
+            fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             maxLines = 1
         )
@@ -954,19 +990,42 @@ private fun AccentSelector(
     onSelect: (Int) -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = "Акцент",
-            color = IntervalPlayPalette.grayText,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Акцент",
+                modifier = Modifier.weight(1f),
+                color = IntervalPlayPalette.grayText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+
+            Text(
+                text = intervalAccentOptions
+                    .getOrNull(selectedIndex)
+                    ?.label
+                    .orEmpty(),
+                color = IntervalPlayPalette.accent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.End,
+                maxLines = 1
+            )
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(11.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(
+                8.dp,
+                Alignment.CenterHorizontally
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             intervalAccentOptions.take(6).forEachIndexed { index, option ->
@@ -977,9 +1036,13 @@ private fun AccentSelector(
                 )
             }
         }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(11.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(
+                8.dp,
+                Alignment.CenterHorizontally
+            ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             intervalAccentOptions.drop(6).forEachIndexed { rowIndex, option ->
@@ -1008,7 +1071,7 @@ private fun AccentSwatch(
 
     Box(
         modifier = Modifier
-            .size(29.dp)
+            .size(35.dp)
             .clip(CircleShape)
             .border(
                 width = if (selected) 2.dp else 1.dp,
@@ -1021,7 +1084,7 @@ private fun AccentSwatch(
     ) {
         Box(
             modifier = Modifier
-                .size(21.dp)
+                .size(27.dp)
                 .clip(CircleShape)
                 .then(swatchModifier)
                 .then(
@@ -1130,3 +1193,6 @@ private fun BottomActionButton(
 
 private fun formatInterval(seconds: Int): String =
     String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
+
+private fun formatPresetInterval(seconds: Int): String =
+    if (seconds < 60) seconds.toString() else formatInterval(seconds)
