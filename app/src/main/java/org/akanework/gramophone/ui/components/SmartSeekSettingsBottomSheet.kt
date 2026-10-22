@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -102,6 +103,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import org.akanework.gramophone.logic.SmartSeekConfig
 
 private object IntervalPlayPalette {
     val background = Color(0xFF121212)
@@ -173,9 +175,11 @@ private val dynamicAccentBrush = Brush.sweepGradient(
  */
 class SmartSeekSettingsBottomSheet(
     private val context: Context,
-    @Suppress("UNUSED_PARAMETER") preferences: SharedPreferences,
+    preferences: SharedPreferences,
     @Suppress("UNUSED_PARAMETER") onSaved: (() -> Unit)? = null
 ) {
+    private val wheelSwipeEnabled = SmartSeekConfig.load(preferences).wheelSwipeEnabled
+
     fun show(): BottomSheetDialog {
         val dialog = BottomSheetDialog(context)
         dialog.setCanceledOnTouchOutside(false)
@@ -185,6 +189,7 @@ class SmartSeekSettingsBottomSheet(
             )
             setContent {
                 IntervalPlaySettingsContent(
+                    wheelSwipeEnabled = wheelSwipeEnabled,
                     onCancel = { dialog.dismiss() },
                     onSave = { dialog.dismiss() }
                 )
@@ -216,6 +221,7 @@ class SmartSeekSettingsBottomSheet(
 
 @Composable
 private fun IntervalPlaySettingsContent(
+    wheelSwipeEnabled: Boolean,
     onCancel: () -> Unit,
     onSave: () -> Unit
 ) {
@@ -362,6 +368,7 @@ private fun IntervalPlaySettingsContent(
                 PreviewBar()
                 SimpleSettings(
                     isPercentMode = isPercentMode.value,
+                    wheelSwipeEnabled = wheelSwipeEnabled,
                     onPercentModeChange = { percentMode ->
                         isPercentMode.value = percentMode
                         simpleValue.value = if (percentMode) {
@@ -414,6 +421,7 @@ private fun IntervalPlaySettingsContent(
                     playValue = playValue.value,
                     skipValue = skipValue.value,
                     isLocked = isLocked.value,
+                    wheelSwipeEnabled = wheelSwipeEnabled,
                     onLockToggle = { isLocked.value = !isLocked.value },
                     onPlayValueChange = { newValue ->
                         val clamped = newValue.coerceIn(0, 659)
@@ -618,6 +626,7 @@ private fun PreviewCapsule(
 @Composable
 private fun SimpleSettings(
     isPercentMode: Boolean,
+    wheelSwipeEnabled: Boolean,
     onPercentModeChange: (Boolean) -> Unit,
     simpleValue: Int,
     onSimpleValueChange: (Int) -> Unit
@@ -664,7 +673,8 @@ private fun SimpleSettings(
                 valueRange = range,
                 cyclic = isPercentMode,
                 onValueChange = onSimpleValueChange,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                swipeEnabled = wheelSwipeEnabled
             )
 
             Stepper(
@@ -684,7 +694,8 @@ private fun HybridWheelPicker(
     onValueChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
     containerHeight: Dp = 168.dp,
-    itemHeight: Dp = 54.dp
+    itemHeight: Dp = 54.dp,
+    swipeEnabled: Boolean = false
 ) {
     val rangeSize = valueRange.last - valueRange.first + 1
     val itemCount = if (cyclic) rangeSize * 1000 else rangeSize
@@ -714,6 +725,7 @@ private fun HybridWheelPicker(
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = indexFor(value.coerceIn(valueRange))
     )
+    val wheelScrollScope = rememberCoroutineScope()
     val centeredIndex by remember(listState) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
@@ -777,9 +789,79 @@ private fun HybridWheelPicker(
         )
     )
 
+    val swipeGestureModifier = if (swipeEnabled) {
+        Modifier.pointerInput(listState, valueRange.first, valueRange.last, cyclic) {
+            val touchSlop = viewConfiguration.touchSlop
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                val activePointerId = down.id
+                var previousY = down.position.y
+                var accumulatedY = 0f
+                var isDragging = false
+                var released = false
+
+                while (!released) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == activePointerId } ?: break
+                    val deltaY = change.position.y - previousY
+                    previousY = change.position.y
+
+                    if (!change.pressed) {
+                        if (isDragging) {
+                            event.changes.forEach { it.consume() }
+                        }
+                        released = true
+                    } else if (!isDragging) {
+                        accumulatedY += deltaY
+                        if (abs(accumulatedY) > touchSlop) {
+                            isDragging = true
+                            event.changes.forEach { it.consume() }
+                            val overSlop = if (accumulatedY > 0f) {
+                                accumulatedY - touchSlop
+                            } else {
+                                accumulatedY + touchSlop
+                            }
+                            if (overSlop != 0f) {
+                                listState.dispatchRawDelta(-overSlop)
+                            }
+                        }
+                    } else {
+                        event.changes.forEach { it.consume() }
+                        if (deltaY != 0f) {
+                            listState.dispatchRawDelta(-deltaY)
+                        }
+                    }
+                }
+
+                if (isDragging) {
+                    val layoutInfo = listState.layoutInfo
+                    val viewportCenter =
+                        (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+                    val targetIndex = layoutInfo.visibleItemsInfo
+                        .minByOrNull { item ->
+                            abs(item.offset + item.size / 2 - viewportCenter)
+                        }
+                        ?.index
+                    if (targetIndex != null) {
+                        wheelScrollScope.launch {
+                            listState.animateScrollToItem(
+                                index = targetIndex,
+                                scrollOffset = -centerOffsetPx
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = modifier
             .height(containerHeight)
+            .then(swipeGestureModifier)
     ) {
         Box(
             modifier = Modifier
@@ -994,6 +1076,7 @@ private fun FixedSettings(
     playValue: Int,
     skipValue: Int,
     isLocked: Boolean,
+    wheelSwipeEnabled: Boolean,
     onLockToggle: () -> Unit,
     onPlayValueChange: (Int) -> Unit,
     onSkipValueChange: (Int) -> Unit,
@@ -1032,7 +1115,8 @@ private fun FixedSettings(
             WheelTimePicker(
                 modifier = Modifier.weight(1f),
                 totalSeconds = playValue,
-                onValueChange = onPlayValueChange
+                onValueChange = onPlayValueChange,
+                wheelSwipeEnabled = wheelSwipeEnabled
             )
 
             Box(
@@ -1071,7 +1155,8 @@ private fun FixedSettings(
             WheelTimePicker(
                 modifier = Modifier.weight(1f),
                 totalSeconds = skipValue,
-                onValueChange = onSkipValueChange
+                onValueChange = onSkipValueChange,
+                wheelSwipeEnabled = wheelSwipeEnabled
             )
         }
 
@@ -1097,6 +1182,7 @@ private fun FixedSettings(
 private fun WheelTimePicker(
     totalSeconds: Int,
     onValueChange: (Int) -> Unit,
+    wheelSwipeEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val minutes = (totalSeconds / 60).coerceIn(0, 10)
@@ -1114,6 +1200,7 @@ private fun WheelTimePicker(
                 onValueChange(newMinutes * 60 + seconds)
             },
             modifier = Modifier.weight(1f),
+            swipeEnabled = wheelSwipeEnabled,
             containerHeight = 168.dp,
             itemHeight = 54.dp
         )
@@ -1134,6 +1221,7 @@ private fun WheelTimePicker(
                 onValueChange(minutes * 60 + newSeconds)
             },
             modifier = Modifier.weight(1f),
+            swipeEnabled = wheelSwipeEnabled,
             containerHeight = 168.dp,
             itemHeight = 54.dp
         )
