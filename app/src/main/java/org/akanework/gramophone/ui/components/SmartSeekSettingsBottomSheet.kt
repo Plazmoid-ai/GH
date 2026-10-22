@@ -11,6 +11,7 @@ package org.akanework.gramophone.ui.components
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.view.HapticFeedbackConstants
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.foundation.background
@@ -20,6 +21,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -81,6 +84,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -655,7 +659,7 @@ private fun SimpleSettings(
                 )
             }
 
-            WheelPicker(
+            HybridWheelPicker(
                 value = simpleValue.coerceIn(range),
                 valueRange = range,
                 cyclic = isPercentMode,
@@ -673,7 +677,7 @@ private fun SimpleSettings(
 }
 
 @Composable
-private fun WheelPicker(
+private fun HybridWheelPicker(
     value: Int,
     valueRange: IntRange,
     cyclic: Boolean,
@@ -724,8 +728,7 @@ private fun WheelPicker(
     val centerOffsetPx = with(density) {
         ((containerHeight - itemHeight) / 2).roundToPx()
     }
-    val hapticFeedback = LocalHapticFeedback.current
-    val latestHaptic = rememberUpdatedState(hapticFeedback)
+    val hapticView = LocalView.current
     val latestValue = rememberUpdatedState(value.coerceIn(valueRange))
     val latestOnValueChange = rememberUpdatedState(onValueChange)
     val suppressScrollCallbacks = remember { mutableStateOf(true) }
@@ -756,9 +759,7 @@ private fun WheelPicker(
                         lastReportedValue = centeredValue
                     } else if (lastReportedValue != centeredValue) {
                         lastReportedValue = centeredValue
-                        latestHaptic.value.performHapticFeedback(
-                            HapticFeedbackType.TextHandleMove
-                        )
+                        hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         if (centeredValue != latestValue.value) {
                             latestOnValueChange.value(centeredValue)
                         }
@@ -779,15 +780,6 @@ private fun WheelPicker(
     Box(
         modifier = modifier
             .height(containerHeight)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false).consume()
-                    do {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { it.consume() }
-                    } while (event.changes.any { it.pressed })
-                }
-            }
     ) {
         Box(
             modifier = Modifier
@@ -875,7 +867,85 @@ private fun WheelPicker(
                     .background(IntervalPlayPalette.outline)
             )
         }
+
+        fun stepValue(delta: Int) {
+            val currentValue = latestValue.value
+            val nextValue = if (cyclic) {
+                valueRange.first + Math.floorMod(
+                    currentValue + delta - valueRange.first,
+                    rangeSize
+                )
+            } else {
+                (currentValue + delta).coerceIn(valueRange)
+            }
+            if (nextValue != currentValue) {
+                latestOnValueChange.value(nextValue)
+            }
+        }
+
+        WheelEdgeControl(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth(),
+            height = (containerHeight - itemHeight) / 2,
+            onStep = { stepValue(-1) }
+        )
+        WheelEdgeControl(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+            height = (containerHeight - itemHeight) / 2,
+            onStep = { stepValue(1) }
+        )
     }
+}
+
+@Composable
+private fun WheelEdgeControl(
+    modifier: Modifier,
+    height: Dp,
+    onStep: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val latestOnStep = rememberUpdatedState(onStep)
+    val repeatScope = rememberCoroutineScope()
+    var isPressed by remember { mutableStateOf(false) }
+    var isLongPress by remember { mutableStateOf(false) }
+
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    isPressed = true
+                    isLongPress = false
+                }
+                is PressInteraction.Release,
+                is PressInteraction.Cancel -> {
+                    isPressed = false
+                    isLongPress = false
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .height(height)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { latestOnStep.value() },
+                onLongClick = {
+                    isLongPress = true
+                    repeatScope.launch {
+                        while (isPressed && isLongPress) {
+                            latestOnStep.value()
+                            delay(60)
+                        }
+                    }
+                }
+            )
+    )
 }
 
 @Composable
@@ -1036,7 +1106,7 @@ private fun WheelTimePicker(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        WheelPicker(
+        HybridWheelPicker(
             value = minutes,
             valueRange = 0..10,
             cyclic = false,
@@ -1056,7 +1126,7 @@ private fun WheelTimePicker(
             fontFamily = FontFamily.Monospace
         )
 
-        WheelPicker(
+        HybridWheelPicker(
             value = seconds,
             valueRange = 0..59,
             cyclic = true,
