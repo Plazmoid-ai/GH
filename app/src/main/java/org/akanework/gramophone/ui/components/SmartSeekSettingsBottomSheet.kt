@@ -19,6 +19,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -554,14 +555,14 @@ private fun SimpleSettings(
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
             text = "Воспроизведение",
             color = IntervalPlayPalette.grayText,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium
+            fontSize = 12.sp
         )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -569,10 +570,10 @@ private fun SimpleSettings(
         ) {
             Column(
                 modifier = Modifier
-                    .width(58.dp)
-                    .clip(RoundedCornerShape(9.dp))
+                    .width(72.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(IntervalPlayPalette.inactive)
-                    .padding(3.dp),
+                    .padding(4.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 UnitModeOption(
@@ -586,15 +587,31 @@ private fun SimpleSettings(
                     onClick = { onPercentModeChange(true) }
                 )
             }
-            Text(
-                text = simpleValue.toString(),
-                modifier = Modifier.weight(1f),
-                color = IntervalPlayPalette.whiteText,
-                fontSize = 44.sp,
-                fontFamily = FontFamily.Monospace,
-                textAlign = TextAlign.Center,
-                maxLines = 1
-            )
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(96.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val displayValue = if (isPercentMode) {
+                    simpleValue.toString()
+                } else {
+                    formatSimpleTime(simpleValue)
+                }
+                val estimatedFontSize = (maxWidth.value / displayValue.length * 1.55f)
+                    .coerceIn(22f, 64f)
+                Text(
+                    text = displayValue,
+                    color = IntervalPlayPalette.whiteText,
+                    fontSize = estimatedFontSize.sp,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+
             Stepper(
                 modifier = Modifier.width(112.dp),
                 onDecrease = { onSimpleValueChange(simpleValue - 1) },
@@ -917,36 +934,64 @@ private fun SimplePresetCardContent(
     if (preset == null) return
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (preset.isPercent) {
-            Text(
-                text = "%",
-                color = IntervalPlayPalette.accent,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.AccessTime,
-                contentDescription = "Часы",
-                tint = IntervalPlayPalette.accent,
-                modifier = Modifier.size(19.dp)
-            )
+        Box(
+            modifier = Modifier.width(30.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (preset.isPercent) {
+                Text(
+                    text = "%",
+                    color = IntervalPlayPalette.accent,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.AccessTime,
+                    contentDescription = "Часы",
+                    tint = IntervalPlayPalette.accent,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
 
-        Text(
-            text = if (preset.isPercent) {
-                "${preset.value}%"
-            } else {
-                preset.value.toString()
-            },
-            color = IntervalPlayPalette.whiteText,
-            fontSize = 13.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1
+        Box(
+            modifier = Modifier
+                .padding(vertical = 7.dp)
+                .width(1.dp)
+                .height(22.dp)
+                .background(IntervalPlayPalette.outline)
         )
+
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                val valueText = if (preset.isPercent) {
+                    preset.value.toString()
+                } else {
+                    formatSimpleTime(preset.value)
+                }
+                val fontSize = (maxWidth.value / valueText.length * 1.35f)
+                    .coerceIn(11f, 13f)
+                Text(
+                    text = valueText,
+                    color = IntervalPlayPalette.whiteText,
+                    fontSize = fontSize.sp,
+                    fontFamily = FontFamily.Monospace,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
     }
 }
 
@@ -957,30 +1002,59 @@ private fun FixedPresetCardContent(
     if (preset == null) return
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = formatPresetInterval(preset.playSeconds),
-            color = IntervalPlayPalette.accent,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1
+        Box(
+            modifier = Modifier.width(30.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.AccessTime,
+                contentDescription = "Часы",
+                tint = IntervalPlayPalette.accent,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .padding(vertical = 7.dp)
+                .width(1.dp)
+                .height(22.dp)
+                .background(IntervalPlayPalette.outline)
         )
 
-        Text(
-            text = "/",
-            color = IntervalPlayPalette.grayText,
-            fontSize = 10.sp
-        )
-
-        Text(
-            text = formatPresetInterval(preset.skipSeconds),
-            color = IntervalPlayPalette.grayText,
-            fontSize = 10.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1
-        )
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = formatPresetInterval(preset.playSeconds),
+                    color = IntervalPlayPalette.accent,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1
+                )
+                Text(
+                    text = " / ",
+                    color = IntervalPlayPalette.grayText,
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = formatPresetInterval(preset.skipSeconds),
+                    color = IntervalPlayPalette.grayText,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 
@@ -1194,5 +1268,12 @@ private fun BottomActionButton(
 private fun formatInterval(seconds: Int): String =
     String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
 
+private fun formatSimpleTime(seconds: Int): String =
+    if (seconds < 60) {
+        seconds.toString()
+    } else {
+        String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60)
+    }
+
 private fun formatPresetInterval(seconds: Int): String =
-    if (seconds < 60) seconds.toString() else formatInterval(seconds)
+    formatSimpleTime(seconds)
