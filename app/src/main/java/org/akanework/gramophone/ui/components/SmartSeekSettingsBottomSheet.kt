@@ -16,8 +16,14 @@ import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -30,6 +36,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,29 +53,48 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.sp
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.util.Locale
+import kotlin.math.abs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 private object IntervalPlayPalette {
     val background = Color(0xFF121212)
@@ -143,6 +171,7 @@ class SmartSeekSettingsBottomSheet(
 ) {
     fun show(): BottomSheetDialog {
         val dialog = BottomSheetDialog(context)
+        dialog.setCanceledOnTouchOutside(false)
         val composeView = ComposeView(context).apply {
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
@@ -188,7 +217,7 @@ private fun IntervalPlaySettingsContent(
     val activeTab = remember { mutableStateOf(0) }
     val isScissorsActive = remember { mutableStateOf(false) }
     val isPercentMode = remember { mutableStateOf(false) }
-    val simpleValue = remember { mutableStateOf(30) }
+    val simpleValue = remember { mutableStateOf(2) }
     val isLocked = remember { mutableStateOf(true) }
     val playValue = remember { mutableStateOf(30) }
     val skipValue = remember { mutableStateOf(10) }
@@ -197,8 +226,8 @@ private fun IntervalPlaySettingsContent(
     val simplePresets = remember {
         mutableStateOf(
             listOf<SimpleIntervalPreset?>(
-                SimpleIntervalPreset(30, false),
-                SimpleIntervalPreset(45, false),
+                SimpleIntervalPreset(2, false),
+                SimpleIntervalPreset(5, false),
                 null
             )
         )
@@ -326,10 +355,21 @@ private fun IntervalPlaySettingsContent(
                 PreviewBar()
                 SimpleSettings(
                     isPercentMode = isPercentMode.value,
-                    onPercentModeChange = { isPercentMode.value = it },
+                    onPercentModeChange = { percentMode ->
+                        isPercentMode.value = percentMode
+                        simpleValue.value = if (percentMode) {
+                            simpleValue.value.coerceIn(0, 100)
+                        } else {
+                            simpleValue.value.coerceIn(0, 10)
+                        }
+                    },
                     simpleValue = simpleValue.value,
-                    onSimpleValueChange = {
-                        simpleValue.value = it.coerceAtLeast(0)
+                    onSimpleValueChange = { nextValue ->
+                        simpleValue.value = if (isPercentMode.value) {
+                            Math.floorMod(nextValue, 101)
+                        } else {
+                            nextValue.coerceIn(0, 10)
+                        }
                     }
                 )
 
@@ -339,8 +379,11 @@ private fun IntervalPlaySettingsContent(
                     selectedIndex = selectedSimplePreset.value,
                     onSelect = { index ->
                         simplePresets.value[index]?.let { preset ->
-                            simpleValue.value = preset.value
                             isPercentMode.value = preset.isPercent
+                            simpleValue.value = preset.value.coerceIn(
+                                0,
+                                if (preset.isPercent) 100 else 10
+                            )
                             selectedSimplePreset.value = index
                         }
                     },
@@ -365,14 +408,34 @@ private fun IntervalPlaySettingsContent(
                     skipValue = skipValue.value,
                     isLocked = isLocked.value,
                     onLockToggle = { isLocked.value = !isLocked.value },
+                    onPlayValueChange = { newValue ->
+                        val clamped = newValue.coerceIn(0, 659)
+                        if (isLocked.value) {
+                            val delta = clamped - playValue.value
+                            playValue.value = clamped
+                            skipValue.value = (skipValue.value + delta).coerceIn(0, 659)
+                        } else {
+                            playValue.value = clamped
+                        }
+                    },
+                    onSkipValueChange = { newValue ->
+                        val clamped = newValue.coerceIn(0, 659)
+                        if (isLocked.value) {
+                            val delta = clamped - skipValue.value
+                            skipValue.value = clamped
+                            playValue.value = (playValue.value + delta).coerceIn(0, 659)
+                        } else {
+                            skipValue.value = clamped
+                        }
+                    },
                     onAdjust = { isPlayValue, delta ->
                         if (isLocked.value) {
-                            playValue.value = (playValue.value + delta).coerceAtLeast(0)
-                            skipValue.value = (skipValue.value + delta).coerceAtLeast(0)
+                            playValue.value = (playValue.value + delta).coerceIn(0, 659)
+                            skipValue.value = (skipValue.value + delta).coerceIn(0, 659)
                         } else if (isPlayValue) {
-                            playValue.value = (playValue.value + delta).coerceAtLeast(0)
+                            playValue.value = (playValue.value + delta).coerceIn(0, 659)
                         } else {
-                            skipValue.value = (skipValue.value + delta).coerceAtLeast(0)
+                            skipValue.value = (skipValue.value + delta).coerceIn(0, 659)
                         }
                     }
                 )
@@ -552,6 +615,8 @@ private fun SimpleSettings(
     simpleValue: Int,
     onSimpleValueChange: (Int) -> Unit
 ) {
+    val range = if (isPercentMode) 0..100 else 0..10
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -565,11 +630,11 @@ private fun SimpleSettings(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Column(
                 modifier = Modifier
-                    .width(72.dp)
+                    .width(62.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(IntervalPlayPalette.inactive)
                     .padding(4.dp),
@@ -587,34 +652,227 @@ private fun SimpleSettings(
                 )
             }
 
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(96.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val displayValue = if (isPercentMode) {
-                    simpleValue.toString()
-                } else {
-                    formatSimpleTime(simpleValue)
-                }
-                val estimatedFontSize = (maxWidth.value / displayValue.length * 1.55f)
-                    .coerceIn(22f, 64f)
-                Text(
-                    text = displayValue,
-                    color = IntervalPlayPalette.whiteText,
-                    fontSize = estimatedFontSize.sp,
-                    fontFamily = FontFamily.Monospace,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
+            WheelPicker(
+                value = simpleValue.coerceIn(range),
+                valueRange = range,
+                cyclic = isPercentMode,
+                onValueChange = onSimpleValueChange,
+                modifier = Modifier.weight(1f)
+            )
 
             Stepper(
-                modifier = Modifier.width(112.dp),
+                modifier = Modifier.width(76.dp),
                 onDecrease = { onSimpleValueChange(simpleValue - 1) },
                 onIncrease = { onSimpleValueChange(simpleValue + 1) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun WheelPicker(
+    value: Int,
+    valueRange: IntRange,
+    cyclic: Boolean,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    containerHeight: Dp = 168.dp,
+    itemHeight: Dp = 54.dp
+) {
+    val rangeSize = valueRange.last - valueRange.first + 1
+    val itemCount = if (cyclic) rangeSize * 1000 else rangeSize
+    val middleCycleStart = if (cyclic) {
+        (itemCount / 2 / rangeSize) * rangeSize
+    } else {
+        0
+    }
+
+    fun indexFor(target: Int): Int {
+        val safeValue = target.coerceIn(valueRange)
+        return if (cyclic) {
+            middleCycleStart + safeValue - valueRange.first
+        } else {
+            safeValue - valueRange.first
+        }
+    }
+
+    fun valueFor(index: Int): Int {
+        return if (cyclic) {
+            valueRange.first + Math.floorMod(index, rangeSize)
+        } else {
+            valueRange.first + index
+        }
+    }
+
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = indexFor(value.coerceIn(valueRange))
+    )
+    val centeredIndex by remember(listState) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+            layoutInfo.visibleItemsInfo
+                .minByOrNull { item -> abs(item.offset + item.size / 2 - center) }
+                ?.index ?: -1
+        }
+    }
+
+    val density = LocalDensity.current
+    val centerOffsetPx = with(density) {
+        ((containerHeight - itemHeight) / 2).roundToPx()
+    }
+    val hapticFeedback = LocalHapticFeedback.current
+    val latestHaptic = rememberUpdatedState(hapticFeedback)
+    val latestValue = rememberUpdatedState(value.coerceIn(valueRange))
+    val latestOnValueChange = rememberUpdatedState(onValueChange)
+    val suppressScrollCallbacks = remember { mutableStateOf(true) }
+
+    LaunchedEffect(value, valueRange.first, valueRange.last, cyclic) {
+        val targetValue = value.coerceIn(valueRange)
+        if (centeredIndex >= 0 && valueFor(centeredIndex) == targetValue) {
+            suppressScrollCallbacks.value = false
+            return@LaunchedEffect
+        }
+
+        suppressScrollCallbacks.value = true
+        listState.animateScrollToItem(
+            index = indexFor(targetValue),
+            scrollOffset = -centerOffsetPx
+        )
+        suppressScrollCallbacks.value = false
+    }
+
+    LaunchedEffect(listState, valueRange.first, valueRange.last, cyclic) {
+        var lastReportedValue: Int? = null
+        snapshotFlow { centeredIndex }
+            .distinctUntilChanged()
+            .collect { index ->
+                if (index >= 0) {
+                    val centeredValue = valueFor(index)
+                    if (suppressScrollCallbacks.value) {
+                        lastReportedValue = centeredValue
+                    } else if (lastReportedValue != centeredValue) {
+                        val previousValue = lastReportedValue
+                        lastReportedValue = centeredValue
+                        if (previousValue != null) {
+                            latestHaptic.value.performHapticFeedback(
+                                HapticFeedbackType.TextHandleMove
+                            )
+                        }
+                        if (centeredValue != latestValue.value) {
+                            latestOnValueChange.value(centeredValue)
+                        }
+                    }
+                }
+            }
+    }
+
+    val fadeMask = Brush.verticalGradient(
+        colorStops = arrayOf(
+            0f to Color.Transparent,
+            0.22f to Color.Black,
+            0.78f to Color.Black,
+            1f to Color.Transparent
+        )
+    )
+
+    Box(
+        modifier = modifier
+            .height(containerHeight)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false).consume()
+                    do {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { it.consume() }
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = fadeMask,
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(vertical = (containerHeight - itemHeight) / 2),
+                flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+            ) {
+                items(
+                    count = itemCount,
+                    key = { index -> index }
+                ) { index ->
+                    val distanceFromCenter = if (centeredIndex >= 0) {
+                        abs(index - centeredIndex)
+                    } else {
+                        Int.MAX_VALUE
+                    }
+                    val selected = distanceFromCenter == 0
+                    val fontSize = when (distanceFromCenter) {
+                        0 -> 42.sp
+                        1 -> 28.sp
+                        else -> 20.sp
+                    }
+                    val alpha = when (distanceFromCenter) {
+                        0 -> 1f
+                        1 -> 0.4f
+                        else -> 0.18f
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(itemHeight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = valueFor(index).toString(),
+                            color = IntervalPlayPalette.whiteText.copy(alpha = alpha),
+                            fontSize = fontSize,
+                            fontWeight = if (selected) {
+                                FontWeight.Bold
+                            } else {
+                                FontWeight.Normal
+                            },
+                            fontFamily = FontFamily.Monospace,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .height(itemHeight),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(IntervalPlayPalette.outline)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(IntervalPlayPalette.outline)
             )
         }
     }
@@ -667,6 +925,8 @@ private fun FixedSettings(
     skipValue: Int,
     isLocked: Boolean,
     onLockToggle: () -> Unit,
+    onPlayValueChange: (Int) -> Unit,
+    onSkipValueChange: (Int) -> Unit,
     onAdjust: (isPlayValue: Boolean, delta: Int) -> Unit
 ) {
     Column(
@@ -699,19 +959,24 @@ private fun FixedSettings(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            TimeValueField(
-                value = formatInterval(playValue),
-                isLocked = isLocked,
-                modifier = Modifier.weight(1f)
+            WheelTimePicker(
+                modifier = Modifier.weight(1f),
+                totalSeconds = playValue,
+                onValueChange = onPlayValueChange
             )
+
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(40.dp)
                     .clip(RoundedCornerShape(9.dp))
                     .background(IntervalPlayPalette.inactive)
                     .border(
                         width = 1.dp,
-                        color = if (isLocked) IntervalPlayPalette.accent else IntervalPlayPalette.outline,
+                        color = if (isLocked) {
+                            IntervalPlayPalette.accent
+                        } else {
+                            IntervalPlayPalette.outline
+                        },
                         shape = RoundedCornerShape(9.dp)
                     )
                     .clickable(onClick = onLockToggle),
@@ -724,14 +989,19 @@ private fun FixedSettings(
                         Icons.Default.LockOpen
                     },
                     contentDescription = if (isLocked) "Замок закрыт" else "Замок открыт",
-                    tint = if (isLocked) IntervalPlayPalette.accent else IntervalPlayPalette.grayText,
+                    tint = if (isLocked) {
+                        IntervalPlayPalette.accent
+                    } else {
+                        IntervalPlayPalette.grayText
+                    },
                     modifier = Modifier.size(21.dp)
                 )
             }
-            TimeValueField(
-                value = formatInterval(skipValue),
-                isLocked = isLocked,
-                modifier = Modifier.weight(1f)
+
+            WheelTimePicker(
+                modifier = Modifier.weight(1f),
+                totalSeconds = skipValue,
+                onValueChange = onSkipValueChange
             )
         }
 
@@ -750,6 +1020,53 @@ private fun FixedSettings(
                 onIncrease = { onAdjust(false, 1) }
             )
         }
+    }
+}
+
+@Composable
+private fun WheelTimePicker(
+    totalSeconds: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val minutes = (totalSeconds / 60).coerceIn(0, 10)
+    val seconds = totalSeconds % 60
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        WheelPicker(
+            value = minutes,
+            valueRange = 0..10,
+            cyclic = false,
+            onValueChange = { newMinutes ->
+                onValueChange(newMinutes * 60 + seconds)
+            },
+            modifier = Modifier.weight(1f),
+            containerHeight = 168.dp,
+            itemHeight = 54.dp
+        )
+
+        Text(
+            text = ":",
+            color = IntervalPlayPalette.whiteText,
+            fontSize = 36.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
+        )
+
+        WheelPicker(
+            value = seconds,
+            valueRange = 0..59,
+            cyclic = true,
+            onValueChange = { newSeconds ->
+                onValueChange(minutes * 60 + newSeconds)
+            },
+            modifier = Modifier.weight(1f),
+            containerHeight = 168.dp,
+            itemHeight = 54.dp
+        )
     }
 }
 
@@ -820,20 +1137,39 @@ private fun StepperButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val latestOnClick = rememberUpdatedState(onClick)
+
     Box(
         modifier = modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(IntervalPlayPalette.inactive)
-            .border(1.dp, IntervalPlayPalette.outline, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
+            .height(44.dp)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false).consume()
+                    var repeated = false
+                    val repeatJob = launch {
+                        delay(420)
+                        repeated = true
+                        while (true) {
+                            latestOnClick.value()
+                            delay(85)
+                        }
+                    }
+
+                    val released = waitForUpOrCancellation()
+                    repeatJob.cancel()
+                    if (released != null && !repeated) {
+                        latestOnClick.value()
+                    }
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
             color = IntervalPlayPalette.whiteText,
-            fontSize = 21.sp,
-            fontFamily = FontFamily.Monospace
+            fontSize = 30.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Light
         )
     }
 }
