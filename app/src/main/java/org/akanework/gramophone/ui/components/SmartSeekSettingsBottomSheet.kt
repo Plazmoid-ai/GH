@@ -322,9 +322,8 @@ private fun IntervalPlaySettingsContent(
                 }
             }
 
-            PreviewBar()
-
             if (activeTab.value == 0) {
+                PreviewBar()
                 SimpleSettings(
                     isPercentMode = isPercentMode.value,
                     onPercentModeChange = { isPercentMode.value = it },
@@ -1001,59 +1000,43 @@ private fun FixedPresetCardContent(
 ) {
     if (preset == null) return
 
-    Row(
+    BoxWithConstraints(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier.width(30.dp),
-            contentAlignment = Alignment.Center
+        val playText = formatPresetInterval(preset.playSeconds)
+        val skipText = formatPresetInterval(preset.skipSeconds)
+        val combinedLength = (playText.length + skipText.length + 3).coerceAtLeast(1)
+        val fontSize = (maxWidth.value / combinedLength * 1.45f)
+            .coerceIn(10f, 14f)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.AccessTime,
-                contentDescription = "Часы",
-                tint = IntervalPlayPalette.accent,
-                modifier = Modifier.size(20.dp)
+            Text(
+                text = playText,
+                color = IntervalPlayPalette.accent,
+                fontSize = fontSize.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false
             )
-        }
-
-        Box(
-            modifier = Modifier
-                .padding(vertical = 7.dp)
-                .width(1.dp)
-                .height(22.dp)
-                .background(IntervalPlayPalette.outline)
-        )
-
-        Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = formatPresetInterval(preset.playSeconds),
-                    color = IntervalPlayPalette.accent,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1
-                )
-                Text(
-                    text = " / ",
-                    color = IntervalPlayPalette.grayText,
-                    fontSize = 10.sp
-                )
-                Text(
-                    text = formatPresetInterval(preset.skipSeconds),
-                    color = IntervalPlayPalette.grayText,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1
-                )
-            }
+            Text(
+                text = " / ",
+                color = IntervalPlayPalette.grayText,
+                fontSize = fontSize.sp,
+                maxLines = 1,
+                softWrap = false
+            )
+            Text(
+                text = skipText,
+                color = IntervalPlayPalette.grayText,
+                fontSize = fontSize.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
