@@ -55,10 +55,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -743,22 +747,19 @@ private fun WheelPicker(
     }
 
     LaunchedEffect(listState, valueRange.first, valueRange.last, cyclic) {
-        var lastReportedValue: Int? = null
+        var lastReportedValue: Int = latestValue.value
         snapshotFlow { centeredIndex }
             .distinctUntilChanged()
             .collect { index ->
                 if (index >= 0) {
-                    val centeredValue = valueFor(index)
+                    val centeredValue: Int = valueFor(index)
                     if (suppressScrollCallbacks.value) {
                         lastReportedValue = centeredValue
                     } else if (lastReportedValue != centeredValue) {
-                        val previousValue = lastReportedValue
                         lastReportedValue = centeredValue
-                        if (previousValue != null) {
-                            latestHaptic.value.performHapticFeedback(
-                                HapticFeedbackType.TextHandleMove
-                            )
-                        }
+                        latestHaptic.value.performHapticFeedback(
+                            HapticFeedbackType.TextHandleMove
+                        )
                         if (centeredValue != latestValue.value) {
                             latestOnValueChange.value(centeredValue)
                         }
@@ -1138,15 +1139,16 @@ private fun StepperButton(
     onClick: () -> Unit
 ) {
     val latestOnClick = rememberUpdatedState(onClick)
+    val repeatScope = rememberCoroutineScope()
 
     Box(
         modifier = modifier
             .height(44.dp)
-            .pointerInput(Unit) {
+            .pointerInput(repeatScope) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false).consume()
                     var repeated = false
-                    val repeatJob = launch {
+                    val repeatJob = repeatScope.launch {
                         delay(420)
                         repeated = true
                         while (true) {
@@ -1155,8 +1157,12 @@ private fun StepperButton(
                         }
                     }
 
-                    val released = waitForUpOrCancellation()
-                    repeatJob.cancel()
+                    val released = try {
+                        waitForUpOrCancellation()
+                    } finally {
+                        repeatJob.cancel()
+                    }
+
                     if (released != null && !repeated) {
                         latestOnClick.value()
                     }
