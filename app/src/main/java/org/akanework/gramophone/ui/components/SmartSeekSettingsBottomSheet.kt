@@ -2,9 +2,9 @@
  *     Copyright (C) 2026 Plazmoid-ai
  *
  *     Gramophone is free software: you can redistribute it and/or modify
- *     it under the terms of the GNU General Public License
- *     as published by the Free Software Foundation, either version 3
- *     of the License, or (at your option) any later version.
+ *     it under the terms of the GNU General Public License as published by
+ *     the Free Software Foundation, either version 3 of the License, or
+ *     (at your option) any later version.
  */
 
 package org.akanework.gramophone.ui.components
@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
@@ -46,8 +49,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.ComposeView
@@ -77,9 +81,52 @@ private object IntervalPlayPalette {
 private data class IntervalPlayPreset(
     val playSeconds: Int,
     val skipSeconds: Int
-) {
-    fun label(): String = "$playSeconds / $skipSeconds"
+)
+
+private data class SimpleIntervalPreset(
+    val value: Int,
+    val isPercent: Boolean
+)
+
+private data class AccentOption(
+    val label: String,
+    val color: Color,
+    val kind: AccentKind = AccentKind.SOLID
+)
+
+private enum class AccentKind {
+    SOLID,
+    DEFAULT,
+    DYNAMIC,
+    TRANSPARENT
 }
+
+private val intervalAccentOptions = listOf(
+    AccentOption("По умолчанию", IntervalPlayPalette.accent, AccentKind.DEFAULT),
+    AccentOption("Динамический", Color.White, AccentKind.DYNAMIC),
+    AccentOption("Прозрачный", Color.Transparent, AccentKind.TRANSPARENT),
+    AccentOption("Чёрный", Color(0xFF000000)),
+    AccentOption("Красный", Color(0xFFF44336)),
+    AccentOption("Оранжевый", Color(0xFFFF9800)),
+    AccentOption("Голубой", Color(0xFF4FC3F7)),
+    AccentOption("Зелёный", Color(0xFF4CAF50)),
+    AccentOption("Розовый", Color(0xFFF06292)),
+    AccentOption("Фиолетовый", Color(0xFFAB47BC)),
+    AccentOption("Синий", Color(0xFF2979FF))
+)
+
+private val dynamicAccentBrush = Brush.sweepGradient(
+    listOf(
+        Color(0xFFF44336),
+        Color(0xFFFF9800),
+        Color(0xFFFFEB3B),
+        Color(0xFF4CAF50),
+        Color(0xFF00BCD4),
+        Color(0xFF2979FF),
+        Color(0xFFAB47BC),
+        Color(0xFFF44336)
+    )
+)
 
 /**
  * IntervalPlay settings UI prototype.
@@ -143,8 +190,19 @@ private fun IntervalPlaySettingsContent(
     val isLocked = remember { mutableStateOf(true) }
     val playValue = remember { mutableStateOf(30) }
     val skipValue = remember { mutableStateOf(10) }
-    val selectedPreset = remember { mutableStateOf(0) }
-    val presets = remember {
+
+    val selectedSimplePreset = remember { mutableStateOf(0) }
+    val simplePresets = remember {
+        mutableStateOf(
+            listOf<SimpleIntervalPreset?>(
+                SimpleIntervalPreset(30, false),
+                SimpleIntervalPreset(45, false),
+                null
+            )
+        )
+    }
+    val selectedFixedPreset = remember { mutableStateOf(0) }
+    val fixedPresets = remember {
         mutableStateOf(
             listOf<IntervalPlayPreset?>(
                 IntervalPlayPreset(30, 10),
@@ -153,6 +211,9 @@ private fun IntervalPlaySettingsContent(
             )
         )
     }
+
+    val selectedAccent = remember { mutableStateOf(0) }
+    val isBufferIncreased = remember { mutableStateOf(false) }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     Column(
@@ -183,12 +244,12 @@ private fun IntervalPlaySettingsContent(
             ) {
                 StateCapsule(
                     modifier = Modifier.weight(1f),
-                    label = "Показывать",
+                    label = "Индикатор",
                     state = isIndicatorOn
                 )
                 StateCapsule(
                     modifier = Modifier.weight(1f),
-                    label = "Постоянный",
+                    label = "Постоянно",
                     state = isPersistentOn
                 )
             }
@@ -218,6 +279,13 @@ private fun IntervalPlaySettingsContent(
                         modifier = Modifier
                             .size(42.dp)
                             .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isScissorsActive.value) {
+                                    Color(0xFF29243B)
+                                } else {
+                                    Color.Transparent
+                                }
+                            )
                             .border(
                                 width = 1.dp,
                                 color = if (isScissorsActive.value) {
@@ -232,8 +300,8 @@ private fun IntervalPlaySettingsContent(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.ContentCut,
+                        Icon(
+                            imageVector = Icons.Default.ContentCut,
                             contentDescription = "Ножницы",
                             tint = if (isScissorsActive.value) {
                                 IntervalPlayPalette.accent
@@ -259,7 +327,36 @@ private fun IntervalPlaySettingsContent(
                     isPercentMode = isPercentMode.value,
                     onPercentModeChange = { isPercentMode.value = it },
                     simpleValue = simpleValue.value,
-                    onSimpleValueChange = { simpleValue.value = it.coerceAtLeast(0) }
+                    onSimpleValueChange = {
+                        simpleValue.value = it.coerceAtLeast(0)
+                    }
+                )
+
+                PresetSelector(
+                    title = "Шаблоны",
+                    hint = "Тап — применить, долгое нажатие — сохранить",
+                    selectedIndex = selectedSimplePreset.value,
+                    onSelect = { index ->
+                        simplePresets.value[index]?.let { preset ->
+                            simpleValue.value = preset.value
+                            isPercentMode.value = preset.isPercent
+                            selectedSimplePreset.value = index
+                        }
+                    },
+                    onSave = { index ->
+                        val updated = simplePresets.value.toMutableList()
+                        updated[index] = SimpleIntervalPreset(
+                            value = simpleValue.value,
+                            isPercent = isPercentMode.value
+                        )
+                        simplePresets.value = updated
+                        selectedSimplePreset.value = index
+                    },
+                    content = { index ->
+                        val preset = simplePresets.value[index]
+                        SimplePresetCardContent(preset)
+                    },
+                    isEmpty = { simplePresets.value[it] == null }
                 )
             } else {
                 FixedSettings(
@@ -280,26 +377,41 @@ private fun IntervalPlaySettingsContent(
                 )
 
                 PresetSelector(
-                    presets = presets.value,
-                    selectedIndex = selectedPreset.value,
+                    title = "Шаблоны",
+                    hint = "Тап — применить, долгое нажатие — сохранить",
+                    selectedIndex = selectedFixedPreset.value,
                     onSelect = { index ->
-                        presets.value[index]?.let { preset ->
+                        fixedPresets.value[index]?.let { preset ->
                             playValue.value = preset.playSeconds
                             skipValue.value = preset.skipSeconds
-                            selectedPreset.value = index
+                            selectedFixedPreset.value = index
                         }
                     },
                     onSave = { index ->
-                        val updated = presets.value.toMutableList()
+                        val updated = fixedPresets.value.toMutableList()
                         updated[index] = IntervalPlayPreset(
                             playSeconds = playValue.value,
                             skipSeconds = skipValue.value
                         )
-                        presets.value = updated
-                        selectedPreset.value = index
-                    }
+                        fixedPresets.value = updated
+                        selectedFixedPreset.value = index
+                    },
+                    content = { index ->
+                        FixedPresetCardContent(fixedPresets.value[index])
+                    },
+                    isEmpty = { fixedPresets.value[it] == null }
                 )
             }
+
+            AccentSelector(
+                selectedIndex = selectedAccent.value,
+                onSelect = { selectedAccent.value = it }
+            )
+
+            ExperimentalBufferSetting(
+                checked = isBufferIncreased.value,
+                onCheckedChange = { isBufferIncreased.value = it }
+            )
         }
 
         Row(
@@ -350,7 +462,7 @@ private fun StateCapsule(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "$label: ${if (enabled) "Вкл" else "Выкл"}",
+            text = label,
             color = if (enabled) IntervalPlayPalette.darkText else IntervalPlayPalette.grayText,
             fontSize = 12.sp,
             maxLines = 1
@@ -385,51 +497,49 @@ private fun ModeTab(
     }
 }
 
+/** Decorative preview only; values are intentionally not connected to playback logic. */
 @Composable
 private fun PreviewBar() {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(25.dp)
-            .clip(RoundedCornerShape(7.dp))
-            .background(IntervalPlayPalette.previewBackground)
-            .padding(start = 0.dp, end = 6.dp),
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(7.dp))
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(IntervalPlayPalette.accent)
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(IntervalPlayPalette.previewSkip)
-            )
-        }
-        Spacer(Modifier.width(9.dp))
-        Text(
-            text = "12 инт.",
-            color = IntervalPlayPalette.grayText,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1
+        PreviewCapsule(
+            modifier = Modifier.weight(1f),
+            label = "00:30",
+            isPlay = true
         )
-        Spacer(Modifier.width(8.dp))
+        PreviewCapsule(
+            modifier = Modifier.weight(1f),
+            label = "00:10",
+            isPlay = false
+        )
+    }
+}
+
+@Composable
+private fun PreviewCapsule(
+    modifier: Modifier,
+    label: String,
+    isPlay: Boolean
+) {
+    Box(
+        modifier = modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                if (isPlay) IntervalPlayPalette.accent else IntervalPlayPalette.previewSkip
+            )
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
-            text = "03:45",
-            color = IntervalPlayPalette.whiteText,
-            fontSize = 11.sp,
+            text = label,
+            color = if (isPlay) IntervalPlayPalette.darkText else IntervalPlayPalette.whiteText,
+            fontSize = 12.sp,
             fontFamily = FontFamily.Monospace,
-            maxLines = 1
+            fontWeight = FontWeight.Medium
         )
     }
 }
@@ -572,11 +682,11 @@ private fun FixedSettings(
                     .clickable(onClick = onLockToggle),
                 contentAlignment = Alignment.Center
             ) {
-                androidx.compose.material3.Icon(
+                Icon(
                     imageVector = if (isLocked) {
-                        androidx.compose.material.icons.Icons.Default.Lock
+                        Icons.Default.Lock
                     } else {
-                        androidx.compose.material.icons.Icons.Default.LockOpen
+                        Icons.Default.LockOpen
                     },
                     contentDescription = if (isLocked) "Замок закрыт" else "Замок открыт",
                     tint = if (isLocked) IntervalPlayPalette.accent else IntervalPlayPalette.grayText,
@@ -695,17 +805,26 @@ private fun StepperButton(
 
 @Composable
 private fun PresetSelector(
-    presets: List<IntervalPlayPreset?>,
+    title: String,
+    hint: String,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
-    onSave: (Int) -> Unit
+    onSave: (Int) -> Unit,
+    content: @Composable (Int) -> Unit,
+    isEmpty: (Int) -> Boolean
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "Тап — применить, долгое нажатие — сохранить",
+            text = title,
+            color = IntervalPlayPalette.grayText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = hint,
             color = IntervalPlayPalette.grayText,
             fontSize = 11.sp
         )
@@ -713,14 +832,13 @@ private fun PresetSelector(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            presets.forEachIndexed { index, preset ->
+            repeat(3) { index ->
                 val selected = selectedIndex == index
-                val empty = preset == null
-                val buttonLabel = preset?.label() ?: "Пусто"
+                val empty = isEmpty(index)
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp)
+                        .height(46.dp)
                         .clip(RoundedCornerShape(9.dp))
                         .background(
                             if (selected) Color(0xFF29243B) else IntervalPlayPalette.inactive
@@ -729,10 +847,11 @@ private fun PresetSelector(
                             if (empty) {
                                 Modifier.drawBehind {
                                     drawRoundRect(
-                                        color = IntervalPlayPalette.outline,
+                                        color = if (selected) IntervalPlayPalette.accent
+                                        else IntervalPlayPalette.outline,
                                         cornerRadius = CornerRadius(9.dp.toPx()),
                                         style = Stroke(
-                                            width = 1.dp.toPx(),
+                                            width = if (selected) 1.5.dp.toPx() else 1.dp.toPx(),
                                             pathEffect = PathEffect.dashPathEffect(
                                                 floatArrayOf(5.dp.toPx(), 4.dp.toPx())
                                             )
@@ -742,28 +861,236 @@ private fun PresetSelector(
                             } else {
                                 Modifier.border(
                                     width = if (selected) 1.5.dp else 1.dp,
-                                    color = if (selected) IntervalPlayPalette.accent else IntervalPlayPalette.outline,
+                                    color = if (selected) IntervalPlayPalette.accent
+                                    else IntervalPlayPalette.outline,
                                     shape = RoundedCornerShape(9.dp)
                                 )
                             }
                         )
                         .combinedClickable(
-                            onClick = { onSelect(index) },
+                            onClick = { if (!empty) onSelect(index) },
                             onLongClick = { onSave(index) }
                         )
                         .padding(horizontal = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = buttonLabel,
-                        color = if (selected) IntervalPlayPalette.accent else IntervalPlayPalette.grayText,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        textAlign = TextAlign.Center
-                    )
+                    if (empty) {
+                        Text(
+                            text = "Пусто",
+                            color = if (selected) IntervalPlayPalette.accent
+                            else IntervalPlayPalette.grayText,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    } else {
+                        content(index)
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SimplePresetCardContent(preset: SimpleIntervalPreset?) {
+    if (preset == null) return
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (preset.isPercent) "%" else "◷",
+            color = IntervalPlayPalette.accent,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = if (preset.isPercent) "${preset.value}%" else preset.value.toString(),
+            color = IntervalPlayPalette.whiteText,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun FixedPresetCardContent(preset: IntervalPlayPreset?) {
+    if (preset == null) return
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "◷",
+            color = IntervalPlayPalette.accent,
+            fontSize = 13.sp
+        )
+        Text(
+            text = formatInterval(preset.playSeconds),
+            color = IntervalPlayPalette.accent,
+            fontSize = 9.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+        Text(
+            text = "/",
+            color = IntervalPlayPalette.grayText,
+            fontSize = 9.sp
+        )
+        Text(
+            text = formatInterval(preset.skipSeconds),
+            color = IntervalPlayPalette.grayText,
+            fontSize = 9.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun AccentSelector(
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Акцент",
+            color = IntervalPlayPalette.grayText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(11.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            intervalAccentOptions.take(6).forEachIndexed { index, option ->
+                AccentSwatch(
+                    option = option,
+                    selected = selectedIndex == index,
+                    onClick = { onSelect(index) }
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(11.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            intervalAccentOptions.drop(6).forEachIndexed { rowIndex, option ->
+                val index = rowIndex + 6
+                AccentSwatch(
+                    option = option,
+                    selected = selectedIndex == index,
+                    onClick = { onSelect(index) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccentSwatch(
+    option: AccentOption,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val swatchModifier = when (option.kind) {
+        AccentKind.DYNAMIC -> Modifier.background(dynamicAccentBrush, CircleShape)
+        AccentKind.TRANSPARENT -> Modifier.background(IntervalPlayPalette.background, CircleShape)
+        else -> Modifier.background(option.color, CircleShape)
+    }
+
+    Box(
+        modifier = Modifier
+            .size(29.dp)
+            .clip(CircleShape)
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) IntervalPlayPalette.whiteText
+                else IntervalPlayPalette.outline,
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(21.dp)
+                .clip(CircleShape)
+                .then(swatchModifier)
+                .then(
+                    if (option.kind == AccentKind.TRANSPARENT) {
+                        Modifier.border(1.dp, IntervalPlayPalette.grayText, CircleShape)
+                    } else {
+                        Modifier
+                    }
+                )
+        )
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (option.kind == AccentKind.SOLID && option.color == Color(0xFF000000)) {
+                            Color.White
+                        } else {
+                            IntervalPlayPalette.darkText
+                        }
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExperimentalBufferSetting(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "Экспериментально",
+            color = IntervalPlayPalette.grayText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(IntervalPlayPalette.inactive)
+                .border(1.dp, IntervalPlayPalette.outline, RoundedCornerShape(10.dp))
+                .clickable { onCheckedChange(!checked) }
+                .padding(start = 12.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Увеличить буфер",
+                modifier = Modifier.weight(1f),
+                color = IntervalPlayPalette.whiteText,
+                fontSize = 13.sp
+            )
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = IntervalPlayPalette.darkText,
+                    checkedTrackColor = IntervalPlayPalette.accent,
+                    uncheckedThumbColor = IntervalPlayPalette.grayText,
+                    uncheckedTrackColor = IntervalPlayPalette.outline,
+                    uncheckedBorderColor = IntervalPlayPalette.outline
+                )
+            )
         }
     }
 }
