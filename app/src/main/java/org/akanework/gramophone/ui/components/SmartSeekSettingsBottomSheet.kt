@@ -15,6 +15,7 @@ import android.view.HapticFeedbackConstants
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -46,15 +47,25 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -68,11 +79,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Brush
@@ -88,6 +102,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -101,6 +116,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.akanework.gramophone.logic.SmartSeekConfig
+
+data class TrimState(
+    val isEnabled: Boolean = true,
+    val isSymmetric: Boolean = true,
+    val startTrim: Int = 5,
+    val endTrim: Int = 5,
+    val presets: List<Int> = listOf(5, 10, 15, 30)
+)
 
 private object IntervalPlayPalette {
     val background = Color(0xFF121212)
@@ -257,6 +280,8 @@ private fun IntervalPlaySettingsContent(
 
     val selectedAccent = remember { mutableStateOf(0) }
     val isBufferIncreased = remember { mutableStateOf(false) }
+    val trimState = remember { mutableStateOf(TrimState()) }
+    var showTrimSettings by remember { mutableStateOf(false) }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     Column(
@@ -498,6 +523,12 @@ private fun IntervalPlaySettingsContent(
                 )
             }
 
+            TrimSection(
+                state = trimState.value,
+                onStateChange = { trimState.value = it },
+                onOpenSettings = { showTrimSettings = true }
+            )
+
             AccentSelector(
                 selectedIndex = selectedAccent.value,
                 onSelect = { selectedAccent.value = it }
@@ -526,6 +557,14 @@ private fun IntervalPlaySettingsContent(
                 label = "Сохранить",
                 primary = true,
                 onClick = onSave
+            )
+        }
+
+        if (showTrimSettings) {
+            TrimSettingsSheet(
+                state = trimState.value,
+                onStateChange = { trimState.value = it },
+                onDismiss = { showTrimSettings = false }
             )
         }
     }
@@ -1811,3 +1850,237 @@ private fun formatSimpleTime(seconds: Int): String =
 
 private fun formatPresetInterval(seconds: Int): String =
     formatSimpleTime(seconds)
+
+
+@Composable
+fun TrimSection(
+    state: TrimState,
+    onStateChange: (TrimState) -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val bg = Color(0xFF18181B)
+    val outline = Color(0xFF2A2A35)
+    val accent = Color(0xFF9B8AF5)
+    val muted = Color(0xFFA8A8A8)
+    val defaults = listOf(5, 10, 15, 30)
+
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .border(1.dp, outline, RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.width(200.dp).height(48.dp)
+                    .clickable { onStateChange(state.copy(isEnabled = !state.isEnabled)) },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().height(32.dp).clip(CircleShape)
+                        .border(1.dp, if (state.isEnabled) accent else Color(0xFF4A4D52), CircleShape)
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Icon(Icons.Default.ContentCut, contentDescription = null,
+                        tint = if (state.isEnabled) Color.White else muted, modifier = Modifier.size(17.dp))
+                    Text("Обрезка", color = if (state.isEnabled) Color.White else muted,
+                        fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Spacer(Modifier.weight(1f))
+                    Box(Modifier.size(8.dp).then(
+                        if (state.isEnabled) Modifier.background(accent, CircleShape)
+                        else Modifier.border(1.dp, Color(0xFF4A4D52), CircleShape)
+                    ))
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+            Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onOpenSettings),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Settings, contentDescription = "Настройки обрезки",
+                    tint = muted, modifier = Modifier.size(20.dp))
+            }
+        }
+
+        Column(Modifier.fillMaxWidth().alpha(if (state.isEnabled) 1f else 0.3f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            fun selected(index: Int, value: Int): Boolean =
+                if (state.isSymmetric) state.startTrim == value && state.endTrim == value
+                else if (index < 2) state.startTrim == value else state.endTrim == value
+
+            fun select(index: Int) {
+                val v = state.presets.getOrElse(index) { defaults[index] }.coerceIn(0, 100)
+                when {
+                    state.isSymmetric -> onStateChange(state.copy(startTrim = v, endTrim = v))
+                    index < 2 -> onStateChange(state.copy(startTrim = v))
+                    else -> onStateChange(state.copy(endTrim = v))
+                }
+            }
+
+            if (state.isSymmetric) {
+                TrimPresetCapsule(
+                    modifier = Modifier.fillMaxWidth(), state = state,
+                    indices = listOf(0, 1, 2, 3), centerLink = true,
+                    isSelected = ::selected, onSelect = ::select
+                )
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TrimPresetCapsule(Modifier.weight(1f), state, listOf(0, 1), false,
+                        ::selected, ::select)
+                    Box(Modifier.size(width = 30.dp, height = 48.dp), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Link, contentDescription = "Раздельная обрезка",
+                            tint = Color(0xFF4A4D52), modifier = Modifier.size(18.dp))
+                    }
+                    TrimPresetCapsule(Modifier.weight(1f), state, listOf(2, 3), false,
+                        ::selected, ::select)
+                }
+            }
+            TrimProgressBar(state.startTrim, state.endTrim, outline, accent)
+        }
+    }
+}
+
+@Composable
+private fun TrimPresetCapsule(
+    modifier: Modifier,
+    state: TrimState,
+    indices: List<Int>,
+    centerLink: Boolean,
+    isSelected: (Int, Int) -> Boolean,
+    onSelect: (Int) -> Unit
+) {
+    val defaults = listOf(5, 10, 15, 30)
+    val accent = Color(0xFF9B8AF5)
+    Row(
+        modifier.height(48.dp).drawBehind {
+            val h = 26.dp.toPx()
+            val y = (size.height - h) / 2f
+            drawRoundRect(Color(0xFF18181B), Offset(0f, y), Size(size.width, h), CornerRadius(h / 2f))
+            drawRoundRect(Color(0xFF9B8AF5), Offset(0f, y), Size(size.width, h),
+                CornerRadius(h / 2f), style = Stroke(1.dp.toPx()))
+        },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        @Composable
+        fun presetCell(index: Int, cellModifier: Modifier) {
+            val preset = state.presets.getOrElse(index) { defaults[index] }
+            Box(cellModifier.fillMaxHeight().clickable(enabled = state.isEnabled) { onSelect(index) },
+                contentAlignment = Alignment.Center) {
+                Text("${preset.coerceIn(0, 100)}%",
+                    color = if (isSelected(index, preset)) accent else Color(0xFFA8A8A8),
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected(index, preset)) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1, softWrap = false)
+            }
+        }
+        if (centerLink && indices.size >= 4) {
+            presetCell(indices[0], Modifier.weight(1f))
+            presetCell(indices[1], Modifier.weight(1f))
+            Box(Modifier.width(28.dp).height(48.dp), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Link, contentDescription = "Симметричная обрезка",
+                    tint = accent, modifier = Modifier.size(16.dp))
+            }
+            presetCell(indices[2], Modifier.weight(1f))
+            presetCell(indices[3], Modifier.weight(1f))
+        } else {
+            indices.forEach { presetCell(it, Modifier.weight(1f)) }
+        }
+    }
+}
+
+@Composable
+private fun TrimProgressBar(startTrim: Int, endTrim: Int, barColor: Color, accentColor: Color) {
+    Canvas(Modifier.fillMaxWidth().height(10.dp)) {
+        val radius = 3.dp.toPx()
+        val trackWidth = (size.width - 2f * radius).coerceAtLeast(0f)
+        val barHeight = 4.dp.toPx()
+        var start = startTrim.coerceIn(0, 100).toFloat()
+        var end = endTrim.coerceIn(0, 100).toFloat()
+        val total = start + end
+        if (total > 100f) {
+            start = start / total * 100f
+            end = end / total * 100f
+        }
+        val leftWidth = trackWidth * start / 100f
+        val rightWidth = trackWidth * end / 100f
+        val centerWidth = (trackWidth - leftWidth - rightWidth).coerceAtLeast(0f)
+        val x = radius
+        val y = (size.height - barHeight) / 2f
+        drawRoundRect(barColor, Offset(x, y), Size(trackWidth, barHeight), CornerRadius(barHeight / 2f))
+        if (centerWidth > 0f) drawRect(accentColor, Offset(x + leftWidth, y), Size(centerWidth, barHeight))
+        drawCircle(Color.White, radius, Offset(x + leftWidth, size.height / 2f))
+        drawCircle(Color.White, radius, Offset(x + leftWidth + centerWidth, size.height / 2f))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrimSettingsSheet(state: TrimState, onStateChange: (TrimState) -> Unit, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val defaults = listOf(5, 10, 15, 30)
+    var presetTexts by remember(state.presets) {
+        mutableStateOf(List(4) { state.presets.getOrElse(it) { defaults[it] }.toString() })
+    }
+    val bg = Color(0xFF18181B)
+    val outline = Color(0xFF2A2A35)
+    val accent = Color(0xFF9B8AF5)
+    val mainText = Color(0xFFF3F3F6)
+    val secondary = Color(0xFFA8A8A8)
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState,
+        containerColor = bg, contentColor = mainText, tonalElevation = 0.dp) {
+        Column(Modifier.fillMaxWidth().background(bg)
+            .padding(start = 20.dp, top = 4.dp, end = 20.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("Настройка пресетов", color = mainText, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Симметричная обрезка", Modifier.weight(1f), color = secondary, fontSize = 14.sp)
+                Switch(state.isSymmetric,
+                    onCheckedChange = { onStateChange(state.copy(isSymmetric = it)) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = accent, checkedTrackColor = accent.copy(alpha = 0.35f),
+                        checkedBorderColor = accent, uncheckedThumbColor = secondary,
+                        uncheckedTrackColor = outline, uncheckedBorderColor = Color(0xFF4A4D52)
+                    ))
+            }
+            listOf(0, 2).forEach { rowStart ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    (rowStart..rowStart + 1).forEach { index ->
+                        OutlinedTextField(
+                            value = presetTexts[index],
+                            onValueChange = { raw ->
+                                val cleaned = raw.filter { it.isDigit() }.take(3)
+                                presetTexts = presetTexts.toMutableList().also { it[index] = cleaned }
+                                cleaned.toIntOrNull()?.let { number ->
+                                    val presets = List(4) { i -> state.presets.getOrElse(i) { defaults[i] } }
+                                        .toMutableList()
+                                    presets[index] = number.coerceIn(0, 100)
+                                    onStateChange(state.copy(presets = presets))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Пресет ${index + 1}", color = secondary) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = mainText, unfocusedTextColor = mainText,
+                                focusedBorderColor = accent, unfocusedBorderColor = outline,
+                                cursorColor = accent, focusedLabelColor = accent, unfocusedLabelColor = secondary,
+                                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent
+                            )
+                        )
+                    }
+                }
+            }
+            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color(0xFF121212))) {
+                Text("Готово", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
