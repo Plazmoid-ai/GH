@@ -20,6 +20,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -253,7 +254,7 @@ private fun IntervalPlaySettingsContent(
 ) {
     var isAutoAvailable by remember { mutableStateOf(false) }
     var isPreviewAvailable by remember { mutableStateOf(false) }
-    var fadeDurationSec by remember { mutableStateOf(1.0f) }
+    var fadeDurationMs by remember { mutableStateOf(1000L) }
     var selectedTab by remember { mutableStateOf(0) }
 
     var isAutoMode by remember { mutableStateOf(false) }
@@ -262,7 +263,7 @@ private fun IntervalPlaySettingsContent(
     var activeIntervalSec by remember { mutableStateOf(30) }
     var silenceIntervalSec by remember { mutableStateOf(10) }
     var autoCount by remember { mutableStateOf(5) }
-    val demoTrackDurationMs = 240_000L
+    val trackDurationMs = 180_000L
 
     var isBufferIncreased by remember { mutableStateOf(false) }
     var selectedFixedPreset by remember { mutableStateOf(0) }
@@ -283,6 +284,39 @@ private fun IntervalPlaySettingsContent(
     var positionMode by remember { mutableStateOf("START") }
     var isShiftEnabled by remember { mutableStateOf(false) }
     var shiftStepSec by remember { mutableStateOf(10) }
+
+    // TODO: Если isMuteMode == true: fade-out за fadeDurationMs в конце активного,
+    // fade-in за fadeDurationMs в начале следующего активного. В тишине volume = 0.
+    // TODO: Если isMuteMode == false или isAutoMode == true: micro-fade 100ms при seek (hardcoded).
+
+    fun recalcFromCount(count: Int) {
+        val safeCount = count.coerceAtLeast(1)
+        val totalParts = 2L * safeCount.toLong() - 1L
+        if (totalParts <= 0L) return
+        val baseMs = trackDurationMs / totalParts
+        val remainderMs = trackDurationMs - baseMs * totalParts
+        autoCount = safeCount
+        activeIntervalSec = (baseMs / 1000L).toInt().coerceIn(1, 600)
+        // The remainderMs belongs to the last active segment; playback remains out of scope here.
+        @Suppress("UNUSED_VARIABLE")
+        val reservedRemainderMs = remainderMs
+    }
+
+    fun recalcFromDuration(durationSec: Int) {
+        val safeDurationSec = durationSec.coerceIn(1, 600)
+        val baseMs = safeDurationSec.toLong() * 1000L
+        if (trackDurationMs < baseMs * 2L) {
+            autoCount = 1
+            return
+        }
+        val count = (trackDurationMs / (baseMs * 2L)).toInt().coerceAtLeast(1)
+        autoCount = count
+        recalcFromCount(count)
+    }
+
+    LaunchedEffect(isPreviewAvailable) {
+        if (!isPreviewAvailable && selectedTab == 1) selectedTab = 0
+    }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     Column(
@@ -339,9 +373,7 @@ private fun IntervalPlaySettingsContent(
                     isAutoMode = isAutoMode,
                     onAutoModeChange = { enabled ->
                         isAutoMode = enabled
-                        if (enabled) {
-                            activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, autoCount)
-                        }
+                        if (enabled) recalcFromCount(autoCount)
                     },
                     isMuteMode = isMuteMode,
                     onMuteModeChange = { isMuteMode = it },
@@ -350,14 +382,12 @@ private fun IntervalPlaySettingsContent(
                     activeIntervalSec = activeIntervalSec,
                     silenceIntervalSec = silenceIntervalSec,
                     autoCount = autoCount,
-                    fadeDurationSec = fadeDurationSec,
-                    trackDurationMs = demoTrackDurationMs,
+                    fadeDurationMs = fadeDurationMs,
+                    trackDurationMs = trackDurationMs,
                     onActiveIntervalChange = { requested ->
                         val next = requested.coerceIn(1, 600)
                         if (isAutoMode) {
-                            val nextCount = calculateAutoCount(demoTrackDurationMs, next)
-                            autoCount = nextCount
-                            activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, nextCount)
+                            recalcFromDuration(next)
                         } else {
                             val delta = next - activeIntervalSec
                             activeIntervalSec = next
@@ -374,11 +404,7 @@ private fun IntervalPlaySettingsContent(
                             activeIntervalSec = (activeIntervalSec + delta).coerceIn(1, 600)
                         }
                     },
-                    onAutoCountChange = { requested ->
-                        val nextCount = requested.coerceIn(1, 120)
-                        autoCount = nextCount
-                        activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, nextCount)
-                    }
+                    onAutoCountChange = { requested -> recalcFromCount(requested) }
                 )
 
                 PresetSelector(
@@ -387,11 +413,12 @@ private fun IntervalPlaySettingsContent(
                     selectedIndex = selectedFixedPreset,
                     onSelect = { index ->
                         fixedPresets[index]?.let { preset ->
-                            activeIntervalSec = preset.playSeconds.coerceIn(1, 600)
+                            val requestedDuration = preset.playSeconds.coerceIn(1, 600)
                             silenceIntervalSec = preset.skipSeconds.coerceIn(1, 600)
                             if (isAutoMode) {
-                                autoCount = calculateAutoCount(demoTrackDurationMs, activeIntervalSec)
-                                activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, autoCount)
+                                recalcFromDuration(requestedDuration)
+                            } else {
+                                activeIntervalSec = requestedDuration
                             }
                             selectedFixedPreset = index
                         }
@@ -405,9 +432,7 @@ private fun IntervalPlaySettingsContent(
                         fixedPresets = updated
                         selectedFixedPreset = index
                     },
-                    content = { index ->
-                        FixedPresetCardContent(fixedPresets[index])
-                    },
+                    content = { index -> FixedPresetCardContent(fixedPresets[index]) },
                     isEmpty = { fixedPresets[it] == null }
                 )
 
@@ -431,12 +456,9 @@ private fun IntervalPlaySettingsContent(
                         if (!it) isAutoMode = false
                     },
                     isPreviewAvailable = isPreviewAvailable,
-                    onPreviewAvailableChange = {
-                        isPreviewAvailable = it
-                        if (!it) selectedTab = 0
-                    },
-                    fadeDurationSec = fadeDurationSec,
-                    onFadeDurationChange = { fadeDurationSec = it }
+                    onPreviewAvailableChange = { isPreviewAvailable = it },
+                    fadeDurationMs = fadeDurationMs,
+                    onFadeDurationChange = { fadeDurationMs = it }
                 )
             } else {
                 PreviewContent(
@@ -447,8 +469,8 @@ private fun IntervalPlaySettingsContent(
                     isShiftEnabled = isShiftEnabled,
                     onShiftEnabledChange = { isShiftEnabled = it },
                     shiftStepSec = shiftStepSec,
-                    onShiftStepChange = { shiftStepSec = it },
-                    trackDurationMs = demoTrackDurationMs
+                    onShiftStepChange = { shiftStepSec = it.coerceIn(1, 120) },
+                    trackDurationMs = trackDurationMs
                 )
             }
         }
@@ -690,6 +712,16 @@ private fun SimpleSettings(
     }
 }
 
+/**
+ * Existing HybridWheelPicker API:
+ * - [value] is the externally owned selected integer (the composable's value/setter input).
+ * - [onValueChange] reports user selection back to the owner for two-way state binding.
+ * - [valueRange] is the inclusive permitted range; [cyclic] controls wraparound.
+ * - [modifier], [containerHeight], [itemHeight], and [swipeEnabled] configure presentation/input.
+ * - There is no imperative setter and no separate minute-digit lock: this is a single-integer
+ *   picker. Interval UI passes total seconds in 1..600, so a minute-column lock is not applicable.
+ * The value is observed by LaunchedEffect and the LazyColumn scrolls to external value updates.
+ */
 @Composable
 private fun HybridWheelPicker(
     value: Int,
@@ -1765,26 +1797,6 @@ private fun formatPresetInterval(seconds: Int): String =
     formatSimpleTime(seconds)
 
 
-private fun calculateAutoBaseDuration(trackDurationMs: Long, count: Int): Int {
-    val totalParts = (2 * count.coerceAtLeast(1) - 1).coerceAtLeast(1)
-    val trackDurationSec = (trackDurationMs / 1000L).coerceAtLeast(1L)
-    return (trackDurationSec / totalParts).toInt().coerceIn(1, 600)
-}
-
-private fun calculateAutoCount(trackDurationMs: Long, activeDurationSec: Int): Int {
-    val trackDurationSec = (trackDurationMs / 1000L).coerceAtLeast(1L)
-    val divisor = activeDurationSec.coerceAtLeast(1).toLong() * 2L
-    return (trackDurationSec / divisor).toInt().coerceIn(1, 120)
-}
-
-private fun calculateLastActiveDuration(trackDurationMs: Long, count: Int): Int {
-    val totalParts = (2 * count.coerceAtLeast(1) - 1).coerceAtLeast(1)
-    val durationSec = (trackDurationMs / 1000L).coerceAtLeast(1L)
-    val baseDuration = durationSec / totalParts
-    val remainder = durationSec % totalParts
-    return (baseDuration + remainder).toInt().coerceIn(1, 600)
-}
-
 @Composable
 private fun IntervalsContent(
     wheelSwipeEnabled: Boolean,
@@ -1798,78 +1810,64 @@ private fun IntervalsContent(
     activeIntervalSec: Int,
     silenceIntervalSec: Int,
     autoCount: Int,
-    fadeDurationSec: Float,
+    fadeDurationMs: Long,
     trackDurationMs: Long,
     onActiveIntervalChange: (Int) -> Unit,
     onSilenceIntervalChange: (Int) -> Unit,
     onAutoCountChange: (Int) -> Unit
 ) {
-    val inactive = Color(0xFF1C1C24)
     val accent = Color(0xFF9B8AF5)
+    val inactive = Color(0xFF1C1C24)
     val outline = Color(0xFF4A4D52)
-    val grayText = Color(0xFFA8A8A8)
-    val effectiveFadeText = if (isAutoMode || !isMuteMode) {
-        "Micro-fade: 100 мс"
-    } else {
-        "Fade: ${fadeDurationSec.toString().replace(".", ",")} с"
-    }
-
+    val gray = Color(0xFFA8A8A8)
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (isAutoAvailable) {
-                Box(
-                    modifier = Modifier.size(48.dp).clickable { onAutoModeChange(!isAutoMode) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))
-                            .background(inactive)
-                            .border(1.dp, if (isAutoMode) accent else outline, RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("A", color = if (isAutoMode) accent else grayText,
-                            fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
             Text(
-                text = if (isAutoMode) "Длительность" else "Активный",
-                modifier = Modifier.weight(1f),
-                color = grayText,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 1
+                text = "Активный",
+                color = gray,
+                fontSize = 13.sp
             )
-
             if (isAutoMode) {
-                Text("Количество", modifier = Modifier.width(126.dp), color = grayText,
-                    fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 1)
+                Text(
+                    text = "Количество",
+                    color = gray,
+                    fontSize = 13.sp
+                )
             } else {
                 Box(
-                    modifier = Modifier.width(90.dp).height(48.dp)
+                    modifier = Modifier
+                        .width(90.dp)
+                        .height(48.dp)
                         .clickable { onMuteModeChange(!isMuteMode) },
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().height(24.dp).clip(CircleShape)
-                            .background(inactive).border(1.dp, outline, CircleShape)
+                        modifier = Modifier
+                            .width(90.dp)
+                            .height(24.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(inactive)
+                            .border(1.dp, outline, RoundedCornerShape(6.dp))
                             .padding(horizontal = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text(
                             text = if (isMuteMode) "🔇 Тишина" else "⏭ Пропуск",
-                            color = if (isMuteMode) accent else grayText,
-                            fontSize = 11.sp, textAlign = TextAlign.Center,
-                            maxLines = 1, softWrap = false
+                            color = if (isMuteMode) accent else gray,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -1878,9 +1876,37 @@ private fun IntervalsContent(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(0.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .alpha(if (isAutoAvailable) 1f else 0.3f)
+                    .clickable(enabled = isAutoAvailable) { onAutoModeChange(!isAutoMode) },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(inactive)
+                        .border(
+                            width = 1.dp,
+                            color = if (isAutoMode) accent else outline,
+                            shape = RoundedCornerShape(8.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "A",
+                        color = if (isAutoMode) accent else gray,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
             HybridWheelPicker(
                 value = activeIntervalSec.coerceIn(1, 600),
                 valueRange = 1..600,
@@ -1898,13 +1924,15 @@ private fun IntervalsContent(
                 )
             } else {
                 Box(
-                    modifier = Modifier.size(48.dp).clickable(onClick = onLockToggle),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable(onClick = onLockToggle),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
                         contentDescription = if (isLocked) "Интервалы связаны" else "Интервалы не связаны",
-                        tint = if (isLocked) accent else grayText,
+                        tint = if (isLocked) accent else gray,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -1920,27 +1948,6 @@ private fun IntervalsContent(
             }
         }
 
-        Text(
-            text = effectiveFadeText,
-            modifier = Modifier.fillMaxWidth(),
-            color = grayText,
-            fontSize = 11.sp,
-            textAlign = TextAlign.End
-        )
-
-        if (isAutoMode) {
-            val trackDurationSec = (trackDurationMs / 1000L).toInt()
-            val totalParts = 2 * autoCount - 1
-            val remainder = trackDurationSec % totalParts.coerceAtLeast(1)
-            val lastActiveDuration = calculateLastActiveDuration(trackDurationMs, autoCount)
-            Text(
-                text = "Демо-трек: ${trackDurationSec} с · Всего частей: ${totalParts} · Последний активный: ${lastActiveDuration} с (остаток +${remainder} с)",
-                modifier = Modifier.fillMaxWidth(),
-                color = grayText,
-                fontSize = 11.sp,
-                textAlign = TextAlign.Center
-            )
-        }
     }
 }
 
@@ -1950,34 +1957,48 @@ private fun AutoCountControl(
     onIncrease: () -> Unit,
     onDecrease: () -> Unit
 ) {
-    val background = Color(0xFF1C1C24)
+    val inactive = Color(0xFF1C1C24)
     val outline = Color(0xFF2A2A35)
     val gray = Color(0xFFA8A8A8)
+
     Row(
         modifier = Modifier.width(132.dp).height(104.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(width = 80.dp, height = 70.dp)
-                .clip(RoundedCornerShape(10.dp)).background(background)
-                .border(1.dp, outline, RoundedCornerShape(10.dp)),
+            modifier = Modifier
+                .size(width = 80.dp, height = 70.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(inactive)
+                .border(1.dp, outline, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text(count.toString(), color = Color.White, fontSize = 28.sp,
-                fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+            Text(
+                text = count.toString(),
+                color = Color.White,
+                fontSize = 38.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
         }
         Column(
-            modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(Modifier.size(48.dp).clickable(onClick = onIncrease),
-                contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.size(32.dp).clickable(onClick = onIncrease),
+                contentAlignment = Alignment.Center
+            ) {
                 Text("+", color = gray, fontSize = 24.sp)
             }
-            Box(Modifier.size(48.dp).clickable(onClick = onDecrease),
-                contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .alpha(if (count > 1) 1f else 0.3f)
+                    .clickable(enabled = count > 1, onClick = onDecrease),
+                contentAlignment = Alignment.Center
+            ) {
                 Text("−", color = gray, fontSize = 24.sp)
             }
         }
@@ -1992,8 +2013,8 @@ private fun ExperimentalSettingsSection(
     onAutoAvailableChange: (Boolean) -> Unit,
     isPreviewAvailable: Boolean,
     onPreviewAvailableChange: (Boolean) -> Unit,
-    fadeDurationSec: Float,
-    onFadeDurationChange: (Float) -> Unit
+    fadeDurationMs: Long,
+    onFadeDurationChange: (Long) -> Unit
 ) {
     val background = Color(0xFF18181B)
     val inactive = Color(0xFF1C1C24)
@@ -2002,33 +2023,55 @@ private fun ExperimentalSettingsSection(
     val gray = Color(0xFFA8A8A8)
 
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(background).border(1.dp, outline, RoundedCornerShape(16.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(background)
+            .border(1.dp, outline, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Экспериментально", color = gray, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = "Экспериментально",
+            color = gray,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Увеличить буфер", modifier = Modifier.weight(1f), color = Color.White, fontSize = 14.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Увеличить буфер", color = Color.White, fontSize = 14.sp)
             Switch(
                 checked = bufferIncreased,
                 onCheckedChange = onBufferChange,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color(0xFF121212), checkedTrackColor = accent,
-                    uncheckedThumbColor = gray, uncheckedTrackColor = outline, uncheckedBorderColor = outline
+                    checkedThumbColor = Color(0xFF121212),
+                    checkedTrackColor = accent,
+                    uncheckedThumbColor = gray,
+                    uncheckedTrackColor = outline,
+                    uncheckedBorderColor = outline
                 )
             )
         }
 
         Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                .background(inactive).border(1.dp, outline, RoundedCornerShape(12.dp)).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(inactive)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Умные режимы", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
 
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Режим Авто", color = Color.White, fontSize = 13.sp)
                     Text("Включает кнопку А в интервалах", color = gray, fontSize = 11.sp)
@@ -2037,13 +2080,20 @@ private fun ExperimentalSettingsSection(
                     checked = isAutoAvailable,
                     onCheckedChange = onAutoAvailableChange,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF121212), checkedTrackColor = accent,
-                        uncheckedThumbColor = gray, uncheckedTrackColor = outline, uncheckedBorderColor = outline
+                        checkedThumbColor = Color(0xFF121212),
+                        checkedTrackColor = accent,
+                        uncheckedThumbColor = gray,
+                        uncheckedTrackColor = outline,
+                        uncheckedBorderColor = outline
                     )
                 )
             }
 
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Режим Превью", color = Color.White, fontSize = 13.sp)
                     Text("Добавляет вкладку Превью", color = gray, fontSize = 11.sp)
@@ -2052,32 +2102,47 @@ private fun ExperimentalSettingsSection(
                     checked = isPreviewAvailable,
                     onCheckedChange = onPreviewAvailableChange,
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF121212), checkedTrackColor = accent,
-                        uncheckedThumbColor = gray, uncheckedTrackColor = outline, uncheckedBorderColor = outline
+                        checkedThumbColor = Color(0xFF121212),
+                        checkedTrackColor = accent,
+                        uncheckedThumbColor = gray,
+                        uncheckedTrackColor = outline,
+                        uncheckedBorderColor = outline
                     )
                 )
             }
 
-            Text("Длительность Fade", color = Color.White, fontSize = 13.sp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0.5f, 1.0f, 2.0f).forEach { seconds ->
-                    Box(
-                        modifier = Modifier.weight(1f).height(48.dp)
-                            .clickable { onFadeDurationChange(seconds) },
-                        contentAlignment = Alignment.Center
-                    ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Fade", color = Color.White, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(500L, 1000L, 2000L).forEach { durationMs ->
+                        val selected = fadeDurationMs == durationMs
                         Box(
-                            modifier = Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(10.dp))
+                            modifier = Modifier
+                                .size(width = 52.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(inactive)
-                                .border(1.dp, if (fadeDurationSec == seconds) accent else Color(0xFF4A4D52),
-                                    RoundedCornerShape(10.dp)),
+                                .border(
+                                    width = if (selected) 1.5.dp else 1.dp,
+                                    color = if (selected) accent else Color(0xFF4A4D52),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { onFadeDurationChange(durationMs) },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = when (seconds) { 0.5f -> "0,5с"; 1.0f -> "1с"; else -> "2с" },
-                                color = if (fadeDurationSec == seconds) accent else gray,
-                                fontSize = 13.sp,
-                                fontWeight = if (fadeDurationSec == seconds) FontWeight.SemiBold else FontWeight.Normal
+                                text = when (durationMs) {
+                                    500L -> "0.5с"
+                                    1000L -> "1с"
+                                    else -> "2с"
+                                },
+                                color = if (selected) accent else gray,
+                                fontSize = 12.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1
                             )
                         }
                     }
@@ -2100,8 +2165,8 @@ private fun PreviewContent(
     trackDurationMs: Long
 ) {
     val inactive = Color(0xFF1C1C24)
+    val outline = Color(0xFF4A4D52)
     val accent = Color(0xFF9B8AF5)
-    val outline = Color(0xFF2A2A35)
     val gray = Color(0xFFA8A8A8)
     val trackDurationSec = (trackDurationMs / 1000L).toInt().coerceAtLeast(1)
     val effectiveDuration = previewDurationSec.coerceIn(1, trackDurationSec)
@@ -2112,49 +2177,68 @@ private fun PreviewContent(
         "RANDOM" -> maxStart * 37 / 100
         else -> 0
     }
-    val shiftedStart = (
-        baseStart + if (isShiftEnabled && positionMode != "RANDOM") shiftStepSec else 0
-    ).coerceIn(0, maxStart)
+    val shiftBlocked = positionMode == "RANDOM"
+    val shiftedRawStart = baseStart + if (isShiftEnabled && !shiftBlocked) shiftStepSec else 0
+    val shiftedStart = shiftedRawStart.coerceIn(0, maxStart)
     val shiftedEnd = (shiftedStart + effectiveDuration).coerceAtMost(trackDurationSec)
-    val shiftAvailable = positionMode != "RANDOM"
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Длительность участка", color = gray, fontSize = 13.sp)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            listOf(15, 30, 45, 60).forEach { seconds ->
-                PreviewChoiceButton(
-                    modifier = Modifier.weight(1f),
-                    label = "${seconds}с",
-                    selected = previewDurationSec == seconds,
-                    onClick = { onPreviewDurationChange(seconds) }
-                )
-            }
-            PreviewStepperButton("−") {
-                onPreviewDurationChange((previewDurationSec - 1).coerceIn(1, 600))
-            }
-            PreviewStepperButton("+") {
-                onPreviewDurationChange((previewDurationSec + 1).coerceIn(1, 600))
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Длительность участка", color = gray, fontSize = 13.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(15, 30, 45, 60).forEach { seconds ->
+                    PreviewChoiceButton(
+                        modifier = Modifier.width(50.dp),
+                        label = "${seconds}с",
+                        selected = previewDurationSec == seconds,
+                        onClick = { onPreviewDurationChange(seconds) }
+                    )
+                }
+                Row(
+                    modifier = Modifier.width(84.dp).height(48.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PreviewStepperButton("−") {
+                        onPreviewDurationChange((previewDurationSec - 1).coerceIn(1, 600))
+                    }
+                    Text(
+                        text = previewDurationSec.toString(),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1
+                    )
+                    PreviewStepperButton("+") {
+                        onPreviewDurationChange((previewDurationSec + 1).coerceIn(1, 600))
+                    }
+                }
             }
         }
 
-        Text("Позиция участка", color = gray, fontSize = 13.sp)
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf(
-                listOf("START" to "Начало", "MIDDLE" to "Середина"),
-                listOf("END" to "Конец", "RANDOM" to "Случайно")
-            ).forEach { rowItems ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    rowItems.forEach { (mode, label) ->
-                        PreviewChoiceButton(
-                            modifier = Modifier.weight(1f),
-                            label = label,
-                            selected = positionMode == mode,
-                            onClick = { onPositionModeChange(mode) }
-                        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Позиция участка", color = gray, fontSize = 13.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    listOf("START" to "Начало", "MIDDLE" to "Середина"),
+                    listOf("END" to "Конец", "RANDOM" to "Случайно")
+                ).forEach { rowItems ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowItems.forEach { (mode, label) ->
+                            PreviewChoiceButton(
+                                modifier = Modifier.weight(1f),
+                                label = label,
+                                selected = positionMode == mode,
+                                onClick = { onPositionModeChange(mode) }
+                            )
+                        }
                     }
                 }
             }
@@ -2165,65 +2249,79 @@ private fun PreviewContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            if (!shiftAvailable) {
+            if (shiftBlocked) {
                 Icon(
                     imageVector = Icons.Default.Lock,
-                    contentDescription = "Смещение недоступно для случайной позиции",
+                    contentDescription = "Смещение заблокировано для случайной позиции",
                     tint = Color.White,
-                    modifier = Modifier.padding(bottom = 2.dp).size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
             Column(
-                modifier = Modifier.alpha(if (shiftAvailable) 1f else 0.4f),
+                modifier = Modifier.alpha(if (shiftBlocked) 0.4f else 1f),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Box(
-                    modifier = Modifier.size(width = 160.dp, height = 48.dp)
-                        .drawBehind {
-                            val h = 40.dp.toPx()
-                            val y = (size.height - h) / 2f
-                            drawRoundRect(inactive, Offset(0f, y), Size(size.width, h), CornerRadius(h / 2f))
-                            drawRoundRect(
-                                if (isShiftEnabled && shiftAvailable) accent else Color(0xFF4A4D52),
-                                Offset(0f, y), Size(size.width, h), CornerRadius(h / 2f),
-                                style = Stroke(1.dp.toPx())
-                            )
-                        }
-                        .clickable(enabled = shiftAvailable) { onShiftEnabledChange(!isShiftEnabled) },
+                    modifier = Modifier
+                        .size(width = 160.dp, height = 40.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(inactive)
+                        .border(
+                            1.dp,
+                            if (isShiftEnabled && !shiftBlocked) accent else outline,
+                            RoundedCornerShape(20.dp)
+                        )
+                        .clickable(enabled = !shiftBlocked) { onShiftEnabledChange(!isShiftEnabled) },
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Default.ArrowForward, contentDescription = null,
-                            tint = if (isShiftEnabled && shiftAvailable) accent else gray,
-                            modifier = Modifier.size(18.dp))
-                        Text("Смещение",
-                            color = if (isShiftEnabled && shiftAvailable) accent else gray,
-                            fontSize = 13.sp)
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            tint = if (isShiftEnabled && !shiftBlocked) accent else gray,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Смещение",
+                            color = if (isShiftEnabled && !shiftBlocked) accent else gray,
+                            fontSize = 13.sp
+                        )
                     }
                 }
 
                 Row(
-                    modifier = Modifier.width(180.dp).height(48.dp).drawBehind {
-                        val h = 40.dp.toPx()
-                        val y = (size.height - h) / 2f
-                        drawRoundRect(inactive, Offset(0f, y), Size(size.width, h), CornerRadius(h / 2f))
-                        drawRoundRect(outline, Offset(0f, y), Size(size.width, h),
-                            CornerRadius(h / 2f), style = Stroke(1.dp.toPx()))
-                    },
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier
+                        .width(180.dp)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(inactive)
+                        .border(1.dp, outline, RoundedCornerShape(20.dp)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Box(Modifier.size(48.dp).clickable(enabled = shiftAvailable) {
-                        onShiftStepChange((shiftStepSec - 1).coerceIn(1, 600))
-                    }, contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier.size(48.dp).clickable(enabled = !shiftBlocked) {
+                            onShiftStepChange((shiftStepSec - 1).coerceIn(1, 120))
+                        },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text("−", color = gray, fontSize = 22.sp)
                     }
-                    Text("${shiftStepSec} с", Modifier.weight(1f), color = Color.White,
-                        fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 1)
-                    Box(Modifier.size(48.dp).clickable(enabled = shiftAvailable) {
-                        onShiftStepChange((shiftStepSec + 1).coerceIn(1, 600))
-                    }, contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "${shiftStepSec}с",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1
+                    )
+                    Box(
+                        modifier = Modifier.size(48.dp).clickable(enabled = !shiftBlocked) {
+                            onShiftStepChange((shiftStepSec + 1).coerceIn(1, 120))
+                        },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text("+", color = gray, fontSize = 22.sp)
                     }
                 }
@@ -2250,17 +2348,30 @@ private fun PreviewChoiceButton(
     val accent = Color(0xFF9B8AF5)
     val gray = Color(0xFFA8A8A8)
     val outline = Color(0xFF4A4D52)
-    Box(modifier = modifier.height(48.dp).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier.height(48.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
         Box(
-            modifier = Modifier.fillMaxWidth().height(40.dp)
-                .clip(RoundedCornerShape(10.dp)).background(Color(0xFF1C1C24))
-                .border(1.dp, if (selected) accent else outline, RoundedCornerShape(10.dp)),
+            modifier = Modifier.width(50.dp).height(28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF1C1C24))
+                .border(
+                    width = if (selected) 1.5.dp else 1.dp,
+                    color = if (selected) accent else outline,
+                    shape = RoundedCornerShape(8.dp)
+                ),
             contentAlignment = Alignment.Center
         ) {
-            Text(label, color = if (selected) accent else gray, fontSize = 12.sp,
+            Text(
+                text = label,
+                color = if (selected) accent else gray,
+                fontSize = 12.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
@@ -2268,20 +2379,12 @@ private fun PreviewChoiceButton(
 @Composable
 private fun PreviewStepperButton(label: String, onClick: () -> Unit) {
     Box(
-        modifier = Modifier.size(48.dp).clickable(onClick = onClick),
+        modifier = Modifier.size(32.dp).clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(9.dp))
-                .background(Color(0xFF1C1C24))
-                .border(1.dp, Color(0xFF4A4D52), RoundedCornerShape(9.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(label, color = Color(0xFFA8A8A8), fontSize = 20.sp)
-        }
+        Text(label, color = Color(0xFFA8A8A8), fontSize = 20.sp)
     }
 }
-
 
 @Composable
 fun TrimSection(
