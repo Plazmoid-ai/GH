@@ -252,9 +252,8 @@ private fun IntervalPlaySettingsContent(
     onCancel: () -> Unit,
     onSave: () -> Unit
 ) {
-    var isAutoAvailable by remember { mutableStateOf(false) }
-    var isPreviewAvailable by remember { mutableStateOf(false) }
     var fadeDurationMs by remember { mutableStateOf(1000L) }
+    var isFadeEnabled by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableStateOf(0) }
 
     var isAutoMode by remember { mutableStateOf(false) }
@@ -285,9 +284,12 @@ private fun IntervalPlaySettingsContent(
     var isShiftEnabled by remember { mutableStateOf(false) }
     var shiftStepSec by remember { mutableStateOf(10) }
 
-    // TODO: Если isMuteMode == true: fade-out за fadeDurationMs в конце активного,
-    // fade-in за fadeDurationMs в начале следующего активного. В тишине volume = 0.
-    // TODO: Если isMuteMode == false или isAutoMode == true: micro-fade 100ms при seek (hardcoded).
+    // TODO: Если isMuteMode == true и isFadeEnabled == true, использовать fade-out/fade-in
+    // длительностью fadeDurationMs при смене интервала; в тишине громкость равна 0.
+    // TODO: Если isMuteMode == true и isFadeEnabled == false, отключить обычный Fade,
+    // но оставить защитный микро-фейд 100 мс от щелчков.
+    // TODO: Если isMuteMode == false (Пропуск) или isAutoMode == true, использовать
+    // микро-фейд 100 мс при seek. Реализацию аудио оставить будущему плееру.
 
     fun recalcFromCount(count: Int) {
         val safeCount = count.coerceAtLeast(1)
@@ -314,10 +316,6 @@ private fun IntervalPlaySettingsContent(
         recalcFromCount(count)
     }
 
-    LaunchedEffect(isPreviewAvailable) {
-        if (!isPreviewAvailable && selectedTab == 1) selectedTab = 0
-    }
-
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     Column(
         modifier = Modifier
@@ -334,30 +332,28 @@ private fun IntervalPlaySettingsContent(
             modifier = Modifier.padding(start = 2.dp, bottom = 14.dp)
         )
 
-        if (isPreviewAvailable) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1C1C24))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                ModeTab(
-                    modifier = Modifier.weight(1f),
-                    label = "Интервалы",
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 }
-                )
-                ModeTab(
-                    modifier = Modifier.weight(1f),
-                    label = "Превью",
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 }
-                )
-            }
-            Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF1C1C24))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            ModeTab(
+                modifier = Modifier.weight(1f),
+                label = "Интервалы",
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 }
+            )
+            ModeTab(
+                modifier = Modifier.weight(1f),
+                label = "Превью",
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 }
+            )
         }
+        Spacer(Modifier.height(10.dp))
 
         Column(
             modifier = Modifier
@@ -369,7 +365,6 @@ private fun IntervalPlaySettingsContent(
             if (selectedTab == 0) {
                 IntervalsContent(
                     wheelSwipeEnabled = wheelSwipeEnabled,
-                    isAutoAvailable = isAutoAvailable,
                     isAutoMode = isAutoMode,
                     onAutoModeChange = { enabled ->
                         isAutoMode = enabled
@@ -382,8 +377,6 @@ private fun IntervalPlaySettingsContent(
                     activeIntervalSec = activeIntervalSec,
                     silenceIntervalSec = silenceIntervalSec,
                     autoCount = autoCount,
-                    fadeDurationMs = fadeDurationMs,
-                    trackDurationMs = trackDurationMs,
                     onActiveIntervalChange = { requested ->
                         val next = requested.coerceIn(1, 600)
                         if (isAutoMode) {
@@ -450,13 +443,8 @@ private fun IntervalPlaySettingsContent(
                 ExperimentalSettingsSection(
                     bufferIncreased = isBufferIncreased,
                     onBufferChange = { isBufferIncreased = it },
-                    isAutoAvailable = isAutoAvailable,
-                    onAutoAvailableChange = {
-                        isAutoAvailable = it
-                        if (!it) isAutoMode = false
-                    },
-                    isPreviewAvailable = isPreviewAvailable,
-                    onPreviewAvailableChange = { isPreviewAvailable = it },
+                    isFadeEnabled = isFadeEnabled,
+                    onFadeEnabledChange = { isFadeEnabled = it },
                     fadeDurationMs = fadeDurationMs,
                     onFadeDurationChange = { fadeDurationMs = it }
                 )
@@ -1800,7 +1788,6 @@ private fun formatPresetInterval(seconds: Int): String =
 @Composable
 private fun IntervalsContent(
     wheelSwipeEnabled: Boolean,
-    isAutoAvailable: Boolean,
     isAutoMode: Boolean,
     onAutoModeChange: (Boolean) -> Unit,
     isMuteMode: Boolean,
@@ -1810,8 +1797,6 @@ private fun IntervalsContent(
     activeIntervalSec: Int,
     silenceIntervalSec: Int,
     autoCount: Int,
-    fadeDurationMs: Long,
-    trackDurationMs: Long,
     onActiveIntervalChange: (Int) -> Unit,
     onSilenceIntervalChange: (Int) -> Unit,
     onAutoCountChange: (Int) -> Unit
@@ -1882,8 +1867,7 @@ private fun IntervalsContent(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .alpha(if (isAutoAvailable) 1f else 0.3f)
-                    .clickable(enabled = isAutoAvailable) { onAutoModeChange(!isAutoMode) },
+                    .clickable { onAutoModeChange(!isAutoMode) },
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -2009,24 +1993,22 @@ private fun AutoCountControl(
 private fun ExperimentalSettingsSection(
     bufferIncreased: Boolean,
     onBufferChange: (Boolean) -> Unit,
-    isAutoAvailable: Boolean,
-    onAutoAvailableChange: (Boolean) -> Unit,
-    isPreviewAvailable: Boolean,
-    onPreviewAvailableChange: (Boolean) -> Unit,
+    isFadeEnabled: Boolean,
+    onFadeEnabledChange: (Boolean) -> Unit,
     fadeDurationMs: Long,
     onFadeDurationChange: (Long) -> Unit
 ) {
-    val background = Color(0xFF18181B)
     val inactive = Color(0xFF1C1C24)
     val outline = Color(0xFF2A2A35)
     val accent = Color(0xFF9B8AF5)
     val gray = Color(0xFFA8A8A8)
+    val disabledOutline = Color(0xFF4A4D52)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(background)
+            .background(Color(0xFF18181B))
             .border(1.dp, outline, RoundedCornerShape(16.dp))
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -2038,25 +2020,6 @@ private fun ExperimentalSettingsSection(
             fontWeight = FontWeight.Medium
         )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Увеличить буфер", color = Color.White, fontSize = 14.sp)
-            Switch(
-                checked = bufferIncreased,
-                onCheckedChange = onBufferChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color(0xFF121212),
-                    checkedTrackColor = accent,
-                    uncheckedThumbColor = gray,
-                    uncheckedTrackColor = outline,
-                    uncheckedBorderColor = outline
-                )
-            )
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2065,20 +2028,17 @@ private fun ExperimentalSettingsSection(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Умные режимы", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Звук и буфер", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Режим Авто", color = Color.White, fontSize = 13.sp)
-                    Text("Включает кнопку А в интервалах", color = gray, fontSize = 11.sp)
-                }
+                Text("Увеличить буфер", color = Color.White, fontSize = 14.sp)
                 Switch(
-                    checked = isAutoAvailable,
-                    onCheckedChange = onAutoAvailableChange,
+                    checked = bufferIncreased,
+                    onCheckedChange = onBufferChange,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color(0xFF121212),
                         checkedTrackColor = accent,
@@ -2094,13 +2054,10 @@ private fun ExperimentalSettingsSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Режим Превью", color = Color.White, fontSize = 13.sp)
-                    Text("Добавляет вкладку Превью", color = gray, fontSize = 11.sp)
-                }
+                Text("Плавное затухание (Fade)", color = Color.White, fontSize = 14.sp)
                 Switch(
-                    checked = isPreviewAvailable,
-                    onCheckedChange = onPreviewAvailableChange,
+                    checked = isFadeEnabled,
+                    onCheckedChange = onFadeEnabledChange,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color(0xFF121212),
                         checkedTrackColor = accent,
@@ -2113,38 +2070,37 @@ private fun ExperimentalSettingsSection(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Fade", color = Color.White, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(500L, 1000L, 2000L).forEach { durationMs ->
-                        val selected = fadeDurationMs == durationMs
-                        Box(
-                            modifier = Modifier
-                                .size(width = 52.dp, height = 40.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(inactive)
-                                .border(
-                                    width = if (selected) 1.5.dp else 1.dp,
-                                    color = if (selected) accent else Color(0xFF4A4D52),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clickable { onFadeDurationChange(durationMs) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = when (durationMs) {
-                                    500L -> "0.5с"
-                                    1000L -> "1с"
-                                    else -> "2с"
-                                },
-                                color = if (selected) accent else gray,
-                                fontSize = 12.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                maxLines = 1
+                listOf(500L, 1000L, 2000L).forEach { durationMs ->
+                    val selected = fadeDurationMs == durationMs
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .alpha(if (isFadeEnabled) 1f else 0.3f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(inactive)
+                            .border(
+                                width = if (isFadeEnabled && selected) 1.5.dp else 1.dp,
+                                color = if (isFadeEnabled && selected) accent else disabledOutline,
+                                shape = RoundedCornerShape(8.dp)
                             )
-                        }
+                            .clickable(enabled = isFadeEnabled) { onFadeDurationChange(durationMs) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = when (durationMs) {
+                                500L -> "0.5с"
+                                1000L -> "1с"
+                                else -> "2с"
+                            },
+                            color = if (isFadeEnabled && selected) accent else gray,
+                            fontSize = 12.sp,
+                            fontWeight = if (isFadeEnabled && selected) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1
+                        )
                     }
                 }
             }
