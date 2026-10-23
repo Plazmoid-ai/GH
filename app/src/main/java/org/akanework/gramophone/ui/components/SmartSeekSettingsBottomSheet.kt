@@ -52,6 +52,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -250,30 +251,22 @@ private fun IntervalPlaySettingsContent(
     onCancel: () -> Unit,
     onSave: () -> Unit
 ) {
-    val isIndicatorOn = remember { mutableStateOf(true) }
-    val isPersistentOn = remember { mutableStateOf(false) }
-    val activeTab = remember { mutableStateOf(0) }
-    val isScissorsActive = remember { mutableStateOf(false) }
-    val isPercentMode = remember { mutableStateOf(false) }
-    val simpleMinutes = remember { mutableStateOf(0) }
-    val simpleSeconds = remember { mutableStateOf(30) }
-    val simplePercent = remember { mutableStateOf(2) }
-    val isLocked = remember { mutableStateOf(false) }
-    val playValue = remember { mutableStateOf(30) }
-    val skipValue = remember { mutableStateOf(10) }
+    var isAutoAvailable by remember { mutableStateOf(false) }
+    var isPreviewAvailable by remember { mutableStateOf(false) }
+    var fadeDurationSec by remember { mutableStateOf(1.0f) }
+    var selectedTab by remember { mutableStateOf(0) }
 
-    val selectedSimplePreset = remember { mutableStateOf(0) }
-    val simplePresets = remember {
-        mutableStateOf(
-            listOf<SimpleIntervalPreset?>(
-                SimpleIntervalPreset(2, false),
-                SimpleIntervalPreset(5, false),
-                null
-            )
-        )
-    }
-    val selectedFixedPreset = remember { mutableStateOf(0) }
-    val fixedPresets = remember {
+    var isAutoMode by remember { mutableStateOf(false) }
+    var isMuteMode by remember { mutableStateOf(false) }
+    var isLocked by remember { mutableStateOf(true) }
+    var activeIntervalSec by remember { mutableStateOf(30) }
+    var silenceIntervalSec by remember { mutableStateOf(10) }
+    var autoCount by remember { mutableStateOf(5) }
+    val demoTrackDurationMs = 240_000L
+
+    var isBufferIncreased by remember { mutableStateOf(false) }
+    var selectedFixedPreset by remember { mutableStateOf(0) }
+    var fixedPresets by remember {
         mutableStateOf(
             listOf<IntervalPlayPreset?>(
                 IntervalPlayPreset(30, 10),
@@ -282,11 +275,14 @@ private fun IntervalPlaySettingsContent(
             )
         )
     }
-
-    val selectedAccent = remember { mutableStateOf(0) }
-    val isBufferIncreased = remember { mutableStateOf(false) }
-    val trimState = remember { mutableStateOf(TrimState()) }
+    var selectedAccent by remember { mutableStateOf(0) }
+    var trimState by remember { mutableStateOf(TrimState()) }
     var showTrimSettings by remember { mutableStateOf(false) }
+
+    var previewDurationSec by remember { mutableStateOf(30) }
+    var positionMode by remember { mutableStateOf("START") }
+    var isShiftEnabled by remember { mutableStateOf(false) }
+    var shiftStepSec by remember { mutableStateOf(10) }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     Column(
@@ -304,6 +300,31 @@ private fun IntervalPlaySettingsContent(
             modifier = Modifier.padding(start = 2.dp, bottom = 14.dp)
         )
 
+        if (isPreviewAvailable) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF1C1C24))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                ModeTab(
+                    modifier = Modifier.weight(1f),
+                    label = "Интервалы",
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 }
+                )
+                ModeTab(
+                    modifier = Modifier.weight(1f),
+                    label = "Превью",
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 }
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
         Column(
             modifier = Modifier
                 .weight(1f, fill = false)
@@ -311,238 +332,125 @@ private fun IntervalPlaySettingsContent(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StateCapsule(
-                    modifier = Modifier.weight(1f),
-                    label = "Индикатор",
-                    state = isIndicatorOn
-                )
-                StateCapsule(
-                    modifier = Modifier.weight(1f),
-                    label = "Постоянно",
-                    state = isPersistentOn
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "Тип интервалов",
-                    color = IntervalPlayPalette.grayText,
-                    fontSize = 12.sp
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(IntervalPlayPalette.inactive)
-                        .padding(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    ModeTab(
-                        modifier = Modifier.weight(1f),
-                        label = "Простой",
-                        selected = activeTab.value == 0,
-                        onClick = { activeTab.value = 0 }
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (isScissorsActive.value) {
-                                    Color(0xFF29243B)
-                                } else {
-                                    Color.Transparent
-                                }
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = if (isScissorsActive.value) {
-                                    IntervalPlayPalette.accent
-                                } else {
-                                    IntervalPlayPalette.outline
-                                },
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .clickable {
-                                isScissorsActive.value = !isScissorsActive.value
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ContentCut,
-                            contentDescription = "Ножницы",
-                            tint = if (isScissorsActive.value) {
-                                IntervalPlayPalette.accent
-                            } else {
-                                IntervalPlayPalette.grayText
-                            },
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    ModeTab(
-                        modifier = Modifier.weight(1f),
-                        label = "Фиксированные",
-                        selected = activeTab.value == 1,
-                        onClick = { activeTab.value = 1 }
-                    )
-                }
-            }
-
-            if (activeTab.value == 0) {
-                PreviewBar(
-                    playLabel = if (isPercentMode.value) {
-                        "${simplePercent.value}%"
-                    } else {
-                        formatInterval(simpleMinutes.value * 60 + simpleSeconds.value)
-                    }
-                )
-                SimpleSettings(
-                    isPercentMode = isPercentMode.value,
+            if (selectedTab == 0) {
+                IntervalsContent(
                     wheelSwipeEnabled = wheelSwipeEnabled,
-                    minutes = simpleMinutes.value,
-                    seconds = simpleSeconds.value,
-                    percent = simplePercent.value,
-                    onPercentModeChange = { isPercentMode.value = it },
-                    onMinutesChange = { simpleMinutes.value = it },
-                    onSecondsChange = { simpleSeconds.value = it },
-                    onPercentChange = { simplePercent.value = it },
-                    onAdjust = { delta ->
-                        if (isPercentMode.value) {
-                            simplePercent.value = Math.floorMod(simplePercent.value + delta, 101)
-                        } else {
-                            val currentSeconds = simpleMinutes.value * 60 + simpleSeconds.value
-                            val nextSeconds = (currentSeconds + delta).coerceIn(0, 659)
-                            simpleMinutes.value = nextSeconds / 60
-                            simpleSeconds.value = nextSeconds % 60
+                    isAutoAvailable = isAutoAvailable,
+                    isAutoMode = isAutoMode,
+                    onAutoModeChange = { enabled ->
+                        isAutoMode = enabled
+                        if (enabled) {
+                            activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, autoCount)
                         }
+                    },
+                    isMuteMode = isMuteMode,
+                    onMuteModeChange = { isMuteMode = it },
+                    isLocked = isLocked,
+                    onLockToggle = { isLocked = !isLocked },
+                    activeIntervalSec = activeIntervalSec,
+                    silenceIntervalSec = silenceIntervalSec,
+                    autoCount = autoCount,
+                    fadeDurationSec = fadeDurationSec,
+                    trackDurationMs = demoTrackDurationMs,
+                    onActiveIntervalChange = { requested ->
+                        val next = requested.coerceIn(1, 600)
+                        if (isAutoMode) {
+                            val nextCount = calculateAutoCount(demoTrackDurationMs, next)
+                            autoCount = nextCount
+                            activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, nextCount)
+                        } else {
+                            val delta = next - activeIntervalSec
+                            activeIntervalSec = next
+                            if (isLocked) {
+                                silenceIntervalSec = (silenceIntervalSec + delta).coerceIn(1, 600)
+                            }
+                        }
+                    },
+                    onSilenceIntervalChange = { requested ->
+                        val next = requested.coerceIn(1, 600)
+                        val delta = next - silenceIntervalSec
+                        silenceIntervalSec = next
+                        if (isLocked) {
+                            activeIntervalSec = (activeIntervalSec + delta).coerceIn(1, 600)
+                        }
+                    },
+                    onAutoCountChange = { requested ->
+                        val nextCount = requested.coerceIn(1, 120)
+                        autoCount = nextCount
+                        activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, nextCount)
                     }
                 )
 
                 PresetSelector(
                     title = "Шаблоны",
                     hint = "Тап — применить, долгое нажатие — сохранить",
-                    selectedIndex = selectedSimplePreset.value,
+                    selectedIndex = selectedFixedPreset,
                     onSelect = { index ->
-                        simplePresets.value[index]?.let { preset ->
-                            isPercentMode.value = preset.isPercent
-                            if (preset.isPercent) {
-                                simplePercent.value = preset.value.coerceIn(0, 100)
-                            } else {
-                                val seconds = preset.value.coerceIn(0, 659)
-                                simpleMinutes.value = seconds / 60
-                                simpleSeconds.value = seconds % 60
+                        fixedPresets[index]?.let { preset ->
+                            activeIntervalSec = preset.playSeconds.coerceIn(1, 600)
+                            silenceIntervalSec = preset.skipSeconds.coerceIn(1, 600)
+                            if (isAutoMode) {
+                                autoCount = calculateAutoCount(demoTrackDurationMs, activeIntervalSec)
+                                activeIntervalSec = calculateAutoBaseDuration(demoTrackDurationMs, autoCount)
                             }
-                            selectedSimplePreset.value = index
+                            selectedFixedPreset = index
                         }
                     },
                     onSave = { index ->
-                        val updated = simplePresets.value.toMutableList()
-                        updated[index] = SimpleIntervalPreset(
-                            value = if (isPercentMode.value) {
-                                simplePercent.value
-                            } else {
-                                simpleMinutes.value * 60 + simpleSeconds.value
-                            },
-                            isPercent = isPercentMode.value
+                        val updated = fixedPresets.toMutableList()
+                        updated[index] = IntervalPlayPreset(
+                            playSeconds = activeIntervalSec,
+                            skipSeconds = silenceIntervalSec
                         )
-                        simplePresets.value = updated
-                        selectedSimplePreset.value = index
+                        fixedPresets = updated
+                        selectedFixedPreset = index
                     },
                     content = { index ->
-                        val preset = simplePresets.value[index]
-                        SimplePresetCardContent(preset)
+                        FixedPresetCardContent(fixedPresets[index])
                     },
-                    isEmpty = { simplePresets.value[it] == null }
+                    isEmpty = { fixedPresets[it] == null }
+                )
+
+                TrimSection(
+                    state = trimState,
+                    onStateChange = { trimState = it },
+                    onOpenSettings = { showTrimSettings = true }
+                )
+
+                AccentSelector(
+                    selectedIndex = selectedAccent,
+                    onSelect = { selectedAccent = it }
+                )
+
+                ExperimentalSettingsSection(
+                    bufferIncreased = isBufferIncreased,
+                    onBufferChange = { isBufferIncreased = it },
+                    isAutoAvailable = isAutoAvailable,
+                    onAutoAvailableChange = {
+                        isAutoAvailable = it
+                        if (!it) isAutoMode = false
+                    },
+                    isPreviewAvailable = isPreviewAvailable,
+                    onPreviewAvailableChange = {
+                        isPreviewAvailable = it
+                        if (!it) selectedTab = 0
+                    },
+                    fadeDurationSec = fadeDurationSec,
+                    onFadeDurationChange = { fadeDurationSec = it }
                 )
             } else {
-                FixedSettings(
-                    playValue = playValue.value,
-                    skipValue = skipValue.value,
-                    isLocked = isLocked.value,
-                    wheelSwipeEnabled = wheelSwipeEnabled,
-                    onLockToggle = {
-                        val enablingLink = !isLocked.value
-                        if (enablingLink) {
-                            skipValue.value = playValue.value
-                        }
-                        isLocked.value = enablingLink
-                    },
-                    onPlayValueChange = { newValue ->
-                        val clamped = newValue.coerceIn(0, 659)
-                        playValue.value = clamped
-                        if (isLocked.value) {
-                            skipValue.value = clamped
-                        }
-                    },
-                    onSkipValueChange = { newValue ->
-                        val clamped = newValue.coerceIn(0, 659)
-                        skipValue.value = clamped
-                        if (isLocked.value) {
-                            playValue.value = clamped
-                        }
-                    },
-                    onAdjust = { isPlayValue, delta ->
-                        val current = if (isPlayValue) playValue.value else skipValue.value
-                        val next = (current + delta).coerceIn(0, 659)
-                        if (isPlayValue) {
-                            playValue.value = next
-                        } else {
-                            skipValue.value = next
-                        }
-                        if (isLocked.value) {
-                            playValue.value = next
-                            skipValue.value = next
-                        }
-                    }
-                )
-
-                PresetSelector(
-                    title = "Шаблоны",
-                    hint = "Тап — применить, долгое нажатие — сохранить",
-                    selectedIndex = selectedFixedPreset.value,
-                    onSelect = { index ->
-                        fixedPresets.value[index]?.let { preset ->
-                            playValue.value = preset.playSeconds
-                            skipValue.value = preset.skipSeconds
-                            selectedFixedPreset.value = index
-                        }
-                    },
-                    onSave = { index ->
-                        val updated = fixedPresets.value.toMutableList()
-                        updated[index] = IntervalPlayPreset(
-                            playSeconds = playValue.value,
-                            skipSeconds = skipValue.value
-                        )
-                        fixedPresets.value = updated
-                        selectedFixedPreset.value = index
-                    },
-                    content = { index ->
-                        FixedPresetCardContent(fixedPresets.value[index])
-                    },
-                    isEmpty = { fixedPresets.value[it] == null }
+                PreviewContent(
+                    previewDurationSec = previewDurationSec,
+                    onPreviewDurationChange = { previewDurationSec = it },
+                    positionMode = positionMode,
+                    onPositionModeChange = { positionMode = it },
+                    isShiftEnabled = isShiftEnabled,
+                    onShiftEnabledChange = { isShiftEnabled = it },
+                    shiftStepSec = shiftStepSec,
+                    onShiftStepChange = { shiftStepSec = it },
+                    trackDurationMs = demoTrackDurationMs
                 )
             }
-
-            TrimSection(
-                state = trimState.value,
-                onStateChange = { trimState.value = it },
-                onOpenSettings = { showTrimSettings = true }
-            )
-
-            AccentSelector(
-                selectedIndex = selectedAccent.value,
-                onSelect = { selectedAccent.value = it }
-            )
-
-            ExperimentalBufferSetting(
-                checked = isBufferIncreased.value,
-                onCheckedChange = { isBufferIncreased.value = it }
-            )
         }
 
         Row(
@@ -567,8 +475,8 @@ private fun IntervalPlaySettingsContent(
 
         if (showTrimSettings) {
             TrimSettingsSheet(
-                state = trimState.value,
-                onStateChange = { trimState.value = it },
+                state = trimState,
+                onStateChange = { trimState = it },
                 onDismiss = { showTrimSettings = false }
             )
         }
@@ -1855,6 +1763,524 @@ private fun formatSimpleTime(seconds: Int): String =
 
 private fun formatPresetInterval(seconds: Int): String =
     formatSimpleTime(seconds)
+
+
+private fun calculateAutoBaseDuration(trackDurationMs: Long, count: Int): Int {
+    val totalParts = (2 * count.coerceAtLeast(1) - 1).coerceAtLeast(1)
+    val trackDurationSec = (trackDurationMs / 1000L).coerceAtLeast(1L)
+    return (trackDurationSec / totalParts).toInt().coerceIn(1, 600)
+}
+
+private fun calculateAutoCount(trackDurationMs: Long, activeDurationSec: Int): Int {
+    val trackDurationSec = (trackDurationMs / 1000L).coerceAtLeast(1L)
+    val divisor = activeDurationSec.coerceAtLeast(1).toLong() * 2L
+    return (trackDurationSec / divisor).toInt().coerceIn(1, 120)
+}
+
+private fun calculateLastActiveDuration(trackDurationMs: Long, count: Int): Int {
+    val totalParts = (2 * count.coerceAtLeast(1) - 1).coerceAtLeast(1)
+    val durationSec = (trackDurationMs / 1000L).coerceAtLeast(1L)
+    val baseDuration = durationSec / totalParts
+    val remainder = durationSec % totalParts
+    return (baseDuration + remainder).toInt().coerceIn(1, 600)
+}
+
+@Composable
+private fun IntervalsContent(
+    wheelSwipeEnabled: Boolean,
+    isAutoAvailable: Boolean,
+    isAutoMode: Boolean,
+    onAutoModeChange: (Boolean) -> Unit,
+    isMuteMode: Boolean,
+    onMuteModeChange: (Boolean) -> Unit,
+    isLocked: Boolean,
+    onLockToggle: () -> Unit,
+    activeIntervalSec: Int,
+    silenceIntervalSec: Int,
+    autoCount: Int,
+    fadeDurationSec: Float,
+    trackDurationMs: Long,
+    onActiveIntervalChange: (Int) -> Unit,
+    onSilenceIntervalChange: (Int) -> Unit,
+    onAutoCountChange: (Int) -> Unit
+) {
+    val inactive = Color(0xFF1C1C24)
+    val accent = Color(0xFF9B8AF5)
+    val outline = Color(0xFF4A4D52)
+    val grayText = Color(0xFFA8A8A8)
+    val effectiveFadeText = if (isAutoMode || !isMuteMode) {
+        "Micro-fade: 100 мс"
+    } else {
+        "Fade: ${fadeDurationSec.toString().replace(".", ",")} с"
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isAutoAvailable) {
+                Box(
+                    modifier = Modifier.size(48.dp).clickable { onAutoModeChange(!isAutoMode) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))
+                            .background(inactive)
+                            .border(1.dp, if (isAutoMode) accent else outline, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("A", color = if (isAutoMode) accent else grayText,
+                            fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Text(
+                text = if (isAutoMode) "Длительность" else "Активный",
+                modifier = Modifier.weight(1f),
+                color = grayText,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+
+            if (isAutoMode) {
+                Text("Количество", modifier = Modifier.width(126.dp), color = grayText,
+                    fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 1)
+            } else {
+                Box(
+                    modifier = Modifier.width(90.dp).height(48.dp)
+                        .clickable { onMuteModeChange(!isMuteMode) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(24.dp).clip(CircleShape)
+                            .background(inactive).border(1.dp, outline, CircleShape)
+                            .padding(horizontal = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = if (isMuteMode) "🔇 Тишина" else "⏭ Пропуск",
+                            color = if (isMuteMode) accent else grayText,
+                            fontSize = 11.sp, textAlign = TextAlign.Center,
+                            maxLines = 1, softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            HybridWheelPicker(
+                value = activeIntervalSec.coerceIn(1, 600),
+                valueRange = 1..600,
+                cyclic = false,
+                onValueChange = onActiveIntervalChange,
+                modifier = Modifier.weight(1f),
+                swipeEnabled = wheelSwipeEnabled
+            )
+
+            if (isAutoMode) {
+                AutoCountControl(
+                    count = autoCount,
+                    onIncrease = { onAutoCountChange(autoCount + 1) },
+                    onDecrease = { onAutoCountChange(autoCount - 1) }
+                )
+            } else {
+                Box(
+                    modifier = Modifier.size(48.dp).clickable(onClick = onLockToggle),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (isLocked) "Интервалы связаны" else "Интервалы не связаны",
+                        tint = if (isLocked) accent else grayText,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                HybridWheelPicker(
+                    value = silenceIntervalSec.coerceIn(1, 600),
+                    valueRange = 1..600,
+                    cyclic = false,
+                    onValueChange = onSilenceIntervalChange,
+                    modifier = Modifier.weight(1f),
+                    swipeEnabled = wheelSwipeEnabled
+                )
+            }
+        }
+
+        Text(
+            text = effectiveFadeText,
+            modifier = Modifier.fillMaxWidth(),
+            color = grayText,
+            fontSize = 11.sp,
+            textAlign = TextAlign.End
+        )
+
+        if (isAutoMode) {
+            val trackDurationSec = (trackDurationMs / 1000L).toInt()
+            val totalParts = 2 * autoCount - 1
+            val remainder = trackDurationSec % totalParts.coerceAtLeast(1)
+            val lastActiveDuration = calculateLastActiveDuration(trackDurationMs, autoCount)
+            Text(
+                text = "Демо-трек: ${trackDurationSec} с · Всего частей: ${totalParts} · Последний активный: ${lastActiveDuration} с (остаток +${remainder} с)",
+                modifier = Modifier.fillMaxWidth(),
+                color = grayText,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun AutoCountControl(
+    count: Int,
+    onIncrease: () -> Unit,
+    onDecrease: () -> Unit
+) {
+    val background = Color(0xFF1C1C24)
+    val outline = Color(0xFF2A2A35)
+    val gray = Color(0xFFA8A8A8)
+    Row(
+        modifier = Modifier.width(132.dp).height(104.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier.size(width = 80.dp, height = 70.dp)
+                .clip(RoundedCornerShape(10.dp)).background(background)
+                .border(1.dp, outline, RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(count.toString(), color = Color.White, fontSize = 28.sp,
+                fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(Modifier.size(48.dp).clickable(onClick = onIncrease),
+                contentAlignment = Alignment.Center) {
+                Text("+", color = gray, fontSize = 24.sp)
+            }
+            Box(Modifier.size(48.dp).clickable(onClick = onDecrease),
+                contentAlignment = Alignment.Center) {
+                Text("−", color = gray, fontSize = 24.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExperimentalSettingsSection(
+    bufferIncreased: Boolean,
+    onBufferChange: (Boolean) -> Unit,
+    isAutoAvailable: Boolean,
+    onAutoAvailableChange: (Boolean) -> Unit,
+    isPreviewAvailable: Boolean,
+    onPreviewAvailableChange: (Boolean) -> Unit,
+    fadeDurationSec: Float,
+    onFadeDurationChange: (Float) -> Unit
+) {
+    val background = Color(0xFF18181B)
+    val inactive = Color(0xFF1C1C24)
+    val outline = Color(0xFF2A2A35)
+    val accent = Color(0xFF9B8AF5)
+    val gray = Color(0xFFA8A8A8)
+
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(background).border(1.dp, outline, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Экспериментально", color = gray, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Увеличить буфер", modifier = Modifier.weight(1f), color = Color.White, fontSize = 14.sp)
+            Switch(
+                checked = bufferIncreased,
+                onCheckedChange = onBufferChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color(0xFF121212), checkedTrackColor = accent,
+                    uncheckedThumbColor = gray, uncheckedTrackColor = outline, uncheckedBorderColor = outline
+                )
+            )
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .background(inactive).border(1.dp, outline, RoundedCornerShape(12.dp)).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("Умные режимы", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Режим Авто", color = Color.White, fontSize = 13.sp)
+                    Text("Включает кнопку А в интервалах", color = gray, fontSize = 11.sp)
+                }
+                Switch(
+                    checked = isAutoAvailable,
+                    onCheckedChange = onAutoAvailableChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFF121212), checkedTrackColor = accent,
+                        uncheckedThumbColor = gray, uncheckedTrackColor = outline, uncheckedBorderColor = outline
+                    )
+                )
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Режим Превью", color = Color.White, fontSize = 13.sp)
+                    Text("Добавляет вкладку Превью", color = gray, fontSize = 11.sp)
+                }
+                Switch(
+                    checked = isPreviewAvailable,
+                    onCheckedChange = onPreviewAvailableChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFF121212), checkedTrackColor = accent,
+                        uncheckedThumbColor = gray, uncheckedTrackColor = outline, uncheckedBorderColor = outline
+                    )
+                )
+            }
+
+            Text("Длительность Fade", color = Color.White, fontSize = 13.sp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0.5f, 1.0f, 2.0f).forEach { seconds ->
+                    Box(
+                        modifier = Modifier.weight(1f).height(48.dp)
+                            .clickable { onFadeDurationChange(seconds) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(10.dp))
+                                .background(inactive)
+                                .border(1.dp, if (fadeDurationSec == seconds) accent else Color(0xFF4A4D52),
+                                    RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = when (seconds) { 0.5f -> "0,5с"; 1.0f -> "1с"; else -> "2с" },
+                                color = if (fadeDurationSec == seconds) accent else gray,
+                                fontSize = 13.sp,
+                                fontWeight = if (fadeDurationSec == seconds) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewContent(
+    previewDurationSec: Int,
+    onPreviewDurationChange: (Int) -> Unit,
+    positionMode: String,
+    onPositionModeChange: (String) -> Unit,
+    isShiftEnabled: Boolean,
+    onShiftEnabledChange: (Boolean) -> Unit,
+    shiftStepSec: Int,
+    onShiftStepChange: (Int) -> Unit,
+    trackDurationMs: Long
+) {
+    val inactive = Color(0xFF1C1C24)
+    val accent = Color(0xFF9B8AF5)
+    val outline = Color(0xFF2A2A35)
+    val gray = Color(0xFFA8A8A8)
+    val trackDurationSec = (trackDurationMs / 1000L).toInt().coerceAtLeast(1)
+    val effectiveDuration = previewDurationSec.coerceIn(1, trackDurationSec)
+    val maxStart = (trackDurationSec - effectiveDuration).coerceAtLeast(0)
+    val baseStart = when (positionMode) {
+        "MIDDLE" -> maxStart / 2
+        "END" -> maxStart
+        "RANDOM" -> maxStart * 37 / 100
+        else -> 0
+    }
+    val shiftedStart = (
+        baseStart + if (isShiftEnabled && positionMode != "RANDOM") shiftStepSec else 0
+    ).coerceIn(0, maxStart)
+    val shiftedEnd = (shiftedStart + effectiveDuration).coerceAtMost(trackDurationSec)
+    val shiftAvailable = positionMode != "RANDOM"
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Длительность участка", color = gray, fontSize = 13.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            listOf(15, 30, 45, 60).forEach { seconds ->
+                PreviewChoiceButton(
+                    modifier = Modifier.weight(1f),
+                    label = "${seconds}с",
+                    selected = previewDurationSec == seconds,
+                    onClick = { onPreviewDurationChange(seconds) }
+                )
+            }
+            PreviewStepperButton("−") {
+                onPreviewDurationChange((previewDurationSec - 1).coerceIn(1, 600))
+            }
+            PreviewStepperButton("+") {
+                onPreviewDurationChange((previewDurationSec + 1).coerceIn(1, 600))
+            }
+        }
+
+        Text("Позиция участка", color = gray, fontSize = 13.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            listOf(
+                listOf("START" to "Начало", "MIDDLE" to "Середина"),
+                listOf("END" to "Конец", "RANDOM" to "Случайно")
+            ).forEach { rowItems ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    rowItems.forEach { (mode, label) ->
+                        PreviewChoiceButton(
+                            modifier = Modifier.weight(1f),
+                            label = label,
+                            selected = positionMode == mode,
+                            onClick = { onPositionModeChange(mode) }
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (!shiftAvailable) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Смещение недоступно для случайной позиции",
+                    tint = Color.White,
+                    modifier = Modifier.padding(bottom = 2.dp).size(18.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.alpha(if (shiftAvailable) 1f else 0.4f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier.size(width = 160.dp, height = 48.dp)
+                        .drawBehind {
+                            val h = 40.dp.toPx()
+                            val y = (size.height - h) / 2f
+                            drawRoundRect(inactive, Offset(0f, y), Size(size.width, h), CornerRadius(h / 2f))
+                            drawRoundRect(
+                                if (isShiftEnabled && shiftAvailable) accent else Color(0xFF4A4D52),
+                                Offset(0f, y), Size(size.width, h), CornerRadius(h / 2f),
+                                style = Stroke(1.dp.toPx())
+                            )
+                        }
+                        .clickable(enabled = shiftAvailable) { onShiftEnabledChange(!isShiftEnabled) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.ArrowForward, contentDescription = null,
+                            tint = if (isShiftEnabled && shiftAvailable) accent else gray,
+                            modifier = Modifier.size(18.dp))
+                        Text("Смещение",
+                            color = if (isShiftEnabled && shiftAvailable) accent else gray,
+                            fontSize = 13.sp)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.width(180.dp).height(48.dp).drawBehind {
+                        val h = 40.dp.toPx()
+                        val y = (size.height - h) / 2f
+                        drawRoundRect(inactive, Offset(0f, y), Size(size.width, h), CornerRadius(h / 2f))
+                        drawRoundRect(outline, Offset(0f, y), Size(size.width, h),
+                            CornerRadius(h / 2f), style = Stroke(1.dp.toPx()))
+                    },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(48.dp).clickable(enabled = shiftAvailable) {
+                        onShiftStepChange((shiftStepSec - 1).coerceIn(1, 600))
+                    }, contentAlignment = Alignment.Center) {
+                        Text("−", color = gray, fontSize = 22.sp)
+                    }
+                    Text("${shiftStepSec} с", Modifier.weight(1f), color = Color.White,
+                        fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 1)
+                    Box(Modifier.size(48.dp).clickable(enabled = shiftAvailable) {
+                        onShiftStepChange((shiftStepSec + 1).coerceIn(1, 600))
+                    }, contentAlignment = Alignment.Center) {
+                        Text("+", color = gray, fontSize = 22.sp)
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = "Демо-трек: ${trackDurationSec} с · Участок: ${shiftedStart}–${shiftedEnd} с",
+            modifier = Modifier.fillMaxWidth(),
+            color = gray,
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun PreviewChoiceButton(
+    modifier: Modifier,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val accent = Color(0xFF9B8AF5)
+    val gray = Color(0xFFA8A8A8)
+    val outline = Color(0xFF4A4D52)
+    Box(modifier = modifier.height(48.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.fillMaxWidth().height(40.dp)
+                .clip(RoundedCornerShape(10.dp)).background(Color(0xFF1C1C24))
+                .border(1.dp, if (selected) accent else outline, RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, color = if (selected) accent else gray, fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
+        }
+    }
+}
+
+@Composable
+private fun PreviewStepperButton(label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.size(48.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(9.dp))
+                .background(Color(0xFF1C1C24))
+                .border(1.dp, Color(0xFF4A4D52), RoundedCornerShape(9.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(label, color = Color(0xFFA8A8A8), fontSize = 20.sp)
+        }
+    }
+}
 
 
 @Composable
