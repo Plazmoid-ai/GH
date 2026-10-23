@@ -16,6 +16,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -27,6 +28,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
@@ -76,11 +79,13 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -283,6 +288,13 @@ private fun IntervalPlaySettingsContent(
     var positionMode by remember { mutableStateOf("START") }
     var isShiftEnabled by remember { mutableStateOf(false) }
     var shiftStepSec by remember { mutableStateOf(10) }
+    val presetDurations = remember { mutableStateListOf(15, 30, 45) }
+
+    LaunchedEffect(positionMode) {
+        if (positionMode == "RANDOM") {
+            isShiftEnabled = false
+        }
+    }
 
     // TODO: Если isMuteMode == true и isFadeEnabled == true, использовать fade-out/fade-in
     // длительностью fadeDurationMs при смене интервала; в тишине громкость равна 0.
@@ -450,6 +462,7 @@ private fun IntervalPlaySettingsContent(
                 )
             } else {
                 PreviewContent(
+                    presetDurations = presetDurations,
                     previewDurationSec = previewDurationSec,
                     onPreviewDurationChange = { previewDurationSec = it },
                     positionMode = positionMode,
@@ -2123,8 +2136,10 @@ private fun ExperimentalSettingsSection(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun PreviewContent(
+    presetDurations: SnapshotStateList<Int>,
     previewDurationSec: Int,
     onPreviewDurationChange: (Int) -> Unit,
     positionMode: String,
@@ -2139,173 +2154,298 @@ private fun PreviewContent(
     val outline = Color(0xFF4A4D52)
     val accent = Color(0xFF9B8AF5)
     val gray = Color(0xFFA8A8A8)
-    val trackDurationSec = (trackDurationMs / 1000L).toInt().coerceAtLeast(1)
-    val effectiveDuration = previewDurationSec.coerceIn(1, trackDurationSec)
-    val maxStart = (trackDurationSec - effectiveDuration).coerceAtLeast(0)
-    val baseStart = when (positionMode) {
-        "MIDDLE" -> maxStart / 2
-        "END" -> maxStart
-        "RANDOM" -> maxStart * 37 / 100
-        else -> 0
-    }
     val shiftBlocked = positionMode == "RANDOM"
-    val shiftedRawStart = baseStart + if (isShiftEnabled && !shiftBlocked) shiftStepSec else 0
-    val shiftedStart = shiftedRawStart.coerceIn(0, maxStart)
-    val shiftedEnd = (shiftedStart + effectiveDuration).coerceAtMost(trackDurationSec)
+
+    // TODO: When each new track starts, advance the start position by shiftStepSec
+    // whenever isShiftEnabled is true. This setting is UI/state only until player integration.
+    // TODO: RANDOM must choose a random start in 0..(trackDuration - previewDuration).
+    @Suppress("UNUSED_VARIABLE")
+    val reservedTrackDurationMs = trackDurationMs
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Длительность участка", color = gray, fontSize = 13.sp)
+            Text("Длительность", color = gray, fontSize = 13.sp)
+
             Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                listOf(15, 30, 45, 60).forEach { seconds ->
-                    PreviewChoiceButton(
-                        modifier = Modifier.width(50.dp),
-                        label = "${seconds}с",
-                        selected = previewDurationSec == seconds,
-                        onClick = { onPreviewDurationChange(seconds) }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FlowRow(
+                        maxItemsInEachRow = 2,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presetDurations.forEach { seconds ->
+                            val selected = previewDurationSec == seconds
+                            val shape = RoundedCornerShape(8.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 60.dp, height = 32.dp)
+                                    .clip(shape)
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (selected) accent else outline,
+                                        shape = shape
+                                    )
+                                    .combinedClickable(
+                                        onClick = { onPreviewDurationChange(seconds) },
+                                        onLongClick = { presetDurations.remove(seconds) }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${seconds}с",
+                                    color = if (selected) accent else gray,
+                                    fontSize = 12.sp,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        if (presetDurations.size < 4) {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 60.dp, height = 32.dp)
+                                    .drawBehind {
+                                        drawRoundRect(
+                                            color = outline,
+                                            cornerRadius = CornerRadius(8.dp.toPx()),
+                                            style = Stroke(
+                                                width = 1.5.dp.toPx(),
+                                                pathEffect = PathEffect.dashPathEffect(
+                                                    floatArrayOf(5.dp.toPx(), 4.dp.toPx())
+                                                )
+                                            )
+                                        )
+                                    }
+                                    .clickable {
+                                        if (previewDurationSec !in presetDurations &&
+                                            presetDurations.size < 4
+                                        ) {
+                                            presetDurations.add(previewDurationSec)
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("+", color = gray, fontSize = 20.sp)
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Долгий тап — удалить шаблон",
+                        fontSize = 10.sp,
+                        color = Color(0xFF666666)
                     )
                 }
-                Row(
-                    modifier = Modifier.width(84.dp).height(48.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PreviewStepperButton("−") {
-                        onPreviewDurationChange((previewDurationSec - 1).coerceIn(1, 600))
+
+                Spacer(Modifier.width(12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 120.dp, height = 72.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(inactive)
+                            .border(1.dp, Color(0xFF2A2A35), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = String.format(
+                                Locale.ROOT,
+                                "%02d:%02d",
+                                previewDurationSec / 60,
+                                previewDurationSec % 60
+                            ),
+                            color = Color.White,
+                            fontSize = 28.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
                     }
-                    Text(
-                        text = previewDurationSec.toString(),
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1
-                    )
-                    PreviewStepperButton("+") {
-                        onPreviewDurationChange((previewDurationSec + 1).coerceIn(1, 600))
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "+",
+                            modifier = Modifier.clickable {
+                                onPreviewDurationChange((previewDurationSec + 1).coerceIn(5, 300))
+                            },
+                            fontSize = 24.sp,
+                            color = gray
+                        )
+                        Text(
+                            text = "-",
+                            modifier = Modifier.clickable {
+                                onPreviewDurationChange((previewDurationSec - 1).coerceIn(5, 300))
+                            },
+                            fontSize = 24.sp,
+                            color = gray
+                        )
                     }
                 }
             }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Позиция участка", color = gray, fontSize = 13.sp)
+            Text("Позиция", color = gray, fontSize = 13.sp)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(
                     listOf("START" to "Начало", "MIDDLE" to "Середина"),
                     listOf("END" to "Конец", "RANDOM" to "Случайно")
                 ).forEach { rowItems ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         rowItems.forEach { (mode, label) ->
-                            PreviewChoiceButton(
-                                modifier = Modifier.weight(1f),
-                                label = label,
-                                selected = positionMode == mode,
-                                onClick = { onPositionModeChange(mode) }
-                            )
+                            val selected = positionMode == mode
+                            val shape = RoundedCornerShape(8.dp)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp)
+                                    .clip(shape)
+                                    .background(inactive)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (selected) accent else outline,
+                                        shape = shape
+                                    )
+                                    .clickable { onPositionModeChange(mode) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (selected) accent else gray,
+                                    fontSize = 13.sp,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            if (shiftBlocked) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = "Смещение заблокировано для случайной позиции",
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            Column(
-                modifier = Modifier.alpha(if (shiftBlocked) 0.4f else 1f),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (shiftBlocked) 0.3f else 1f),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                val shiftShape = RoundedCornerShape(20.dp)
                 Box(
                     modifier = Modifier
-                        .size(width = 160.dp, height = 40.dp)
-                        .clip(RoundedCornerShape(20.dp))
+                        .size(width = 120.dp, height = 40.dp)
+                        .clip(shiftShape)
                         .background(inactive)
                         .border(
-                            1.dp,
-                            if (isShiftEnabled && !shiftBlocked) accent else outline,
-                            RoundedCornerShape(20.dp)
+                            width = 1.dp,
+                            color = if (isShiftEnabled && !shiftBlocked) accent else outline,
+                            shape = shiftShape
                         )
-                        .clickable(enabled = !shiftBlocked) { onShiftEnabledChange(!isShiftEnabled) },
+                        .clickable(enabled = !shiftBlocked) {
+                            onShiftEnabledChange(!isShiftEnabled)
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ArrowForward,
                             contentDescription = null,
                             tint = if (isShiftEnabled && !shiftBlocked) accent else gray,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "Смещение",
                             color = if (isShiftEnabled && !shiftBlocked) accent else gray,
-                            fontSize = 13.sp
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
                         )
                     }
                 }
 
-                Row(
+                Box(
                     modifier = Modifier
-                        .width(180.dp)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(20.dp))
+                        .size(width = 216.dp, height = 40.dp)
+                        .clip(shiftShape)
                         .background(inactive)
-                        .border(1.dp, outline, RoundedCornerShape(20.dp)),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .border(1.dp, Color(0xFF2A2A35), shiftShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier.size(48.dp).clickable(enabled = !shiftBlocked) {
-                            onShiftStepChange((shiftStepSec - 1).coerceIn(1, 120))
-                        },
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("−", color = gray, fontSize = 22.sp)
-                    }
-                    Text(
-                        text = "${shiftStepSec}с",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1
-                    )
-                    Box(
-                        modifier = Modifier.size(48.dp).clickable(enabled = !shiftBlocked) {
-                            onShiftStepChange((shiftStepSec + 1).coerceIn(1, 120))
-                        },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("+", color = gray, fontSize = 22.sp)
+                        Text(
+                            text = "−",
+                            modifier = Modifier
+                                .clickable(enabled = !shiftBlocked) {
+                                    onShiftStepChange((shiftStepSec - 1).coerceAtLeast(1))
+                                }
+                                .padding(horizontal = 12.dp),
+                            color = gray,
+                            fontSize = 22.sp
+                        )
+                        Text(
+                            text = "${shiftStepSec}с",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "+",
+                            modifier = Modifier
+                                .clickable(enabled = !shiftBlocked) {
+                                    onShiftStepChange((shiftStepSec + 1).coerceAtMost(120))
+                                }
+                                .padding(horizontal = 12.dp),
+                            color = gray,
+                            fontSize = 22.sp
+                        )
                     }
                 }
             }
-        }
 
-        Text(
-            text = "Демо-трек: ${trackDurationSec} с · Участок: ${shiftedStart}–${shiftedEnd} с",
-            modifier = Modifier.fillMaxWidth(),
-            color = gray,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center
-        )
+            if (shiftBlocked) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(y = (-12).dp)
+                        .size(24.dp)
+                        .background(Color.Black, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Смещение заблокировано для случайной позиции",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
