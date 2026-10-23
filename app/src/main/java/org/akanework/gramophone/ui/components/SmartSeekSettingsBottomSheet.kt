@@ -1861,12 +1861,12 @@ private fun IntervalsContent(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(40.dp)
                     .clickable { onAutoModeChange(!isAutoMode) },
                 contentAlignment = Alignment.Center
             ) {
@@ -1891,25 +1891,39 @@ private fun IntervalsContent(
                 }
             }
 
-            HybridWheelPicker(
-                value = activeIntervalSec.coerceIn(1, 600),
-                valueRange = 1..600,
-                cyclic = false,
-                onValueChange = onActiveIntervalChange,
-                modifier = Modifier.weight(1f),
-                swipeEnabled = wheelSwipeEnabled
-            )
-
             if (isAutoMode) {
+                HybridWheelPicker(
+                    value = activeIntervalSec.coerceIn(1, 600),
+                    valueRange = 1..600,
+                    cyclic = false,
+                    onValueChange = onActiveIntervalChange,
+                    modifier = Modifier.weight(1f),
+                    containerHeight = 168.dp,
+                    itemHeight = 54.dp,
+                    swipeEnabled = wheelSwipeEnabled
+                )
                 AutoCountControl(
                     count = autoCount,
                     onIncrease = { onAutoCountChange(autoCount + 1) },
                     onDecrease = { onAutoCountChange(autoCount - 1) }
                 )
             } else {
+                // Manual mode uses two independent wheel pickers; the owner synchronizes
+                // their values when isLocked is true.
+                HybridWheelPicker(
+                    value = activeIntervalSec.coerceIn(1, 600),
+                    valueRange = 1..600,
+                    cyclic = false,
+                    onValueChange = onActiveIntervalChange,
+                    modifier = Modifier.weight(1f),
+                    containerHeight = 168.dp,
+                    itemHeight = 54.dp,
+                    swipeEnabled = wheelSwipeEnabled
+                )
+
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(40.dp)
                         .clickable(onClick = onLockToggle),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1927,11 +1941,12 @@ private fun IntervalsContent(
                     cyclic = false,
                     onValueChange = onSilenceIntervalChange,
                     modifier = Modifier.weight(1f),
+                    containerHeight = 168.dp,
+                    itemHeight = 54.dp,
                     swipeEnabled = wheelSwipeEnabled
                 )
             }
         }
-
     }
 }
 
