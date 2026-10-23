@@ -101,6 +101,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -2056,7 +2057,7 @@ private fun ExperimentalSettingsSection(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Звук и буфер", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text("Звук и Буфер", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2222,6 +2223,7 @@ private fun PreviewContent(
                                             cornerRadius = CornerRadius(8.dp.toPx()),
                                             style = Stroke(
                                                 width = 1.5.dp.toPx(),
+                                                cap = StrokeCap.Round,
                                                 pathEffect = PathEffect.dashPathEffect(
                                                     floatArrayOf(5.dp.toPx(), 4.dp.toPx())
                                                 )
