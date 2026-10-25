@@ -122,8 +122,6 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.floor
-import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -267,8 +265,9 @@ private fun IntervalPlaySettingsContent(
     var isAutoMode by remember { mutableStateOf(false) }
     var isMuteMode by remember { mutableStateOf(false) }
     var activeIntervalSec by remember { mutableStateOf(30) }
-    var activeIntervalPercent by remember { mutableStateOf(11) }
     var silenceIntervalSec by remember { mutableStateOf(10) }
+    var activeAutoSetting by remember { mutableStateOf(AutoSettingType.PERCENT) }
+    var autoPercent by remember { mutableStateOf(20) }
     var autoCount by remember { mutableStateOf(5) }
 
     var isBufferIncreased by remember { mutableStateOf(false) }
@@ -305,27 +304,8 @@ private fun IntervalPlaySettingsContent(
     // TODO: Если isMuteMode == false (Пропуск) или isAutoMode == true, использовать
     // микро-фейд 100 мс при seek. Реализацию аудио оставить будущему плееру.
 
-    fun recalcFromCount(count: Int) {
-        val safeCount = count.coerceIn(1, 20)
-        val totalParts = 2 * safeCount - 1
-        autoCount = safeCount
-        activeIntervalPercent = (100.0 / totalParts).roundToInt().coerceIn(1, 100)
-    }
-
-    fun recalcFromPercent(percent: Int) {
-        // A 0% interval is invalid for the calculation; normalize it to 1%.
-        val safePercent = percent.coerceIn(0, 100).coerceAtLeast(1)
-        activeIntervalPercent = safePercent
-        autoCount = floor((100.0 / safePercent + 1.0) / 2.0)
-            .toInt()
-            .coerceIn(1, 20)
-    }
-
-    // Keep the defaults consistent. Count is the source of truth on initialization
-    // and whenever Auto mode is enabled; playback will map the percentage to real time.
-    LaunchedEffect(Unit) {
-        recalcFromCount(autoCount)
-    }
+    // TODO: The player consumes either autoPercent or autoCount according to
+    // activeAutoSetting (or the last edited parameter). UI never recalculates one from the other.
 
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     Column(
@@ -377,24 +357,23 @@ private fun IntervalPlaySettingsContent(
                 IntervalsContent(
                     wheelSwipeEnabled = wheelSwipeEnabled,
                     isAutoMode = isAutoMode,
-                    onAutoModeChange = { enabled ->
-                        isAutoMode = enabled
-                        if (enabled) recalcFromCount(autoCount)
-                    },
+                    onAutoModeChange = { enabled -> isAutoMode = enabled },
                     isMuteMode = isMuteMode,
                     onMuteModeChange = { isMuteMode = it },
                     activeIntervalSec = activeIntervalSec,
-                    activeIntervalPercent = activeIntervalPercent,
-                    silenceIntervalSec = silenceIntervalSec,
+                    activeAutoSetting = activeAutoSetting,
+                    autoPercent = autoPercent,
                     autoCount = autoCount,
+                    onActiveAutoSettingChange = { activeAutoSetting = it },
+                    onAutoPercentChange = { autoPercent = it.coerceIn(1, 100) },
+                    silenceIntervalSec = silenceIntervalSec,
                     onActiveIntervalChange = { requested ->
                         activeIntervalSec = requested.coerceIn(1, 600)
                     },
-                    onActivePercentChange = { requested -> recalcFromPercent(requested) },
                     onSilenceIntervalChange = { requested ->
                         silenceIntervalSec = requested.coerceIn(1, 600)
                     },
-                    onAutoCountChange = { requested -> recalcFromCount(requested) }
+                    onAutoCountChange = { requested -> autoCount = requested.coerceIn(1, 20) }
                 )
 
                 PresetSelector(
@@ -1783,6 +1762,8 @@ private fun formatPresetInterval(seconds: Int): String =
     formatSimpleTime(seconds)
 
 
+private enum class AutoSettingType { PERCENT, COUNT }
+
 @Composable
 private fun IntervalsContent(
     wheelSwipeEnabled: Boolean,
@@ -1791,11 +1772,13 @@ private fun IntervalsContent(
     isMuteMode: Boolean,
     onMuteModeChange: (Boolean) -> Unit,
     activeIntervalSec: Int,
-    activeIntervalPercent: Int,
     silenceIntervalSec: Int,
+    activeAutoSetting: AutoSettingType,
+    autoPercent: Int,
     autoCount: Int,
+    onActiveAutoSettingChange: (AutoSettingType) -> Unit,
+    onAutoPercentChange: (Int) -> Unit,
     onActiveIntervalChange: (Int) -> Unit,
-    onActivePercentChange: (Int) -> Unit,
     onSilenceIntervalChange: (Int) -> Unit,
     onAutoCountChange: (Int) -> Unit
 ) {
@@ -1818,101 +1801,47 @@ private fun IntervalsContent(
         ) {
             Spacer(modifier = Modifier.size(32.dp))
             Text(
-                text = if (isAutoMode) "Длительность (%)" else "Активный",
+                text = if (isAutoMode) "Длительность" else "Активный",
                 modifier = Modifier.weight(1f),
-                color = gray,
+                color = if (isAutoMode && activeAutoSetting == AutoSettingType.PERCENT) Color.White else gray,
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 softWrap = false
             )
             if (isAutoMode) {
-                Text(
-                    text = "Кол-во",
-                    modifier = Modifier.weight(1f),
-                    color = gray,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center
-                )
-            } else {
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(32.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(inactive)
-                        .border(1.dp, outline, RoundedCornerShape(6.dp))
-                        .clickable { onMuteModeChange(!isMuteMode) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (isMuteMode) "🔇 Тишина" else "⏭ Пропуск",
-                        color = if (isMuteMode) accent else gray,
-                        fontSize = 11.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(inactive)
-                    .border(
-                        width = 1.dp,
-                        color = if (isAutoMode) accent else outline,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .clickable { onAutoModeChange(!isAutoMode) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "A",
-                    color = if (isAutoMode) accent else gray,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            if (isAutoMode) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp)
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                        .alpha(if (activeAutoSetting == AutoSettingType.PERCENT) 1f else 0.5f)
+                        .clickable(enabled = activeAutoSetting != AutoSettingType.PERCENT) {
+                            onActiveAutoSettingChange(AutoSettingType.PERCENT)
+                        }
                 ) {
                     HybridWheelPicker(
-                        value = activeIntervalPercent.coerceIn(1, 100),
+                        value = autoPercent.coerceIn(1, 100),
                         valueRange = 1..100,
                         cyclic = false,
-                        onValueChange = onActivePercentChange,
+                        onValueChange = { if (activeAutoSetting == AutoSettingType.PERCENT) onAutoPercentChange(it) },
                         modifier = Modifier.fillMaxWidth(),
                         containerHeight = 168.dp,
                         itemHeight = 54.dp,
-                        swipeEnabled = wheelSwipeEnabled,
+                        swipeEnabled = wheelSwipeEnabled && activeAutoSetting == AutoSettingType.PERCENT,
                         formatter = { percent -> "$percent%" }
                     )
                 }
-
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                        .alpha(if (activeAutoSetting == AutoSettingType.COUNT) 1f else 0.5f)
+                        .clickable(enabled = activeAutoSetting != AutoSettingType.COUNT) {
+                            onActiveAutoSettingChange(AutoSettingType.COUNT)
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     AutoCountControl(
                         count = autoCount,
-                        onIncrease = { onAutoCountChange(autoCount + 1) },
-                        onDecrease = { onAutoCountChange(autoCount - 1) }
+                        onIncrease = { if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount + 1) },
+                        onDecrease = { if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount - 1) }
                     )
                 }
             } else {
