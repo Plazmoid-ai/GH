@@ -716,7 +716,8 @@ private fun HybridWheelPicker(
     modifier: Modifier = Modifier,
     containerHeight: Dp = 168.dp,
     itemHeight: Dp = 54.dp,
-    swipeEnabled: Boolean = false
+    swipeEnabled: Boolean = false,
+    formatter: (Int) -> String = { it.toString() }
 ) {
     val rangeSize = valueRange.last - valueRange.first + 1
     val itemCount = if (cyclic) rangeSize * 1000 else rangeSize
@@ -932,7 +933,7 @@ private fun HybridWheelPicker(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = valueFor(index).toString(),
+                            text = formatter(valueFor(index)),
                             color = IntervalPlayPalette.whiteText.copy(alpha = alpha),
                             fontSize = fontSize,
                             fontWeight = if (selected) {
@@ -1891,7 +1892,8 @@ private fun IntervalsContent(
                     modifier = Modifier.weight(1f),
                     containerHeight = 168.dp,
                     itemHeight = 54.dp,
-                    swipeEnabled = wheelSwipeEnabled
+                    swipeEnabled = wheelSwipeEnabled,
+                    formatter = { percent -> "$percent%" }
                 )
 
                 Row(
@@ -1917,7 +1919,10 @@ private fun IntervalsContent(
                     modifier = Modifier.weight(1f),
                     containerHeight = 168.dp,
                     itemHeight = 54.dp,
-                    swipeEnabled = wheelSwipeEnabled
+                    swipeEnabled = wheelSwipeEnabled,
+                    formatter = { totalSec ->
+                        String.format(Locale.ROOT, "%02d:%02d", totalSec / 60, totalSec % 60)
+                    }
                 )
 
                 HybridWheelPicker(
@@ -1928,7 +1933,10 @@ private fun IntervalsContent(
                     modifier = Modifier.weight(1f),
                     containerHeight = 168.dp,
                     itemHeight = 54.dp,
-                    swipeEnabled = wheelSwipeEnabled
+                    swipeEnabled = wheelSwipeEnabled,
+                    formatter = { totalSec ->
+                        String.format(Locale.ROOT, "%02d:%02d", totalSec / 60, totalSec % 60)
+                    }
                 )
             }
         }
