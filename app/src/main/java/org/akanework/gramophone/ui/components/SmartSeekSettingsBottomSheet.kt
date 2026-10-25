@@ -916,9 +916,9 @@ private fun HybridWheelPicker(
                     }
                     val selected = distanceFromCenter == 0
                     val fontSize = when (distanceFromCenter) {
-                        0 -> 42.sp
-                        1 -> 28.sp
-                        else -> 20.sp
+                        0 -> 30.sp
+                        1 -> 22.sp
+                        else -> 18.sp
                     }
                     val alpha = when (distanceFromCenter) {
                         0 -> 1f
@@ -1884,17 +1884,23 @@ private fun IntervalsContent(
             }
 
             if (isAutoMode) {
-                HybridWheelPicker(
-                    value = activeIntervalPercent.coerceIn(1, 100),
-                    valueRange = 1..100,
-                    cyclic = false,
-                    onValueChange = onActivePercentChange,
-                    modifier = Modifier.weight(1f),
-                    containerHeight = 168.dp,
-                    itemHeight = 54.dp,
-                    swipeEnabled = wheelSwipeEnabled,
-                    formatter = { percent -> "$percent%" }
-                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
+                ) {
+                    HybridWheelPicker(
+                        value = activeIntervalPercent.coerceIn(1, 100),
+                        valueRange = 1..100,
+                        cyclic = false,
+                        onValueChange = onActivePercentChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        containerHeight = 168.dp,
+                        itemHeight = 54.dp,
+                        swipeEnabled = wheelSwipeEnabled,
+                        formatter = { percent -> "$percent%" }
+                    )
+                }
 
                 Row(
                     modifier = Modifier
@@ -1911,33 +1917,45 @@ private fun IntervalsContent(
                 }
             } else {
                 // The manual pickers are independent; changing one never modifies the other.
-                HybridWheelPicker(
-                    value = activeIntervalSec.coerceIn(1, 600),
-                    valueRange = 1..600,
-                    cyclic = false,
-                    onValueChange = onActiveIntervalChange,
-                    modifier = Modifier.weight(1f),
-                    containerHeight = 168.dp,
-                    itemHeight = 54.dp,
-                    swipeEnabled = wheelSwipeEnabled,
-                    formatter = { totalSec ->
-                        String.format(Locale.ROOT, "%02d:%02d", totalSec / 60, totalSec % 60)
-                    }
-                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
+                ) {
+                    HybridWheelPicker(
+                        value = activeIntervalSec.coerceIn(1, 600),
+                        valueRange = 1..600,
+                        cyclic = false,
+                        onValueChange = onActiveIntervalChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        containerHeight = 168.dp,
+                        itemHeight = 54.dp,
+                        swipeEnabled = wheelSwipeEnabled,
+                        formatter = { totalSec ->
+                            String.format(Locale.ROOT, "%d:%02d", totalSec / 60, totalSec % 60)
+                        }
+                    )
+                }
 
-                HybridWheelPicker(
-                    value = silenceIntervalSec.coerceIn(1, 600),
-                    valueRange = 1..600,
-                    cyclic = false,
-                    onValueChange = onSilenceIntervalChange,
-                    modifier = Modifier.weight(1f),
-                    containerHeight = 168.dp,
-                    itemHeight = 54.dp,
-                    swipeEnabled = wheelSwipeEnabled,
-                    formatter = { totalSec ->
-                        String.format(Locale.ROOT, "%02d:%02d", totalSec / 60, totalSec % 60)
-                    }
-                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
+                ) {
+                    HybridWheelPicker(
+                        value = silenceIntervalSec.coerceIn(1, 600),
+                        valueRange = 1..600,
+                        cyclic = false,
+                        onValueChange = onSilenceIntervalChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        containerHeight = 168.dp,
+                        itemHeight = 54.dp,
+                        swipeEnabled = wheelSwipeEnabled,
+                        formatter = { totalSec ->
+                            String.format(Locale.ROOT, "%d:%02d", totalSec / 60, totalSec % 60)
+                        }
+                    )
+                }
             }
         }
     }
