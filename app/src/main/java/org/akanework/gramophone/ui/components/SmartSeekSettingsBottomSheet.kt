@@ -1793,7 +1793,6 @@ private fun IntervalsContent(
             .padding(horizontal = 12.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Column headings line up with the two weighted fields below the fixed A button.
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1810,9 +1809,67 @@ private fun IntervalsContent(
                 softWrap = false
             )
             if (isAutoMode) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Кол-во",
+                    modifier = Modifier.weight(1f),
+                    color = if (activeAutoSetting == AutoSettingType.COUNT) Color.White else gray,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            } else {
                 Box(
-                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(inactive)
+                        .border(1.dp, outline, RoundedCornerShape(6.dp))
+                        .clickable { onMuteModeChange(!isMuteMode) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isMuteMode) "🔇 Тишина" else "⏭ Пропуск",
+                        color = if (isMuteMode) accent else gray,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(inactive)
+                    .border(
+                        width = 1.dp,
+                        color = if (isAutoMode) accent else outline,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .clickable { onAutoModeChange(!isAutoMode) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "A",
+                    color = if (isAutoMode) accent else gray,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (isAutoMode) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
                         .alpha(if (activeAutoSetting == AutoSettingType.PERCENT) 1f else 0.5f)
                         .clickable(enabled = activeAutoSetting != AutoSettingType.PERCENT) {
                             onActiveAutoSettingChange(AutoSettingType.PERCENT)
@@ -1822,7 +1879,9 @@ private fun IntervalsContent(
                         value = autoPercent.coerceIn(1, 100),
                         valueRange = 1..100,
                         cyclic = false,
-                        onValueChange = { if (activeAutoSetting == AutoSettingType.PERCENT) onAutoPercentChange(it) },
+                        onValueChange = {
+                            if (activeAutoSetting == AutoSettingType.PERCENT) onAutoPercentChange(it)
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         containerHeight = 168.dp,
                         itemHeight = 54.dp,
@@ -1830,8 +1889,11 @@ private fun IntervalsContent(
                         formatter = { percent -> "$percent%" }
                     )
                 }
+
                 Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth()
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
                         .alpha(if (activeAutoSetting == AutoSettingType.COUNT) 1f else 0.5f)
                         .clickable(enabled = activeAutoSetting != AutoSettingType.COUNT) {
                             onActiveAutoSettingChange(AutoSettingType.COUNT)
@@ -1840,16 +1902,17 @@ private fun IntervalsContent(
                 ) {
                     AutoCountControl(
                         count = autoCount,
-                        onIncrease = { if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount + 1) },
-                        onDecrease = { if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount - 1) }
+                        onIncrease = {
+                            if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount + 1)
+                        },
+                        onDecrease = {
+                            if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount - 1)
+                        }
                     )
                 }
             } else {
-                // The manual pickers are independent; changing one never modifies the other.
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp)
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                 ) {
                     HybridWheelPicker(
                         value = activeIntervalSec.coerceIn(1, 600),
@@ -1867,9 +1930,7 @@ private fun IntervalsContent(
                 }
 
                 Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp)
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                 ) {
                     HybridWheelPicker(
                         value = silenceIntervalSec.coerceIn(1, 600),
