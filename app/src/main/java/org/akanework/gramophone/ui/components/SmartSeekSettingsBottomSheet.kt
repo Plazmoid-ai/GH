@@ -266,9 +266,8 @@ private fun IntervalPlaySettingsContent(
 
     var isAutoMode by remember { mutableStateOf(false) }
     var isMuteMode by remember { mutableStateOf(false) }
-    var isLocked by remember { mutableStateOf(true) }
     var activeIntervalSec by remember { mutableStateOf(30) }
-    var activeIntervalPercent by remember { mutableStateOf(20) }
+    var activeIntervalPercent by remember { mutableStateOf(11) }
     var silenceIntervalSec by remember { mutableStateOf(10) }
     var autoCount by remember { mutableStateOf(5) }
 
@@ -310,7 +309,7 @@ private fun IntervalPlaySettingsContent(
         val safeCount = count.coerceIn(1, 20)
         val totalParts = 2 * safeCount - 1
         autoCount = safeCount
-        activeIntervalPercent = (100.0 / totalParts).roundToInt().coerceIn(0, 100)
+        activeIntervalPercent = (100.0 / totalParts).roundToInt().coerceIn(1, 100)
     }
 
     fun recalcFromPercent(percent: Int) {
@@ -384,28 +383,16 @@ private fun IntervalPlaySettingsContent(
                     },
                     isMuteMode = isMuteMode,
                     onMuteModeChange = { isMuteMode = it },
-                    isLocked = isLocked,
-                    onLockToggle = { isLocked = !isLocked },
                     activeIntervalSec = activeIntervalSec,
                     activeIntervalPercent = activeIntervalPercent,
                     silenceIntervalSec = silenceIntervalSec,
                     autoCount = autoCount,
                     onActiveIntervalChange = { requested ->
-                        val next = requested.coerceIn(1, 600)
-                        val delta = next - activeIntervalSec
-                        activeIntervalSec = next
-                        if (isLocked) {
-                            silenceIntervalSec = (silenceIntervalSec + delta).coerceIn(1, 600)
-                        }
+                        activeIntervalSec = requested.coerceIn(1, 600)
                     },
                     onActivePercentChange = { requested -> recalcFromPercent(requested) },
                     onSilenceIntervalChange = { requested ->
-                        val next = requested.coerceIn(1, 600)
-                        val delta = next - silenceIntervalSec
-                        silenceIntervalSec = next
-                        if (isLocked) {
-                            activeIntervalSec = (activeIntervalSec + delta).coerceIn(1, 600)
-                        }
+                        silenceIntervalSec = requested.coerceIn(1, 600)
                     },
                     onAutoCountChange = { requested -> recalcFromCount(requested) }
                 )
@@ -1802,8 +1789,6 @@ private fun IntervalsContent(
     onAutoModeChange: (Boolean) -> Unit,
     isMuteMode: Boolean,
     onMuteModeChange: (Boolean) -> Unit,
-    isLocked: Boolean,
-    onLockToggle: () -> Unit,
     activeIntervalSec: Int,
     activeIntervalPercent: Int,
     silenceIntervalSec: Int,
@@ -1817,69 +1802,113 @@ private fun IntervalsContent(
     val inactive = Color(0xFF1C1C24)
     val outline = Color(0xFF4A4D52)
     val gray = Color(0xFFA8A8A8)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Column headings line up with the two weighted fields below the fixed A button.
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Spacer(modifier = Modifier.size(32.dp))
             Text(
-                text = "Активный",
+                text = if (isAutoMode) "Длительность (%)" else "Активный",
+                modifier = Modifier.weight(1f),
                 color = gray,
-                fontSize = 13.sp
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                softWrap = false
             )
             if (isAutoMode) {
+                Text(
+                    text = "Кол-во",
+                    modifier = Modifier.weight(1f),
+                    color = gray,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(inactive)
+                        .border(1.dp, outline, RoundedCornerShape(6.dp))
+                        .clickable { onMuteModeChange(!isMuteMode) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isMuteMode) "🔇 Тишина" else "⏭ Пропуск",
+                        color = if (isMuteMode) accent else gray,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(inactive)
+                    .border(
+                        width = 1.dp,
+                        color = if (isAutoMode) accent else outline,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .clickable { onAutoModeChange(!isAutoMode) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "A",
+                    color = if (isAutoMode) accent else gray,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (isAutoMode) {
+                HybridWheelPicker(
+                    value = activeIntervalPercent.coerceIn(1, 100),
+                    valueRange = 1..100,
+                    cyclic = false,
+                    onValueChange = onActivePercentChange,
+                    modifier = Modifier.weight(1f),
+                    containerHeight = 168.dp,
+                    itemHeight = 54.dp,
+                    swipeEnabled = wheelSwipeEnabled
+                )
+
                 Row(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HybridWheelPicker(
-                            value = activeIntervalPercent.coerceIn(0, 100),
-                            valueRange = 0..100,
-                            cyclic = false,
-                            onValueChange = onActivePercentChange,
-                            modifier = Modifier.weight(1f),
-                            containerHeight = 168.dp,
-                            itemHeight = 54.dp,
-                            swipeEnabled = wheelSwipeEnabled
-                        )
-                        Text(
-                            text = "%",
-                            color = gray,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = 2.dp)
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        AutoCountControl(
-                            count = autoCount,
-                            onIncrease = { onAutoCountChange(autoCount + 1) },
-                            onDecrease = { onAutoCountChange(autoCount - 1) }
-                        )
-                    }
+                    AutoCountControl(
+                        count = autoCount,
+                        onIncrease = { onAutoCountChange(autoCount + 1) },
+                        onDecrease = { onAutoCountChange(autoCount - 1) }
+                    )
                 }
             } else {
-                // Manual mode uses two independent wheel pickers; the owner synchronizes
-                // their values when isLocked is true.
+                // The manual pickers are independent; changing one never modifies the other.
                 HybridWheelPicker(
                     value = activeIntervalSec.coerceIn(1, 600),
                     valueRange = 1..600,
@@ -1890,20 +1919,6 @@ private fun IntervalsContent(
                     itemHeight = 54.dp,
                     swipeEnabled = wheelSwipeEnabled
                 )
-
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clickable(onClick = onLockToggle),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (isLocked) "Интервалы связаны" else "Интервалы не связаны",
-                        tint = if (isLocked) accent else gray,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
 
                 HybridWheelPicker(
                     value = silenceIntervalSec.coerceIn(1, 600),
