@@ -16,6 +16,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.HapticFeedbackConstants
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.foundation.background
@@ -695,7 +696,7 @@ private fun SimpleSettings(
  * The value is observed by LaunchedEffect and the LazyColumn scrolls to external value updates.
  */
 @Composable
-private fun performSoftHaptic(context: Context) {
+private fun performSoftHaptic(context: Context, fallbackView: View) {
     val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val vibratorManager =
             context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
@@ -708,8 +709,7 @@ private fun performSoftHaptic(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && vibrator.hasAmplitudeControl()) {
         vibrator.vibrate(VibrationEffect.createOneShot(10, 128))
     } else {
-        val view = LocalView.current
-        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        fallbackView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
     }
 }
 
@@ -768,6 +768,8 @@ private fun HybridWheelPicker(
     val centerOffsetPx = with(density) {
         ((containerHeight - itemHeight) / 2).roundToPx()
     }
+    val hapticContext = LocalContext.current
+    val hapticView = LocalView.current
     val latestValue = rememberUpdatedState(value.coerceIn(valueRange))
     val latestOnValueChange = rememberUpdatedState(onValueChange)
     val suppressScrollCallbacks = remember { mutableStateOf(true) }
@@ -798,7 +800,7 @@ private fun HybridWheelPicker(
                         lastReportedValue = centeredValue
                     } else if (lastReportedValue != centeredValue) {
                         lastReportedValue = centeredValue
-                        performSoftHaptic(LocalContext.current)
+                        performSoftHaptic(hapticContext, hapticView)
                         if (centeredValue != latestValue.value) {
                             latestOnValueChange.value(centeredValue)
                         }
@@ -1016,6 +1018,7 @@ private fun WheelEdgeControl(
     onStep: () -> Unit
 ) {
     val context = LocalContext.current
+    val fallbackView = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
     val latestOnStep = rememberUpdatedState(onStep)
     val repeatScope = rememberCoroutineScope()
@@ -1045,11 +1048,11 @@ private fun WheelEdgeControl(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    performSoftHaptic(context)
+                    performSoftHaptic(context, fallbackView)
                     latestOnStep.value()
                 },
                 onLongClick = {
-                    performSoftHaptic(context)
+                    performSoftHaptic(context, fallbackView)
                     isLongPress = true
                     repeatScope.launch {
                         while (isPressed && isLongPress) {
@@ -2011,7 +2014,7 @@ private fun IntervalsContent(
                         )
                     }
                 }
-}
+            }
         }
     }
 }
