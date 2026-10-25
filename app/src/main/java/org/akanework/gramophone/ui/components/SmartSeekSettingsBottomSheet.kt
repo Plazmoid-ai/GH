@@ -122,6 +122,8 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -266,9 +268,9 @@ private fun IntervalPlaySettingsContent(
     var isMuteMode by remember { mutableStateOf(false) }
     var isLocked by remember { mutableStateOf(true) }
     var activeIntervalSec by remember { mutableStateOf(30) }
+    var activeIntervalPercent by remember { mutableStateOf(20) }
     var silenceIntervalSec by remember { mutableStateOf(10) }
     var autoCount by remember { mutableStateOf(5) }
-    val trackDurationMs = 180_000L
 
     var isBufferIncreased by remember { mutableStateOf(false) }
     var selectedFixedPreset by remember { mutableStateOf(0) }
@@ -305,28 +307,25 @@ private fun IntervalPlaySettingsContent(
     // микро-фейд 100 мс при seek. Реализацию аудио оставить будущему плееру.
 
     fun recalcFromCount(count: Int) {
-        val safeCount = count.coerceAtLeast(1)
-        val totalParts = 2L * safeCount.toLong() - 1L
-        if (totalParts <= 0L) return
-        val baseMs = trackDurationMs / totalParts
-        val remainderMs = trackDurationMs - baseMs * totalParts
+        val safeCount = count.coerceIn(1, 20)
+        val totalParts = 2 * safeCount - 1
         autoCount = safeCount
-        activeIntervalSec = (baseMs / 1000L).toInt().coerceIn(1, 600)
-        // The remainderMs belongs to the last active segment; playback remains out of scope here.
-        @Suppress("UNUSED_VARIABLE")
-        val reservedRemainderMs = remainderMs
+        activeIntervalPercent = (100.0 / totalParts).roundToInt().coerceIn(0, 100)
     }
 
-    fun recalcFromDuration(durationSec: Int) {
-        val safeDurationSec = durationSec.coerceIn(1, 600)
-        val baseMs = safeDurationSec.toLong() * 1000L
-        if (trackDurationMs < baseMs * 2L) {
-            autoCount = 1
-            return
-        }
-        val count = (trackDurationMs / (baseMs * 2L)).toInt().coerceAtLeast(1)
-        autoCount = count
-        recalcFromCount(count)
+    fun recalcFromPercent(percent: Int) {
+        // A 0% interval is invalid for the calculation; normalize it to 1%.
+        val safePercent = percent.coerceIn(0, 100).coerceAtLeast(1)
+        activeIntervalPercent = safePercent
+        autoCount = floor((100.0 / safePercent + 1.0) / 2.0)
+            .toInt()
+            .coerceIn(1, 20)
+    }
+
+    // Keep the defaults consistent. Count is the source of truth on initialization
+    // and whenever Auto mode is enabled; playback will map the percentage to real time.
+    LaunchedEffect(Unit) {
+        recalcFromCount(autoCount)
     }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -388,20 +387,18 @@ private fun IntervalPlaySettingsContent(
                     isLocked = isLocked,
                     onLockToggle = { isLocked = !isLocked },
                     activeIntervalSec = activeIntervalSec,
+                    activeIntervalPercent = activeIntervalPercent,
                     silenceIntervalSec = silenceIntervalSec,
                     autoCount = autoCount,
                     onActiveIntervalChange = { requested ->
                         val next = requested.coerceIn(1, 600)
-                        if (isAutoMode) {
-                            recalcFromDuration(next)
-                        } else {
-                            val delta = next - activeIntervalSec
-                            activeIntervalSec = next
-                            if (isLocked) {
-                                silenceIntervalSec = (silenceIntervalSec + delta).coerceIn(1, 600)
-                            }
+                        val delta = next - activeIntervalSec
+                        activeIntervalSec = next
+                        if (isLocked) {
+                            silenceIntervalSec = (silenceIntervalSec + delta).coerceIn(1, 600)
                         }
                     },
+                    onActivePercentChange = { requested -> recalcFromPercent(requested) },
                     onSilenceIntervalChange = { requested ->
                         val next = requested.coerceIn(1, 600)
                         val delta = next - silenceIntervalSec
@@ -421,9 +418,9 @@ private fun IntervalPlaySettingsContent(
                         fixedPresets[index]?.let { preset ->
                             val requestedDuration = preset.playSeconds.coerceIn(1, 600)
                             silenceIntervalSec = preset.skipSeconds.coerceIn(1, 600)
-                            if (isAutoMode) {
-                                recalcFromDuration(requestedDuration)
-                            } else {
+                            // Presets store seconds, so the active side is applied only in manual mode.
+                            // Auto mode stays percentage-based because the actual track length is unknown.
+                            if (!isAutoMode) {
                                 activeIntervalSec = requestedDuration
                             }
                             selectedFixedPreset = index
@@ -471,8 +468,7 @@ private fun IntervalPlaySettingsContent(
                     isShiftEnabled = isShiftEnabled,
                     onShiftEnabledChange = { isShiftEnabled = it },
                     shiftStepSec = shiftStepSec,
-                    onShiftStepChange = { shiftStepSec = it.coerceIn(1, 120) },
-                    trackDurationMs = trackDurationMs
+                    onShiftStepChange = { shiftStepSec = it.coerceIn(1, 120) }
                 )
             }
         }
@@ -1809,9 +1805,11 @@ private fun IntervalsContent(
     isLocked: Boolean,
     onLockToggle: () -> Unit,
     activeIntervalSec: Int,
+    activeIntervalPercent: Int,
     silenceIntervalSec: Int,
     autoCount: Int,
     onActiveIntervalChange: (Int) -> Unit,
+    onActivePercentChange: (Int) -> Unit,
     onSilenceIntervalChange: (Int) -> Unit,
     onAutoCountChange: (Int) -> Unit
 ) {
@@ -1822,7 +1820,7 @@ private fun IntervalsContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(24.dp),
+            .padding(horizontal = 12.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
@@ -1836,91 +1834,49 @@ private fun IntervalsContent(
                 fontSize = 13.sp
             )
             if (isAutoMode) {
-                Text(
-                    text = "Количество",
-                    color = gray,
-                    fontSize = 13.sp
-                )
-            } else {
-                Box(
+                Row(
                     modifier = Modifier
-                        .width(90.dp)
-                        .height(48.dp)
-                        .clickable { onMuteModeChange(!isMuteMode) },
-                    contentAlignment = Alignment.Center
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        modifier = Modifier
-                            .width(90.dp)
-                            .height(24.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(inactive)
-                            .border(1.dp, outline, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        HybridWheelPicker(
+                            value = activeIntervalPercent.coerceIn(0, 100),
+                            valueRange = 0..100,
+                            cyclic = false,
+                            onValueChange = onActivePercentChange,
+                            modifier = Modifier.weight(1f),
+                            containerHeight = 168.dp,
+                            itemHeight = 54.dp,
+                            swipeEnabled = wheelSwipeEnabled
+                        )
                         Text(
-                            text = if (isMuteMode) "🔇 Тишина" else "⏭ Пропуск",
-                            color = if (isMuteMode) accent else gray,
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            softWrap = false
+                            text = "%",
+                            color = gray,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 2.dp)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AutoCountControl(
+                            count = autoCount,
+                            onIncrease = { onAutoCountChange(autoCount + 1) },
+                            onDecrease = { onAutoCountChange(autoCount - 1) }
                         )
                     }
                 }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clickable { onAutoModeChange(!isAutoMode) },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(inactive)
-                        .border(
-                            width = 1.dp,
-                            color = if (isAutoMode) accent else outline,
-                            shape = RoundedCornerShape(8.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "A",
-                        color = if (isAutoMode) accent else gray,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            if (isAutoMode) {
-                HybridWheelPicker(
-                    value = activeIntervalSec.coerceIn(1, 600),
-                    valueRange = 1..600,
-                    cyclic = false,
-                    onValueChange = onActiveIntervalChange,
-                    modifier = Modifier.weight(1f),
-                    containerHeight = 168.dp,
-                    itemHeight = 54.dp,
-                    swipeEnabled = wheelSwipeEnabled
-                )
-                AutoCountControl(
-                    count = autoCount,
-                    onIncrease = { onAutoCountChange(autoCount + 1) },
-                    onDecrease = { onAutoCountChange(autoCount - 1) }
-                )
             } else {
                 // Manual mode uses two independent wheel pickers; the owner synchronizes
                 // their values when isLocked is true.
@@ -1975,8 +1931,8 @@ private fun AutoCountControl(
     val gray = Color(0xFFA8A8A8)
 
     Row(
-        modifier = Modifier.width(132.dp).height(104.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.width(108.dp).height(104.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -2000,14 +1956,17 @@ private fun AutoCountControl(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
-                modifier = Modifier.size(32.dp).clickable(onClick = onIncrease),
+                modifier = Modifier
+                    .size(28.dp)
+                    .alpha(if (count < 20) 1f else 0.3f)
+                    .clickable(enabled = count < 20, onClick = onIncrease),
                 contentAlignment = Alignment.Center
             ) {
                 Text("+", color = gray, fontSize = 24.sp)
             }
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(28.dp)
                     .alpha(if (count > 1) 1f else 0.3f)
                     .clickable(enabled = count > 1, onClick = onDecrease),
                 contentAlignment = Alignment.Center
@@ -2148,8 +2107,7 @@ private fun PreviewContent(
     isShiftEnabled: Boolean,
     onShiftEnabledChange: (Boolean) -> Unit,
     shiftStepSec: Int,
-    onShiftStepChange: (Int) -> Unit,
-    trackDurationMs: Long
+    onShiftStepChange: (Int) -> Unit
 ) {
     val inactive = Color(0xFF1C1C24)
     val outline = Color(0xFF4A4D52)
@@ -2160,8 +2118,6 @@ private fun PreviewContent(
     // TODO: When each new track starts, advance the start position by shiftStepSec
     // whenever isShiftEnabled is true. This setting is UI/state only until player integration.
     // TODO: RANDOM must choose a random start in 0..(trackDuration - previewDuration).
-    @Suppress("UNUSED_VARIABLE")
-    val reservedTrackDurationMs = trackDurationMs
 
     Column(
         modifier = Modifier
