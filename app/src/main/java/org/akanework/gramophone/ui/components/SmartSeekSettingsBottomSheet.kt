@@ -11,6 +11,10 @@ package org.akanework.gramophone.ui.components
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.HapticFeedbackConstants
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -106,6 +110,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
@@ -264,8 +269,10 @@ private fun IntervalPlaySettingsContent(
 
     var isAutoMode by remember { mutableStateOf(false) }
     var isMuteMode by remember { mutableStateOf(false) }
-    var activeIntervalSec by remember { mutableStateOf(30) }
-    var silenceIntervalSec by remember { mutableStateOf(10) }
+    var activeMin by remember { mutableStateOf(0) } // 0..9
+    var activeSec by remember { mutableStateOf(30) } // 0..59
+    var silenceMin by remember { mutableStateOf(0) } // 0..9
+    var silenceSec by remember { mutableStateOf(10) } // 0..59
     var activeAutoSetting by remember { mutableStateOf(AutoSettingType.PERCENT) }
     var autoPercent by remember { mutableStateOf(20) }
     var autoCount by remember { mutableStateOf(5) }
@@ -360,19 +367,19 @@ private fun IntervalPlaySettingsContent(
                     onAutoModeChange = { enabled -> isAutoMode = enabled },
                     isMuteMode = isMuteMode,
                     onMuteModeChange = { isMuteMode = it },
-                    activeIntervalSec = activeIntervalSec,
+                    activeMin = activeMin,
+                    activeSec = activeSec,
+                    silenceMin = silenceMin,
+                    silenceSec = silenceSec,
                     activeAutoSetting = activeAutoSetting,
                     autoPercent = autoPercent,
                     autoCount = autoCount,
                     onActiveAutoSettingChange = { activeAutoSetting = it },
                     onAutoPercentChange = { autoPercent = it.coerceIn(1, 100) },
-                    silenceIntervalSec = silenceIntervalSec,
-                    onActiveIntervalChange = { requested ->
-                        activeIntervalSec = requested.coerceIn(1, 600)
-                    },
-                    onSilenceIntervalChange = { requested ->
-                        silenceIntervalSec = requested.coerceIn(1, 600)
-                    },
+                    onActiveMinChange = { activeMin = it.coerceIn(0, 9) },
+                    onActiveSecChange = { activeSec = it.coerceIn(0, 59) },
+                    onSilenceMinChange = { silenceMin = it.coerceIn(0, 9) },
+                    onSilenceSecChange = { silenceSec = it.coerceIn(0, 59) },
                     onAutoCountChange = { requested -> autoCount = requested.coerceIn(1, 20) }
                 )
 
@@ -383,11 +390,12 @@ private fun IntervalPlaySettingsContent(
                     onSelect = { index ->
                         fixedPresets[index]?.let { preset ->
                             val requestedDuration = preset.playSeconds.coerceIn(1, 600)
-                            silenceIntervalSec = preset.skipSeconds.coerceIn(1, 600)
-                            // Presets store seconds, so the active side is applied only in manual mode.
-                            // Auto mode stays percentage-based because the actual track length is unknown.
+                            silenceMin = (preset.skipSeconds.coerceIn(0, 599) / 60).coerceIn(0, 9)
+                            silenceSec = preset.skipSeconds.coerceIn(0, 599) % 60
+                            // Presets store total seconds; split the active duration into independent wheels.
                             if (!isAutoMode) {
-                                activeIntervalSec = requestedDuration
+                                activeMin = (requestedDuration / 60).coerceIn(0, 9)
+                                activeSec = requestedDuration % 60
                             }
                             selectedFixedPreset = index
                         }
@@ -395,8 +403,8 @@ private fun IntervalPlaySettingsContent(
                     onSave = { index ->
                         val updated = fixedPresets.toMutableList()
                         updated[index] = IntervalPlayPreset(
-                            playSeconds = activeIntervalSec,
-                            skipSeconds = silenceIntervalSec
+                            playSeconds = activeMin * 60 + activeSec,
+                            skipSeconds = silenceMin * 60 + silenceSec
                         )
                         fixedPresets = updated
                         selectedFixedPreset = index
@@ -687,6 +695,25 @@ private fun SimpleSettings(
  * The value is observed by LaunchedEffect and the LazyColumn scrolls to external value updates.
  */
 @Composable
+private fun performSoftHaptic(context: Context) {
+    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val vibratorManager =
+            context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+        vibratorManager.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && vibrator.hasAmplitudeControl()) {
+        vibrator.vibrate(VibrationEffect.createOneShot(10, 128))
+    } else {
+        val view = LocalView.current
+        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+    }
+}
+
+@Composable
 private fun HybridWheelPicker(
     value: Int,
     valueRange: IntRange,
@@ -741,7 +768,6 @@ private fun HybridWheelPicker(
     val centerOffsetPx = with(density) {
         ((containerHeight - itemHeight) / 2).roundToPx()
     }
-    val hapticView = LocalView.current
     val latestValue = rememberUpdatedState(value.coerceIn(valueRange))
     val latestOnValueChange = rememberUpdatedState(onValueChange)
     val suppressScrollCallbacks = remember { mutableStateOf(true) }
@@ -772,7 +798,7 @@ private fun HybridWheelPicker(
                         lastReportedValue = centeredValue
                     } else if (lastReportedValue != centeredValue) {
                         lastReportedValue = centeredValue
-                        hapticView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                        performSoftHaptic(LocalContext.current)
                         if (centeredValue != latestValue.value) {
                             latestOnValueChange.value(centeredValue)
                         }
@@ -989,6 +1015,7 @@ private fun WheelEdgeControl(
     height: Dp,
     onStep: () -> Unit
 ) {
+    val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val latestOnStep = rememberUpdatedState(onStep)
     val repeatScope = rememberCoroutineScope()
@@ -1017,8 +1044,12 @@ private fun WheelEdgeControl(
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { latestOnStep.value() },
+                onClick = {
+                    performSoftHaptic(context)
+                    latestOnStep.value()
+                },
                 onLongClick = {
+                    performSoftHaptic(context)
                     isLongPress = true
                     repeatScope.launch {
                         while (isPressed && isLongPress) {
@@ -1771,15 +1802,19 @@ private fun IntervalsContent(
     onAutoModeChange: (Boolean) -> Unit,
     isMuteMode: Boolean,
     onMuteModeChange: (Boolean) -> Unit,
-    activeIntervalSec: Int,
-    silenceIntervalSec: Int,
+    activeMin: Int,
+    activeSec: Int,
+    silenceMin: Int,
+    silenceSec: Int,
     activeAutoSetting: AutoSettingType,
     autoPercent: Int,
     autoCount: Int,
     onActiveAutoSettingChange: (AutoSettingType) -> Unit,
     onAutoPercentChange: (Int) -> Unit,
-    onActiveIntervalChange: (Int) -> Unit,
-    onSilenceIntervalChange: (Int) -> Unit,
+    onActiveMinChange: (Int) -> Unit,
+    onActiveSecChange: (Int) -> Unit,
+    onSilenceMinChange: (Int) -> Unit,
+    onSilenceSecChange: (Int) -> Unit,
     onAutoCountChange: (Int) -> Unit
 ) {
     val accent = Color(0xFF9B8AF5)
@@ -1914,39 +1949,69 @@ private fun IntervalsContent(
                 Box(
                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                 ) {
-                    HybridWheelPicker(
-                        value = activeIntervalSec.coerceIn(1, 600),
-                        valueRange = 1..600,
-                        cyclic = false,
-                        onValueChange = onActiveIntervalChange,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        containerHeight = 168.dp,
-                        itemHeight = 54.dp,
-                        swipeEnabled = wheelSwipeEnabled,
-                        formatter = { totalSec ->
-                            String.format(Locale.ROOT, "%d:%02d", totalSec / 60, totalSec % 60)
-                        }
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        HybridWheelPicker(
+                            value = activeMin.coerceIn(0, 9),
+                            valueRange = 0..9,
+                            cyclic = false,
+                            onValueChange = onActiveMinChange,
+                            modifier = Modifier.weight(1f),
+                            containerHeight = 168.dp,
+                            itemHeight = 54.dp,
+                            swipeEnabled = wheelSwipeEnabled
+                        )
+                        Text(":", fontSize = 24.sp, color = gray)
+                        HybridWheelPicker(
+                            value = activeSec.coerceIn(0, 59),
+                            valueRange = 0..59,
+                            cyclic = false,
+                            onValueChange = onActiveSecChange,
+                            modifier = Modifier.weight(1f),
+                            containerHeight = 168.dp,
+                            itemHeight = 54.dp,
+                            swipeEnabled = wheelSwipeEnabled,
+                            formatter = { seconds -> String.format(Locale.ROOT, "%02d", seconds) }
+                        )
+                    }
                 }
 
                 Box(
                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                 ) {
-                    HybridWheelPicker(
-                        value = silenceIntervalSec.coerceIn(1, 600),
-                        valueRange = 1..600,
-                        cyclic = false,
-                        onValueChange = onSilenceIntervalChange,
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        containerHeight = 168.dp,
-                        itemHeight = 54.dp,
-                        swipeEnabled = wheelSwipeEnabled,
-                        formatter = { totalSec ->
-                            String.format(Locale.ROOT, "%d:%02d", totalSec / 60, totalSec % 60)
-                        }
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        HybridWheelPicker(
+                            value = silenceMin.coerceIn(0, 9),
+                            valueRange = 0..9,
+                            cyclic = false,
+                            onValueChange = onSilenceMinChange,
+                            modifier = Modifier.weight(1f),
+                            containerHeight = 168.dp,
+                            itemHeight = 54.dp,
+                            swipeEnabled = wheelSwipeEnabled
+                        )
+                        Text(":", fontSize = 24.sp, color = gray)
+                        HybridWheelPicker(
+                            value = silenceSec.coerceIn(0, 59),
+                            valueRange = 0..59,
+                            cyclic = false,
+                            onValueChange = onSilenceSecChange,
+                            modifier = Modifier.weight(1f),
+                            containerHeight = 168.dp,
+                            itemHeight = 54.dp,
+                            swipeEnabled = wheelSwipeEnabled,
+                            formatter = { seconds -> String.format(Locale.ROOT, "%02d", seconds) }
+                        )
+                    }
                 }
-            }
+}
         }
     }
 }
