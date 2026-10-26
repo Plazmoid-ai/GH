@@ -280,15 +280,17 @@ private fun IntervalPlaySettingsContent(
 
     var isBufferIncreased by remember { mutableStateOf(false) }
     var selectedFixedPreset by remember { mutableStateOf(0) }
-    var fixedPresets by remember {
-        mutableStateOf(
-            listOf<IntervalPlayPreset?>(
-                IntervalPlayPreset(30, 10),
-                IntervalPlayPreset(45, 15),
-                null
-            )
+    val fixedPresets = remember {
+        mutableStateListOf<IntervalPlayPreset?>(
+            IntervalPlayPreset(30, 10),
+            IntervalPlayPreset(45, 15),
+            null
         )
     }
+    val autoPercentPresets = remember { mutableStateListOf<Int?>(10, 20, 30) }
+    val autoCountPresets = remember { mutableStateListOf<Int?>(3, 5, 10) }
+    var selectedAutoPercentPreset by remember { mutableStateOf(1) }
+    var selectedAutoCountPreset by remember { mutableStateOf(1) }
     var selectedAccent by remember { mutableStateOf(0) }
     var trimState by remember { mutableStateOf(TrimState()) }
     var showTrimSettings by remember { mutableStateOf(false) }
@@ -384,35 +386,67 @@ private fun IntervalPlaySettingsContent(
                     onAutoCountChange = { requested -> autoCount = requested.coerceIn(1, 20) }
                 )
 
-                PresetSelector(
-                    title = "Шаблоны",
-                    hint = "Тап — применить, долгое нажатие — сохранить",
-                    selectedIndex = selectedFixedPreset,
-                    onSelect = { index ->
-                        fixedPresets[index]?.let { preset ->
-                            val requestedDuration = preset.playSeconds.coerceIn(1, 600)
-                            silenceMin = (preset.skipSeconds.coerceIn(0, 599) / 60).coerceIn(0, 9)
-                            silenceSec = preset.skipSeconds.coerceIn(0, 599) % 60
-                            // Presets store total seconds; split the active duration into independent wheels.
-                            if (!isAutoMode) {
+                when {
+                    !isAutoMode -> PresetSelector(
+                        title = "Шаблоны",
+                        hint = "Тап — применить, долгое нажатие — сохранить",
+                        selectedIndex = selectedFixedPreset,
+                        onSelect = { index ->
+                            fixedPresets[index]?.let { preset ->
+                                val requestedDuration = preset.playSeconds.coerceIn(0, 600)
+                                val requestedSilence = preset.skipSeconds.coerceIn(0, 599)
                                 activeMin = (requestedDuration / 60).coerceIn(0, 9)
                                 activeSec = requestedDuration % 60
+                                silenceMin = (requestedSilence / 60).coerceIn(0, 9)
+                                silenceSec = requestedSilence % 60
+                                selectedFixedPreset = index
                             }
+                        },
+                        onSave = { index ->
+                            fixedPresets[index] = IntervalPlayPreset(
+                                playSeconds = activeMin * 60 + activeSec,
+                                skipSeconds = silenceMin * 60 + silenceSec
+                            )
                             selectedFixedPreset = index
-                        }
-                    },
-                    onSave = { index ->
-                        val updated = fixedPresets.toMutableList()
-                        updated[index] = IntervalPlayPreset(
-                            playSeconds = activeMin * 60 + activeSec,
-                            skipSeconds = silenceMin * 60 + silenceSec
-                        )
-                        fixedPresets = updated
-                        selectedFixedPreset = index
-                    },
-                    content = { index -> FixedPresetCardContent(fixedPresets[index]) },
-                    isEmpty = { fixedPresets[it] == null }
-                )
+                        },
+                        content = { index -> FixedPresetCardContent(fixedPresets[index]) },
+                        isEmpty = { fixedPresets[it] == null }
+                    )
+                    activeAutoSetting == AutoSettingType.PERCENT -> PresetSelector(
+                        title = "Шаблоны — %",
+                        hint = "Тап — применить, долгое нажатие — сохранить",
+                        selectedIndex = selectedAutoPercentPreset,
+                        onSelect = { index ->
+                            autoPercentPresets[index]?.let { preset ->
+                                autoPercent = preset.coerceIn(1, 100)
+                                selectedAutoPercentPreset = index
+                            }
+                        },
+                        onSave = { index ->
+                            autoPercentPresets[index] = autoPercent.coerceIn(1, 100)
+                            selectedAutoPercentPreset = index
+                        },
+                        content = { index -> SimplePresetCardContent(autoPercentPresets[index], "%") },
+                        isEmpty = { autoPercentPresets[it] == null }
+                    )
+                    else -> PresetSelector(
+                        title = "Шаблоны — кол-во",
+                        hint = "Тап — применить, долгое нажатие — сохранить",
+                        selectedIndex = selectedAutoCountPreset,
+                        onSelect = { index ->
+                            autoCountPresets[index]?.let { preset ->
+                                autoCount = preset.coerceIn(1, 20)
+                                selectedAutoCountPreset = index
+                            }
+                        },
+                        onSave = { index ->
+                            autoCountPresets[index] = autoCount.coerceIn(1, 20)
+                            selectedAutoCountPreset = index
+                        },
+                        content = { index -> SimplePresetCardContent(autoCountPresets[index], "") },
+                        isEmpty = { autoCountPresets[it] == null }
+                    )
+                }
 
                 TrimSection(
                     state = trimState,
@@ -722,6 +756,7 @@ private fun HybridWheelPicker(
     containerHeight: Dp = 168.dp,
     itemHeight: Dp = 54.dp,
     swipeEnabled: Boolean = false,
+    enabled: Boolean = true,
     formatter: (Int) -> String = { it.toString() }
 ) {
     val rangeSize = valueRange.last - valueRange.first + 1
@@ -819,7 +854,7 @@ private fun HybridWheelPicker(
         )
     )
 
-    val swipeGestureModifier = if (swipeEnabled) {
+    val swipeGestureModifier = if (enabled && swipeEnabled) {
         Modifier.pointerInput(listState, valueRange.first, valueRange.last, cyclic) {
             val touchSlop = viewConfiguration.touchSlop
             awaitEachGesture {
@@ -909,6 +944,7 @@ private fun HybridWheelPicker(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
+                userScrollEnabled = enabled && !swipeEnabled,
                 contentPadding = PaddingValues(vertical = (containerHeight - itemHeight) / 2),
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
             ) {
@@ -1537,6 +1573,28 @@ private fun SimplePresetCardContent(
 }
 
 @Composable
+private fun SimplePresetCardContent(
+    value: Int?,
+    suffix: String
+) {
+    if (value == null) return
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "$value$suffix",
+            color = IntervalPlayPalette.accent,
+            fontSize = 14.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
+@Composable
 private fun FixedPresetCardContent(
     preset: IntervalPlayPreset?
 ) {
@@ -1931,7 +1989,8 @@ private fun IntervalsContent(
                         modifier = Modifier.fillMaxWidth(),
                         containerHeight = 168.dp,
                         itemHeight = 54.dp,
-                        swipeEnabled = wheelSwipeEnabled && activeAutoSetting == AutoSettingType.PERCENT,
+                        swipeEnabled = wheelSwipeEnabled,
+                        enabled = activeAutoSetting == AutoSettingType.PERCENT,
                         formatter = { percent -> "$percent%" }
                     )
                 }
@@ -1955,7 +2014,8 @@ private fun IntervalsContent(
                         modifier = Modifier.fillMaxWidth(),
                         containerHeight = 168.dp,
                         itemHeight = 54.dp,
-                        swipeEnabled = wheelSwipeEnabled && activeAutoSetting == AutoSettingType.COUNT
+                        swipeEnabled = wheelSwipeEnabled,
+                        enabled = activeAutoSetting == AutoSettingType.COUNT
                     )
                 }
             } else {
@@ -1981,7 +2041,7 @@ private fun IntervalsContent(
                         HybridWheelPicker(
                             value = activeSec.coerceIn(0, 59),
                             valueRange = 0..59,
-                            cyclic = false,
+                            cyclic = true,
                             onValueChange = onActiveSecChange,
                             modifier = Modifier.weight(1f),
                             containerHeight = 168.dp,
@@ -2014,7 +2074,7 @@ private fun IntervalsContent(
                         HybridWheelPicker(
                             value = silenceSec.coerceIn(0, 59),
                             valueRange = 0..59,
-                            cyclic = false,
+                            cyclic = true,
                             onValueChange = onSilenceSecChange,
                             modifier = Modifier.weight(1f),
                             containerHeight = 168.dp,
