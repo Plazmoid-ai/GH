@@ -41,7 +41,6 @@ import android.view.ViewGroup
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.ui.platform.setContent
 import android.view.ViewPropertyAnimator
 import android.view.WindowInsets
 import android.widget.AdapterView
