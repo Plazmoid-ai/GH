@@ -9,6 +9,11 @@
 
 package org.akanework.gramophone.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,8 +68,9 @@ fun IntervalPlayTestOverlay(
     onOpenSettings: () -> Unit
 ) {
     var isOverlayExpanded by remember { mutableStateOf(false) }
-    var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
+    val animatedX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
     var expandedPanelSize by remember { mutableStateOf(IntSize.Zero) }
 
     val shape = RoundedCornerShape(12.dp)
@@ -88,7 +94,7 @@ fun IntervalPlayTestOverlay(
                         val maxX = (maxWidthPx - collapsedCapsuleSize.width).coerceAtLeast(0f)
                         val maxY = (maxHeightPx - collapsedCapsuleSize.height).coerceAtLeast(0f)
                         IntOffset(
-                            (collapsedOrigin.x + offsetX.roundToInt()).coerceIn(0, maxX.roundToInt()),
+                            (collapsedOrigin.x + animatedX.value.roundToInt()).coerceIn(0, maxX.roundToInt()),
                             (collapsedOrigin.y + offsetY.roundToInt()).coerceIn(0, maxY.roundToInt())
                         )
                     }
@@ -98,18 +104,40 @@ fun IntervalPlayTestOverlay(
                     .clip(shape)
                     .background(panelBackground)
                     .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
-                    .pointerInput(Unit) {
-                        detectDragGesturesAfterLongPress { change, dragAmount ->
-                            change.consume()
-                            val capsuleWidth = if (collapsedCapsuleSize.width > 0) collapsedCapsuleSize.width.toFloat() else with(density) { 220.dp.toPx() }
-                            val capsuleHeight = if (collapsedCapsuleSize.height > 0) collapsedCapsuleSize.height.toFloat() else with(density) { 36.dp.toPx() }
-                            val minOffsetX = -collapsedOrigin.x.toFloat()
-                            val maxOffsetX = (maxWidthPx - capsuleWidth - collapsedOrigin.x).coerceAtLeast(minOffsetX)
-                            val minOffsetY = -collapsedOrigin.y.toFloat()
-                            val maxOffsetY = (maxHeightPx - capsuleHeight - collapsedOrigin.y).coerceAtLeast(minOffsetY)
-                            offsetX = (offsetX + dragAmount.x).coerceIn(minOffsetX, maxOffsetX)
-                            offsetY = (offsetY + dragAmount.y).coerceIn(minOffsetY, maxOffsetY)
-                        }
+                    .pointerInput(collapsedOrigin, maxWidthPx, maxHeightPx, collapsedCapsuleSize) {
+                        detectDragGesturesAfterLongPress(
+                            onDragEnd = {
+                                val capsuleWidth = if (collapsedCapsuleSize.width > 0) collapsedCapsuleSize.width.toFloat() else with(density) { 220.dp.toPx() }
+                                val minOffsetX = -collapsedOrigin.x.toFloat()
+                                val maxOffsetX = (maxWidthPx - capsuleWidth - collapsedOrigin.x).coerceAtLeast(minOffsetX)
+                                val targetX = if (animatedX.value - minOffsetX < (maxOffsetX - minOffsetX) / 2f) minOffsetX else maxOffsetX
+                                scope.launch {
+                                    animatedX.animateTo(targetX, animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f))
+                                }
+                            },
+                            onDragCancel = {
+                                val capsuleWidth = if (collapsedCapsuleSize.width > 0) collapsedCapsuleSize.width.toFloat() else with(density) { 220.dp.toPx() }
+                                val minOffsetX = -collapsedOrigin.x.toFloat()
+                                val maxOffsetX = (maxWidthPx - capsuleWidth - collapsedOrigin.x).coerceAtLeast(minOffsetX)
+                                val targetX = if (animatedX.value - minOffsetX < (maxOffsetX - minOffsetX) / 2f) minOffsetX else maxOffsetX
+                                scope.launch {
+                                    animatedX.animateTo(targetX, animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f))
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                val capsuleWidth = if (collapsedCapsuleSize.width > 0) collapsedCapsuleSize.width.toFloat() else with(density) { 220.dp.toPx() }
+                                val capsuleHeight = if (collapsedCapsuleSize.height > 0) collapsedCapsuleSize.height.toFloat() else with(density) { 36.dp.toPx() }
+                                val minOffsetX = -collapsedOrigin.x.toFloat()
+                                val maxOffsetX = (maxWidthPx - capsuleWidth - collapsedOrigin.x).coerceAtLeast(minOffsetX)
+                                val minOffsetY = -collapsedOrigin.y.toFloat()
+                                val maxOffsetY = (maxHeightPx - capsuleHeight - collapsedOrigin.y).coerceAtLeast(minOffsetY)
+                                scope.launch {
+                                    animatedX.snapTo((animatedX.value + dragAmount.x).coerceIn(minOffsetX, maxOffsetX))
+                                }
+                                offsetY = (offsetY + dragAmount.y).coerceIn(minOffsetY, maxOffsetY)
+                            }
+                        )
                     }
                     .clickable { isOverlayExpanded = true }
                     .padding(horizontal = 12.dp),

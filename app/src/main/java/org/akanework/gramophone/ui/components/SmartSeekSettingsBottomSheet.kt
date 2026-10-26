@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
@@ -246,7 +247,7 @@ class SmartSeekSettingsBottomSheet(
             )
         )
         dialog.setOnShowListener {
-            dialog.behavior.isDraggable = false
+            dialog.behavior.isDraggable = true
             dialog.behavior.skipCollapsed = true
             dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
             dialog.window?.setLayout(
@@ -350,23 +351,6 @@ private fun IntervalPlaySettingsContent(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
                 .padding(start = 2.dp, bottom = 14.dp)
-                .pointerInput(onCancel) {
-                    var downwardDragPx = 0f
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { change, dragAmount ->
-                            change.consume()
-                            downwardDragPx += dragAmount
-                            if (downwardDragPx >= 80f) {
-                                downwardDragPx = 0f
-                                onCancel()
-                            } else if (downwardDragPx < 0f) {
-                                downwardDragPx = 0f
-                            }
-                        },
-                        onDragEnd = { downwardDragPx = 0f },
-                        onDragCancel = { downwardDragPx = 0f }
-                    )
-                }
         )
 
         Row(
@@ -523,16 +507,17 @@ private fun IntervalPlaySettingsContent(
                 .fillMaxWidth()
                 .padding(top = 14.dp)
                 .navigationBarsPadding(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             BottomActionButton(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.widthIn(min = 120.dp),
                 label = "Отмена",
                 primary = false,
                 onClick = onCancel
             )
             BottomActionButton(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.widthIn(min = 120.dp),
                 label = "Сохранить",
                 primary = true,
                 onClick = onSave
@@ -1878,6 +1863,7 @@ private fun BottomActionButton(
     ) {
         Text(
             text = label,
+            modifier = Modifier.padding(horizontal = 24.dp),
             color = if (primary) IntervalPlayPalette.darkText else IntervalPlayPalette.whiteText,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium
