@@ -115,6 +115,15 @@
             android:scaleType="centerCrop"
             app:srcCompat="@drawable/ic_default_cover" />
 
+        <androidx.compose.ui.platform.ComposeView
+            android:id="@+id/interval_play_test_overlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="10dp"
+            android:elevation="8dp"
+            android:saveEnabled="false" />
+
     </com.google.android.material.card.MaterialCardView>
 
     <!-- TODO can we get rid of weight? does that even do anything in a ConstraintLayout parent? -->

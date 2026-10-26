@@ -38,6 +38,10 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.platform.setContent
 import android.view.ViewPropertyAnimator
 import android.view.WindowInsets
 import android.widget.AdapterView
@@ -289,6 +293,9 @@ class FullBottomSheet
     private val bottomSheetFullSeekBar: SeekBar
     private val bottomSheetFullSlider: Slider
     private val bottomSheetFullCoverFrame: MaterialCardView
+    private val intervalPlayTestOverlay: ComposeView
+    private val intervalPlayTestEnabled = mutableStateOf(false)
+    private val intervalPlayTestMuteMode = mutableStateOf(false)
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
     private val progressDrawable: SquigglyProgress
     private var pqs: PlaylistQueueSheet? = null
@@ -297,6 +304,44 @@ class FullBottomSheet
         inflate(context, R.layout.full_player, this)
         bottomSheetFullCoverFrame = findViewById(R.id.album_cover_frame)
         bottomSheetFullCover = findViewById(R.id.full_sheet_cover)
+        intervalPlayTestOverlay = findViewById(R.id.interval_play_test_overlay)
+        intervalPlayTestEnabled.value = activity.controllerViewModel.isSmartSeekActive()
+        intervalPlayTestMuteMode.value = prefs.getBoolean(
+            GramophonePlaybackService.PREF_SMART_SEEK_MUTE_MODE,
+            false
+        )
+        intervalPlayTestOverlay.setViewCompositionStrategy(
+            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+        )
+        intervalPlayTestOverlay.setContent {
+            IntervalPlayTestOverlay(
+                isIntervalPlayEnabled = intervalPlayTestEnabled.value,
+                isMuteMode = intervalPlayTestMuteMode.value,
+                onIntervalPlayEnabledChange = { enabled ->
+                    intervalPlayTestEnabled.value = enabled
+                    if (enabled) {
+                        // Allow the test panel to enable the feature even if its settings toggle was off.
+                        prefs.edit { putBoolean("smart_seek_enabled", true) }
+                        activity.controllerViewModel.startSmartSeek(SmartSeekMode.MANUAL)
+                    } else {
+                        activity.controllerViewModel.stopSmartSeek()
+                    }
+                    updateSmartSeekButton()
+                },
+                onMuteModeChange = { enabled ->
+                    intervalPlayTestMuteMode.value = enabled
+                    prefs.edit {
+                        putBoolean(GramophonePlaybackService.PREF_SMART_SEEK_MUTE_MODE, enabled)
+                    }
+                },
+                onOpenSettings = {
+                    SmartSeekSettingsBottomSheet(context, prefs) {
+                        updateSmartSeekButton()
+                        requestSmartSeekDynamicAccent()
+                    }.show()
+                }
+            )
+        }
         bottomSheetFullTitle = findViewById(R.id.full_song_name)
         bottomSheetFullSubtitle = findViewById(R.id.full_song_artist)
         bottomSheetFullPreviousButton = findViewById(R.id.sheet_previous_song)
@@ -347,6 +392,7 @@ class FullBottomSheet
                     }
 
                     activity.controllerViewModel.updateSmartSeekActive(smartSeekIndicatorActive)
+                    intervalPlayTestEnabled.value = smartSeekIndicatorActive
                     activity.controllerViewModel.updateSmartSeekPaused(smartSeekIndicatorPaused)
                     updateSmartSeekButton()
                     if (isUserTracking) updateDisplayedSmartSeekDuration()

@@ -187,6 +187,7 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
         const val SERVICE_GET_AUDIO_FORMAT = "get_audio_format"
         const val SERVICE_GET_LYRICS = "get_lyrics"
         const val SERVICE_SMART_SEEK = "smart_seek"
+        const val PREF_SMART_SEEK_MUTE_MODE = "smart_seek_mute_mode"
         const val SERVICE_TIMER_CHANGED = "changed_timer"
         const val SERVICE_SET_MEDIA_ITEMS_SEAMLESSLY = "set_media_items_seamlessly"
         const val SERVICE_SET_MEDIA_ITEMS_ATOMIC = "set_media_items_atomic"
@@ -960,6 +961,21 @@ class GramophonePlaybackService : MediaLibraryService(), MediaSessionService.Lis
                         Log.i(TAG, "IntervalPlay finished before seekTo: player is not ready or duration is unknown")
                         finishSmartSeekTrack()
                         break
+                    }
+
+                    if (prefs.getBoolean(PREF_SMART_SEEK_MUTE_MODE, false)) {
+                        // Mute the skip interval in-place instead of seeking over it.
+                        // finally restores volume even when playback is stopped or the job is cancelled.
+                        val volumePlayer: Player = endedWorkaroundPlayer ?: seekPlayer
+                        val previousVolume = volumePlayer.volume
+                        try {
+                            volumePlayer.volume = 0f
+                            delay(SMART_SEEK_SKIP_DURATION_MS)
+                        } finally {
+                            volumePlayer.volume = previousVolume
+                        }
+                        if (!isActive || !smartSeekActive) break
+                        continue
                     }
 
                     if (smartSeekSeeking) {
