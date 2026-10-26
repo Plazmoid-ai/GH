@@ -917,6 +917,10 @@ class FullBottomSheet
             hasPlayInterval = smartSeekIndicatorHasPlayInterval,
             intervalId = smartSeekIndicatorIntervalId,
             isSkipping = smartSeekIndicatorSeeking,
+            isMuteMode = prefs.getBoolean(
+                GramophonePlaybackService.PREF_SMART_SEEK_MUTE_MODE,
+                false
+            ),
             playStartPositionMs = smartSeekIndicatorPlayStartPositionMs,
             playDurationMs = smartSeekIndicatorPlayDurationMs,
             currentPositionProvider = {

@@ -13,6 +13,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -38,6 +39,16 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
         color = Color.WHITE
         strokeWidth = 2.5f * density
     }
+    private val muteIconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+    }
+    private val muteSlashPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeWidth = 1.5f * density
+        strokeCap = Paint.Cap.ROUND
+    }
 
     private var seekBarView: View? = null
     private var sliderView: View? = null
@@ -47,6 +58,7 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
     private var activePlayStartPositionMs = 0L
     private var currentPositionProvider: (() -> Long)? = null
     private var playbackIsPlaying = false
+    private var isMuteMode = false
     private var lastAccentColor: Int? = null
 
     init {
@@ -66,6 +78,7 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
         intervalId: Long,
         isPlaying: Boolean,
         isSkipping: Boolean,
+        isMuteMode: Boolean,
         playStartPositionMs: Long,
         playDurationMs: Long,
         currentPositionProvider: () -> Long,
@@ -78,8 +91,9 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
             lastAccentColor = accentColor
         }
 
-        val playbackStateChanged = playbackIsPlaying != isPlaying
+        val playbackStateChanged = playbackIsPlaying != isPlaying || this.isMuteMode != isMuteMode
         playbackIsPlaying = isPlaying
+        this.isMuteMode = isMuteMode
         this.currentPositionProvider = currentPositionProvider
 
         // Keep an active interval alive while Smart Seek performs its seek. This leaves
@@ -151,9 +165,10 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
                 // Track width is the full distance available to the capsule's left edge.
                 val trackWidth = (endX - startX - capsuleWidthPx).coerceAtLeast(0f)
                 val configuredPlayDurationMs = activeDurationMs
-                val speed = trackWidth / configuredPlayDurationMs.toFloat()
-                // Hold the capsule at the right edge until the next play interval is announced.
-                val distance = (elapsedTimeInPlayMs.toFloat() * speed).coerceAtMost(trackWidth)
+                val progress = (elapsedTimeInPlayMs.toFloat() /
+                    configuredPlayDurationMs.toFloat()).coerceIn(0f, 1f)
+                // Normal mode moves left-to-right; Mute moves right-to-left.
+                val distance = trackWidth * if (isMuteMode) (1f - progress) else progress
                 val capsuleLeft = startX + distance
                 val capsuleTop = (height - capsuleHeightPx) / 2f
 
@@ -167,6 +182,32 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
                     capsuleLeft + capsuleWidthPx, capsuleTop + capsuleHeightPx,
                     capsuleRadiusPx, capsuleRadiusPx, outlinePaint
                 )
+
+                if (isMuteMode) {
+                    // Small speaker + slash glyph, drawn directly to avoid emoji-font differences.
+                    val iconLeft = capsuleLeft + 4f * density
+                    val iconCenterY = capsuleTop + capsuleHeightPx / 2f
+                    val speaker = Path().apply {
+                        moveTo(iconLeft, iconCenterY - 2.5f * density)
+                        lineTo(iconLeft + 2.5f * density, iconCenterY - 2.5f * density)
+                        lineTo(iconLeft + 6f * density, iconCenterY - 5f * density)
+                        lineTo(iconLeft + 6f * density, iconCenterY + 5f * density)
+                        lineTo(iconLeft + 2.5f * density, iconCenterY + 2.5f * density)
+                        lineTo(iconLeft, iconCenterY + 2.5f * density)
+                        close()
+                    }
+                    canvas.drawPath(speaker, muteIconPaint)
+                    canvas.drawLine(
+                        iconLeft + 7f * density, iconCenterY - 4f * density,
+                        iconLeft + 12f * density, iconCenterY + 4f * density,
+                        muteSlashPaint
+                    )
+                    canvas.drawLine(
+                        iconLeft + 12f * density, iconCenterY - 4f * density,
+                        iconLeft + 7f * density, iconCenterY + 4f * density,
+                        muteSlashPaint
+                    )
+                }
             }
         }
 

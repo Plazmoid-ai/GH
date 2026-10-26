@@ -31,7 +31,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +42,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 
 @Composable
 fun IntervalPlayTestOverlay(
@@ -54,21 +52,9 @@ fun IntervalPlayTestOverlay(
     onOpenSettings: () -> Unit
 ) {
     var isOverlayExpanded by remember { mutableStateOf(false) }
-    var muteCountdownSeconds by remember { mutableStateOf(10) }
-
-    LaunchedEffect(isMuteMode) {
-        if (isMuteMode) {
-            // UI-only countdown simulation. It does not interact with the audio player.
-            muteCountdownSeconds = 10
-            while (true) {
-                delay(1_000)
-                muteCountdownSeconds =
-                    if (muteCountdownSeconds <= 0) 10 else muteCountdownSeconds - 1
-            }
-        } else {
-            muteCountdownSeconds = 10
-        }
-    }
+    // No mute-phase signal is exposed to this UI-only test overlay yet.
+    // Keep the countdown at zero rather than pretending silence is active continuously.
+    val muteCountdownSeconds = 0
 
     val shape = RoundedCornerShape(12.dp)
     val primaryText = Color(0xFFF3F3F6)
@@ -197,7 +183,7 @@ fun IntervalPlayTestOverlay(
                 )
             }
 
-            if (isMuteMode) {
+            if (isIntervalPlayEnabled && isMuteMode) {
                 Text(
                     text = "🔇 Тишина: ${muteCountdownSeconds}с",
                     color = secondaryText,

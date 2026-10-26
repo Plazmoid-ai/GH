@@ -98,7 +98,7 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_marginHorizontal="24dp"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="48dp"
         app:cardBackgroundColor="@android:color/transparent"
         app:cardCornerRadius="22dp"
         app:layout_constraintDimensionRatio="1:1"
@@ -115,16 +115,17 @@
             android:scaleType="centerCrop"
             app:srcCompat="@drawable/ic_default_cover" />
 
-        <androidx.compose.ui.platform.ComposeView
-            android:id="@+id/interval_play_test_overlay"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_margin="10dp"
-            android:elevation="8dp"
-            android:saveEnabled="false" />
-
     </com.google.android.material.card.MaterialCardView>
+
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/interval_play_test_overlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="24dp"
+        android:elevation="8dp"
+        android:saveEnabled="false"
+        app:layout_constraintBottom_toTopOf="@id/album_cover_frame"
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <!-- TODO can we get rid of weight? does that even do anything in a ConstraintLayout parent? -->
     <androidx.constraintlayout.widget.ConstraintLayout
