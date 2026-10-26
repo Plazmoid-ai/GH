@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.offset
 import kotlin.math.roundToInt
+import androidx.compose.material3.Switch
 
 @Composable
 fun IntervalPlayTestOverlay(
