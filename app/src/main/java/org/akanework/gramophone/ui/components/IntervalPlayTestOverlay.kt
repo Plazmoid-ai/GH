@@ -13,7 +13,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
@@ -71,16 +74,26 @@ fun IntervalPlayTestOverlay(
     val accent = Color(0xFF9B8AF5)
     val panelBackground = Color(0xFF18181B).copy(alpha = if (isOverlayExpanded) 0.9f else 0.8f)
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    if (!isIntervalPlayEnabled) return
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val maxWidthPx = with(density) { maxWidth.toPx() }
+        val maxHeightPx = with(density) { maxHeight.toPx() }
+        var collapsedCapsuleSize by remember { mutableStateOf(IntSize.Zero) }
+
         if (!isOverlayExpanded) {
             Row(
                 modifier = Modifier
                     .offset {
+                        val maxX = (maxWidthPx - collapsedCapsuleSize.width).coerceAtLeast(0f)
+                        val maxY = (maxHeightPx - collapsedCapsuleSize.height).coerceAtLeast(0f)
                         IntOffset(
-                            collapsedOrigin.x + offsetX.roundToInt(),
-                            collapsedOrigin.y + offsetY.roundToInt()
+                            (collapsedOrigin.x + offsetX.roundToInt()).coerceIn(0, maxX.roundToInt()),
+                            (collapsedOrigin.y + offsetY.roundToInt()).coerceIn(0, maxY.roundToInt())
                         )
                     }
+                    .onSizeChanged { collapsedCapsuleSize = it }
                     .width(220.dp)
                     .height(36.dp)
                     .clip(shape)
@@ -89,8 +102,14 @@ fun IntervalPlayTestOverlay(
                     .pointerInput(Unit) {
                         detectDragGesturesAfterLongPress { change, dragAmount ->
                             change.consume()
-                            offsetX += dragAmount.x
-                            offsetY += dragAmount.y
+                            val capsuleWidth = if (collapsedCapsuleSize.width > 0) collapsedCapsuleSize.width.toFloat() else with(density) { 220.dp.toPx() }
+                            val capsuleHeight = if (collapsedCapsuleSize.height > 0) collapsedCapsuleSize.height.toFloat() else with(density) { 36.dp.toPx() }
+                            val minOffsetX = -collapsedOrigin.x.toFloat()
+                            val maxOffsetX = (maxWidthPx - capsuleWidth - collapsedOrigin.x).coerceAtLeast(minOffsetX)
+                            val minOffsetY = -collapsedOrigin.y.toFloat()
+                            val maxOffsetY = (maxHeightPx - capsuleHeight - collapsedOrigin.y).coerceAtLeast(minOffsetY)
+                            offsetX = (offsetX + dragAmount.x).coerceIn(minOffsetX, maxOffsetX)
+                            offsetY = (offsetY + dragAmount.y).coerceIn(minOffsetY, maxOffsetY)
                         }
                     }
                     .clickable { isOverlayExpanded = true }
@@ -134,6 +153,7 @@ fun IntervalPlayTestOverlay(
                     }
                     .onSizeChanged { expandedPanelSize = it }
                     .width(228.dp)
+                    .pointerInput(Unit) { detectTapGestures { } }
                     .clip(shape)
                     .background(panelBackground)
                     .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
@@ -141,7 +161,9 @@ fun IntervalPlayTestOverlay(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isOverlayExpanded = false },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(

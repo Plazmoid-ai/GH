@@ -165,10 +165,18 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
                 // Track width is the full distance available to the capsule's left edge.
                 val trackWidth = (endX - startX - capsuleWidthPx).coerceAtLeast(0f)
                 val configuredPlayDurationMs = activeDurationMs
-                val progress = (elapsedTimeInPlayMs.toFloat() /
+                val activeProgress = (elapsedTimeInPlayMs.toFloat() /
                     configuredPlayDurationMs.toFloat()).coerceIn(0f, 1f)
-                // Music advances left-to-right; Mute counts down right-to-left.
-                val displayProgress = if (isMuteMode) (1f - progress) else progress
+                // Active music always advances left-to-right. Reverse only during Mute silence.
+                val silenceDurationMs = 10_000L
+                val displayProgress = if (isMuteMode &&
+                    elapsedTimeInPlayMs >= configuredPlayDurationMs
+                ) {
+                    val silenceElapsedMs = elapsedTimeInPlayMs - configuredPlayDurationMs
+                    (1f - silenceElapsedMs.toFloat() / silenceDurationMs.toFloat()).coerceIn(0f, 1f)
+                } else {
+                    activeProgress
+                }
                 val distance = trackWidth * displayProgress
                 val capsuleLeft = startX + distance
                 val capsuleTop = (height - capsuleHeightPx) / 2f
