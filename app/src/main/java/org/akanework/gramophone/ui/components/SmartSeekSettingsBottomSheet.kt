@@ -247,7 +247,7 @@ class SmartSeekSettingsBottomSheet(
             )
         )
         dialog.setOnShowListener {
-            dialog.behavior.isDraggable = true
+            dialog.behavior.isDraggable = false
             dialog.behavior.skipCollapsed = true
             dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
             dialog.window?.setLayout(
@@ -333,7 +333,21 @@ private fun IntervalPlaySettingsContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 8.dp),
+                .padding(top = 8.dp, bottom = 8.dp)
+                .pointerInput(onCancel) {
+                    var downwardDragPx = 0f
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            if (dragAmount > 0f) downwardDragPx += dragAmount
+                            change.consume()
+                        },
+                        onDragEnd = {
+                            if (downwardDragPx > 72.dp.toPx()) onCancel()
+                            downwardDragPx = 0f
+                        },
+                        onDragCancel = { downwardDragPx = 0f }
+                    )
+                },
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -351,6 +365,20 @@ private fun IntervalPlaySettingsContent(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
                 .padding(start = 2.dp, bottom = 14.dp)
+                .pointerInput(onCancel) {
+                    var downwardDragPx = 0f
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            if (dragAmount > 0f) downwardDragPx += dragAmount
+                            change.consume()
+                        },
+                        onDragEnd = {
+                            if (downwardDragPx > 72.dp.toPx()) onCancel()
+                            downwardDragPx = 0f
+                        },
+                        onDragCancel = { downwardDragPx = 0f }
+                    )
+                }
         )
 
         Row(
@@ -511,13 +539,13 @@ private fun IntervalPlaySettingsContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             BottomActionButton(
-                modifier = Modifier.widthIn(min = 120.dp),
+                modifier = Modifier.width(140.dp),
                 label = "Отмена",
                 primary = false,
                 onClick = onCancel
             )
             BottomActionButton(
-                modifier = Modifier.widthIn(min = 120.dp),
+                modifier = Modifier.width(140.dp),
                 label = "Сохранить",
                 primary = true,
                 onClick = onSave
@@ -2337,136 +2365,90 @@ private fun PreviewContent(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Длительность", color = gray, fontSize = 13.sp)
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(inactive)
+                    .border(1.dp, Color(0xFF2A2A35), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FlowRow(
-                        maxItemsInEachRow = 2,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        presetDurations.forEach { seconds ->
-                            val selected = previewDurationSec == seconds
-                            val shape = RoundedCornerShape(8.dp)
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 60.dp, height = 32.dp)
-                                    .clip(shape)
-                                    .border(
-                                        width = 1.5.dp,
-                                        color = if (selected) accent else outline,
-                                        shape = shape
-                                    )
-                                    .combinedClickable(
-                                        onClick = { onPreviewDurationChange(seconds) },
-                                        onLongClick = { presetDurations.remove(seconds) }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "${seconds}с",
-                                    color = if (selected) accent else gray,
-                                    fontSize = 12.sp,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-
-                        if (presetDurations.size < 4) {
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 60.dp, height = 32.dp)
-                                    .drawBehind {
-                                        drawRoundRect(
-                                            color = outline,
-                                            cornerRadius = CornerRadius(8.dp.toPx()),
-                                            style = Stroke(
-                                                width = 1.5.dp.toPx(),
-                                                cap = StrokeCap.Round,
-                                                pathEffect = PathEffect.dashPathEffect(
-                                                    floatArrayOf(5.dp.toPx(), 4.dp.toPx())
-                                                )
-                                            )
-                                        )
-                                    }
-                                    .clickable {
-                                        if (previewDurationSec !in presetDurations &&
-                                            presetDurations.size < 4
-                                        ) {
-                                            presetDurations.add(previewDurationSec)
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("+", color = gray, fontSize = 20.sp)
-                            }
-                        }
+                HybridWheelPicker(
+                    value = previewDurationSec,
+                    valueRange = 5..300,
+                    cyclic = true,
+                    onValueChange = onPreviewDurationChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    containerHeight = 132.dp,
+                    itemHeight = 44.dp,
+                    swipeEnabled = true,
+                    formatter = { seconds ->
+                        String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
                     }
+                )
+            }
 
-                    Text(
-                        text = "Долгий тап — удалить шаблон",
-                        fontSize = 10.sp,
-                        color = Color(0xFF666666)
-                    )
-                }
-
-                Spacer(Modifier.width(12.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                maxItemsInEachRow = 4,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                presetDurations.forEach { seconds ->
+                    val selected = previewDurationSec == seconds
+                    val shape = RoundedCornerShape(8.dp)
                     Box(
                         modifier = Modifier
-                            .size(width = 120.dp, height = 72.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(inactive)
-                            .border(1.dp, Color(0xFF2A2A35), RoundedCornerShape(12.dp)),
+                            .size(width = 60.dp, height = 32.dp)
+                            .clip(shape)
+                            .border(1.5.dp, if (selected) accent else outline, shape)
+                            .combinedClickable(
+                                onClick = { onPreviewDurationChange(seconds) },
+                                onLongClick = { presetDurations.remove(seconds) }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = String.format(
-                                Locale.ROOT,
-                                "%02d:%02d",
-                                previewDurationSec / 60,
-                                previewDurationSec % 60
-                            ),
-                            color = Color.White,
-                            fontSize = 28.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
+                            text = "${seconds}с",
+                            color = if (selected) accent else gray,
+                            fontSize = 12.sp,
                             maxLines = 1
                         )
                     }
+                }
 
-                    Spacer(Modifier.width(8.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "+",
-                            modifier = Modifier.clickable {
-                                onPreviewDurationChange((previewDurationSec + 1).coerceIn(5, 300))
+                if (presetDurations.size < 4) {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 60.dp, height = 32.dp)
+                            .drawBehind {
+                                drawRoundRect(
+                                    color = outline,
+                                    cornerRadius = CornerRadius(8.dp.toPx()),
+                                    style = Stroke(
+                                        width = 1.5.dp.toPx(),
+                                        cap = StrokeCap.Round,
+                                        pathEffect = PathEffect.dashPathEffect(
+                                            floatArrayOf(5.dp.toPx(), 4.dp.toPx())
+                                        )
+                                    )
+                                )
+                            }
+                            .clickable {
+                                if (previewDurationSec !in presetDurations && presetDurations.size < 4) {
+                                    presetDurations.add(previewDurationSec)
+                                }
                             },
-                            fontSize = 24.sp,
-                            color = gray
-                        )
-                        Text(
-                            text = "-",
-                            modifier = Modifier.clickable {
-                                onPreviewDurationChange((previewDurationSec - 1).coerceIn(5, 300))
-                            },
-                            fontSize = 24.sp,
-                            color = gray
-                        )
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("+", color = gray, fontSize = 20.sp)
                     }
                 }
             }
+
+            Text("Долгий тап — удалить шаблон", fontSize = 10.sp, color = Color(0xFF666666))
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2521,7 +2503,8 @@ private fun PreviewContent(
                 val shiftShape = RoundedCornerShape(20.dp)
                 Box(
                     modifier = Modifier
-                        .size(width = 120.dp, height = 40.dp)
+                        .weight(1f)
+                        .height(40.dp)
                         .clip(shiftShape)
                         .background(inactive)
                         .border(
@@ -2556,7 +2539,8 @@ private fun PreviewContent(
 
                 Box(
                     modifier = Modifier
-                        .size(width = 216.dp, height = 40.dp)
+                        .weight(1.35f)
+                        .height(40.dp)
                         .clip(shiftShape)
                         .background(inactive)
                         .border(1.dp, Color(0xFF2A2A35), shiftShape),
