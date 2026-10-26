@@ -772,6 +772,7 @@ private fun HybridWheelPicker(
     val latestValue = rememberUpdatedState(value.coerceIn(valueRange))
     val latestOnValueChange = rememberUpdatedState(onValueChange)
     val suppressScrollCallbacks = remember { mutableStateOf(true) }
+    val suppressWheelHaptics = remember { mutableStateOf(false) }
 
     LaunchedEffect(value, valueRange.first, valueRange.last, cyclic) {
         val targetValue = value.coerceIn(valueRange)
@@ -782,8 +783,7 @@ private fun HybridWheelPicker(
 
         suppressScrollCallbacks.value = true
         listState.animateScrollToItem(
-            index = indexFor(targetValue),
-            scrollOffset = -centerOffsetPx
+            index = indexFor(targetValue)
         )
         suppressScrollCallbacks.value = false
     }
@@ -799,7 +799,9 @@ private fun HybridWheelPicker(
                         lastReportedValue = centeredValue
                     } else if (lastReportedValue != centeredValue) {
                         lastReportedValue = centeredValue
-                        performSoftHaptic(hapticContext, hapticView)
+                        if (!suppressWheelHaptics.value) {
+                            performSoftHaptic(hapticContext, hapticView)
+                        }
                         if (centeredValue != latestValue.value) {
                             latestOnValueChange.value(centeredValue)
                         }
@@ -874,8 +876,7 @@ private fun HybridWheelPicker(
                     if (targetIndex != null) {
                         wheelScrollScope.launch {
                             listState.animateScrollToItem(
-                                index = targetIndex,
-                                scrollOffset = -centerOffsetPx
+                                index = targetIndex
                             )
                         }
                     }
@@ -998,14 +999,18 @@ private fun HybridWheelPicker(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth(),
             height = (containerHeight - itemHeight) / 2,
-            onStep = { stepValue(-1) }
+            onStep = { stepValue(-1) },
+            onLongPressStart = { suppressWheelHaptics.value = true },
+            onPressEnd = { suppressWheelHaptics.value = false }
         )
         WheelEdgeControl(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
             height = (containerHeight - itemHeight) / 2,
-            onStep = { stepValue(1) }
+            onStep = { stepValue(1) },
+            onLongPressStart = { suppressWheelHaptics.value = true },
+            onPressEnd = { suppressWheelHaptics.value = false }
         )
     }
 }
@@ -1014,7 +1019,9 @@ private fun HybridWheelPicker(
 private fun WheelEdgeControl(
     modifier: Modifier,
     height: Dp,
-    onStep: () -> Unit
+    onStep: () -> Unit,
+    onLongPressStart: () -> Unit,
+    onPressEnd: () -> Unit
 ) {
     val context = LocalContext.current
     val fallbackView = LocalView.current
@@ -1035,6 +1042,7 @@ private fun WheelEdgeControl(
                 is PressInteraction.Cancel -> {
                     isPressed = false
                     isLongPress = false
+                    onPressEnd()
                 }
             }
         }
@@ -1052,6 +1060,7 @@ private fun WheelEdgeControl(
                 },
                 onLongClick = {
                     performSoftHaptic(context, fallbackView)
+                    onLongPressStart()
                     isLongPress = true
                     repeatScope.launch {
                         while (isPressed && isLongPress) {
@@ -1934,17 +1943,19 @@ private fun IntervalsContent(
                         .alpha(if (activeAutoSetting == AutoSettingType.COUNT) 1f else 0.5f)
                         .clickable(enabled = activeAutoSetting != AutoSettingType.COUNT) {
                             onActiveAutoSettingChange(AutoSettingType.COUNT)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    AutoCountControl(
-                        count = autoCount,
-                        onIncrease = {
-                            if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount + 1)
-                        },
-                        onDecrease = {
-                            if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(autoCount - 1)
                         }
+                ) {
+                    HybridWheelPicker(
+                        value = autoCount.coerceIn(1, 20),
+                        valueRange = 1..20,
+                        cyclic = false,
+                        onValueChange = {
+                            if (activeAutoSetting == AutoSettingType.COUNT) onAutoCountChange(it)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        containerHeight = 168.dp,
+                        itemHeight = 54.dp,
+                        swipeEnabled = wheelSwipeEnabled && activeAutoSetting == AutoSettingType.COUNT
                     )
                 }
             } else {
