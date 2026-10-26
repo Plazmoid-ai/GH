@@ -192,7 +192,10 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
                     capsuleRadiusPx, capsuleRadiusPx, outlinePaint
                 )
 
-                if (isMuteMode) {
+                val isSilentPhase = isMuteMode &&
+                    elapsedTimeInPlayMs >= configuredPlayDurationMs &&
+                    elapsedTimeInPlayMs < configuredPlayDurationMs + silenceDurationMs
+                if (isMuteMode && isSilentPhase) {
                     // Small speaker + slash glyph, drawn directly to avoid emoji-font differences.
                     val iconLeft = capsuleLeft + 4f * density
                     val iconCenterY = capsuleTop + capsuleHeightPx / 2f

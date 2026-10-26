@@ -29,9 +29,11 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -221,7 +223,7 @@ class SmartSeekSettingsBottomSheet(
 
     fun show(): BottomSheetDialog {
         val dialog = BottomSheetDialog(context)
-        dialog.setCanceledOnTouchOutside(false)
+        dialog.setCanceledOnTouchOutside(true)
         val composeView = ComposeView(context).apply {
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
@@ -330,7 +332,25 @@ private fun IntervalPlaySettingsContent(
             color = IntervalPlayPalette.whiteText,
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 2.dp, bottom = 14.dp)
+            modifier = Modifier
+                .padding(start = 2.dp, bottom = 14.dp)
+                .pointerInput(onCancel) {
+                    var downwardDragPx = 0f
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            downwardDragPx += dragAmount
+                            if (downwardDragPx >= 80f) {
+                                downwardDragPx = 0f
+                                onCancel()
+                            } else if (downwardDragPx < 0f) {
+                                downwardDragPx = 0f
+                            }
+                        },
+                        onDragEnd = { downwardDragPx = 0f },
+                        onDragCancel = { downwardDragPx = 0f }
+                    )
+                }
         )
 
         Row(
@@ -485,7 +505,8 @@ private fun IntervalPlaySettingsContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 14.dp),
+                .padding(top = 14.dp)
+                .navigationBarsPadding(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             BottomActionButton(

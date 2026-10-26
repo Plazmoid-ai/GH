@@ -27,11 +27,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -179,17 +177,6 @@ fun IntervalPlayTestOverlay(
                         Text(text = "🔇", color = primaryText, fontSize = 12.sp, maxLines = 1)
                     }
                     IconButton(
-                        onClick = { isOverlayExpanded = false },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Свернуть",
-                            tint = primaryText,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    IconButton(
                         onClick = onOpenSettings,
                         modifier = Modifier.size(28.dp)
                     ) {
@@ -202,23 +189,18 @@ fun IntervalPlayTestOverlay(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "IntervalPlay",
-                        modifier = Modifier.weight(1f),
-                        color = primaryText,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                    Switch(
-                        checked = isIntervalPlayEnabled,
-                        onCheckedChange = onIntervalPlayEnabledChange
-                    )
-                }
+                Text(
+                    text = "Сменить режим",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .clickable { /* UI placeholder for future preset/mode selection. */ }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    color = primaryText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
