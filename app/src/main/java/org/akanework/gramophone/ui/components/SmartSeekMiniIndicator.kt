@@ -197,7 +197,7 @@ class SmartSeekMiniIndicator @JvmOverloads constructor(
                     elapsedTimeInPlayMs < configuredPlayDurationMs + silenceDurationMs
                 if (isMuteMode && isSilentPhase) {
                     // Small speaker + slash glyph, drawn directly to avoid emoji-font differences.
-                    val iconLeft = capsuleLeft + 4f * density
+                    val iconLeft = capsuleLeft + (capsuleWidthPx - 12f * density) / 2f
                     val iconCenterY = capsuleTop + capsuleHeightPx / 2f
                     val speaker = Path().apply {
                         moveTo(iconLeft, iconCenterY - 2.5f * density)

@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -327,6 +328,20 @@ private fun IntervalPlaySettingsContent(
             .background(IntervalPlayPalette.background)
             .padding(start = 18.dp, top = 12.dp, end = 18.dp, bottom = 14.dp)
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp, bottom = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 32.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.Gray.copy(alpha = 0.5f))
+            )
+        }
+
         Text(
             text = "Настройки IntervalPlay",
             color = IntervalPlayPalette.whiteText,
@@ -1952,14 +1967,34 @@ private fun IntervalsContent(
                         .clickable { onMuteModeChange(!isMuteMode) },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = if (isMuteMode) "🔇 Тишина" else "⏭ Пропуск",
-                        color = if (isMuteMode) accent else gray,
-                        fontSize = 11.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        softWrap = false
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isMuteMode) {
+                            Icon(
+                                imageVector = Icons.Default.VolumeOff,
+                                contentDescription = "Тишина",
+                                tint = accent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = "Пропуск",
+                                tint = gray,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Text(
+                            text = if (isMuteMode) "Тишина" else "Пропуск",
+                            color = if (isMuteMode) accent else gray,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
         }
