@@ -29,11 +29,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -115,8 +113,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.rememberNestedScrollInteropConnection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
@@ -247,7 +247,8 @@ class SmartSeekSettingsBottomSheet(
             )
         )
         dialog.setOnShowListener {
-            dialog.behavior.isDraggable = false
+            dialog.behavior.isDraggable = true
+            dialog.behavior.isHideable = true
             dialog.behavior.skipCollapsed = true
             dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
             dialog.window?.setLayout(
@@ -304,7 +305,7 @@ private fun IntervalPlaySettingsContent(
     var positionMode by remember { mutableStateOf("START") }
     var isShiftEnabled by remember { mutableStateOf(false) }
     var shiftStepSec by remember { mutableStateOf(10) }
-    val presetDurations = remember { mutableStateListOf(15, 30, 45) }
+    val presetDurations = remember { mutableStateListOf(15, 30, 45, 60) }
 
     LaunchedEffect(positionMode) {
         if (positionMode == "RANDOM") {
@@ -333,21 +334,7 @@ private fun IntervalPlaySettingsContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 8.dp)
-                .pointerInput(onCancel) {
-                    var downwardDragPx = 0f
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { change, dragAmount ->
-                            if (dragAmount > 0f) downwardDragPx += dragAmount
-                            change.consume()
-                        },
-                        onDragEnd = {
-                            if (downwardDragPx > 72.dp.toPx()) onCancel()
-                            downwardDragPx = 0f
-                        },
-                        onDragCancel = { downwardDragPx = 0f }
-                    )
-                },
+                .padding(top = 8.dp, bottom = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -358,27 +345,31 @@ private fun IntervalPlaySettingsContent(
             )
         }
 
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            HeaderActionButton(
+                label = "Отмена",
+                primary = false,
+                onClick = onCancel
+            )
+            HeaderActionButton(
+                label = "Сохранить",
+                primary = true,
+                onClick = onSave
+            )
+        }
+
         Text(
             text = "Настройки IntervalPlay",
             color = IntervalPlayPalette.whiteText,
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier
-                .padding(start = 2.dp, bottom = 14.dp)
-                .pointerInput(onCancel) {
-                    var downwardDragPx = 0f
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { change, dragAmount ->
-                            if (dragAmount > 0f) downwardDragPx += dragAmount
-                            change.consume()
-                        },
-                        onDragEnd = {
-                            if (downwardDragPx > 72.dp.toPx()) onCancel()
-                            downwardDragPx = 0f
-                        },
-                        onDragCancel = { downwardDragPx = 0f }
-                    )
-                }
+            modifier = Modifier.padding(start = 2.dp, bottom = 14.dp)
         )
 
         Row(
@@ -408,6 +399,7 @@ private fun IntervalPlaySettingsContent(
             modifier = Modifier
                 .weight(1f, fill = false)
                 .fillMaxWidth()
+                .nestedScroll(rememberNestedScrollInteropConnection())
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -528,28 +520,6 @@ private fun IntervalPlaySettingsContent(
                     onShiftStepChange = { shiftStepSec = it.coerceIn(1, 120) }
                 )
             }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 14.dp)
-                .navigationBarsPadding(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            BottomActionButton(
-                modifier = Modifier.width(140.dp),
-                label = "Отмена",
-                primary = false,
-                onClick = onCancel
-            )
-            BottomActionButton(
-                modifier = Modifier.width(140.dp),
-                label = "Сохранить",
-                primary = true,
-                onClick = onSave
-            )
         }
 
         if (showTrimSettings) {
@@ -1866,35 +1836,32 @@ private fun ExperimentalBufferSetting(
 }
 
 @Composable
-private fun BottomActionButton(
-    modifier: Modifier = Modifier,
+private fun HeaderActionButton(
     label: String,
     primary: Boolean,
     onClick: () -> Unit
 ) {
     Box(
-        modifier = modifier
-            .height(44.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (primary) IntervalPlayPalette.accent else IntervalPlayPalette.inactive
-            )
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
             .then(
-                if (primary) Modifier else Modifier.border(
-                    1.dp,
-                    IntervalPlayPalette.outline,
-                    RoundedCornerShape(12.dp)
-                )
+                if (primary) Modifier.background(IntervalPlayPalette.accent)
+                else Modifier
             )
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(
+                horizontal = if (primary) 13.dp else 8.dp,
+                vertical = 8.dp
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            modifier = Modifier.padding(horizontal = 24.dp),
-            color = if (primary) IntervalPlayPalette.darkText else IntervalPlayPalette.whiteText,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
+            color = if (primary) IntervalPlayPalette.darkText else IntervalPlayPalette.grayText,
+            fontSize = 13.sp,
+            fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }
@@ -2368,32 +2335,9 @@ private fun PreviewContent(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Длительность", color = gray, fontSize = 13.sp)
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(inactive)
-                    .border(1.dp, Color(0xFF2A2A35), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                HybridWheelPicker(
-                    value = previewDurationSec,
-                    valueRange = 5..300,
-                    cyclic = true,
-                    onValueChange = onPreviewDurationChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    containerHeight = 132.dp,
-                    itemHeight = 44.dp,
-                    swipeEnabled = true,
-                    formatter = { seconds ->
-                        String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60)
-                    }
-                )
-            }
-
             FlowRow(
-                maxItemsInEachRow = 4,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                maxItemsInEachRow = 5,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 presetDurations.forEach { seconds ->
@@ -2401,12 +2345,17 @@ private fun PreviewContent(
                     val shape = RoundedCornerShape(8.dp)
                     Box(
                         modifier = Modifier
-                            .size(width = 60.dp, height = 32.dp)
+                            .size(width = 48.dp, height = 32.dp)
                             .clip(shape)
                             .border(1.5.dp, if (selected) accent else outline, shape)
                             .combinedClickable(
                                 onClick = { onPreviewDurationChange(seconds) },
-                                onLongClick = { presetDurations.remove(seconds) }
+                                onLongClick = {
+                                     presetDurations.remove(seconds)
+                                     if (previewDurationSec == seconds) {
+                                         presetDurations.firstOrNull()?.let(onPreviewDurationChange)
+                                     }
+                                 }
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -2419,10 +2368,10 @@ private fun PreviewContent(
                     }
                 }
 
-                if (presetDurations.size < 4) {
+                if (presetDurations.size < 20) {
                     Box(
                         modifier = Modifier
-                            .size(width = 60.dp, height = 32.dp)
+                            .size(width = 32.dp, height = 32.dp)
                             .drawBehind {
                                 drawRoundRect(
                                     color = outline,
@@ -2437,8 +2386,11 @@ private fun PreviewContent(
                                 )
                             }
                             .clickable {
-                                if (previewDurationSec !in presetDurations && presetDurations.size < 4) {
-                                    presetDurations.add(previewDurationSec)
+                                val nextPreset = (15..300 step 15)
+                                    .firstOrNull { it !in presetDurations }
+                                if (nextPreset != null && presetDurations.size < 20) {
+                                    presetDurations.add(nextPreset)
+                                    onPreviewDurationChange(nextPreset)
                                 }
                             },
                         contentAlignment = Alignment.Center
