@@ -113,6 +113,13 @@
 
     </com.google.android.material.card.MaterialCardView>
 
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/interval_play_test_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:elevation="8dp"
+        android:saveEnabled="false" />
+
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/controls"
         android:layout_width="0dp"

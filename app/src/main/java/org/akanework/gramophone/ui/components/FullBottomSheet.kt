@@ -40,6 +40,8 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import android.view.ViewPropertyAnimator
 import android.view.WindowInsets
@@ -295,6 +297,8 @@ class FullBottomSheet
     private val intervalPlayTestOverlay: ComposeView
     private val intervalPlayTestEnabled = mutableStateOf(false)
     private val intervalPlayTestMuteMode = mutableStateOf(false)
+    private val intervalPlayOverlayCollapsedOrigin = mutableStateOf(IntOffset.Zero)
+    private val intervalPlayOverlayCoverCenter = mutableStateOf(IntOffset.Zero)
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
     private val progressDrawable: SquigglyProgress
     private var pqs: PlaylistQueueSheet? = null
@@ -312,10 +316,15 @@ class FullBottomSheet
         intervalPlayTestOverlay.setViewCompositionStrategy(
             ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
         )
+        bottomSheetFullCoverFrame.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateIntervalPlayOverlayPosition()
+        }
         intervalPlayTestOverlay.setContent {
             IntervalPlayTestOverlay(
                 isIntervalPlayEnabled = intervalPlayTestEnabled.value,
                 isMuteMode = intervalPlayTestMuteMode.value,
+                collapsedOrigin = intervalPlayOverlayCollapsedOrigin.value,
+                coverCenter = intervalPlayOverlayCoverCenter.value,
                 onIntervalPlayEnabledChange = { enabled ->
                     intervalPlayTestEnabled.value = enabled
                     if (enabled) {
@@ -908,6 +917,23 @@ class FullBottomSheet
             context.getString(if (active) R.string.smart_seek_stop else R.string.smart_seek_start)
         )
         updateSmartSeekMiniIndicator()
+    }
+
+    private fun updateIntervalPlayOverlayPosition() {
+        val cover = bottomSheetFullCoverFrame
+        if (cover.width <= 0 || cover.height <= 0) return
+
+        val density = resources.displayMetrics.density
+        val capsuleWidthPx = (220f * density).roundToInt()
+        val capsuleHeightPx = (36f * density).roundToInt()
+        intervalPlayOverlayCollapsedOrigin.value = IntOffset(
+            x = cover.left + (cover.width - capsuleWidthPx) / 2,
+            y = (cover.top - capsuleHeightPx / 2).coerceAtLeast(0)
+        )
+        intervalPlayOverlayCoverCenter.value = IntOffset(
+            x = cover.left + cover.width / 2,
+            y = cover.top + cover.height / 2
+        )
     }
 
     private fun updateSmartSeekMiniIndicator() {

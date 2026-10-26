@@ -119,13 +119,10 @@
 
     <androidx.compose.ui.platform.ComposeView
         android:id="@+id/interval_play_test_overlay"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="24dp"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:elevation="8dp"
-        android:saveEnabled="false"
-        app:layout_constraintBottom_toTopOf="@id/album_cover_frame"
-        app:layout_constraintEnd_toEndOf="parent" />
+        android:saveEnabled="false" />
 
     <!-- TODO can we get rid of weight? does that even do anything in a ConstraintLayout parent? -->
     <androidx.constraintlayout.widget.ConstraintLayout
