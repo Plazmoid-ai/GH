@@ -685,17 +685,6 @@ private fun SimpleSettings(
     }
 }
 
-/**
- * Existing HybridWheelPicker API:
- * - [value] is the externally owned selected integer (the composable's value/setter input).
- * - [onValueChange] reports user selection back to the owner for two-way state binding.
- * - [valueRange] is the inclusive permitted range; [cyclic] controls wraparound.
- * - [modifier], [containerHeight], [itemHeight], and [swipeEnabled] configure presentation/input.
- * - There is no imperative setter and no separate minute-digit lock: this is a single-integer
- *   picker. Interval UI passes total seconds in 1..600, so a minute-column lock is not applicable.
- * The value is observed by LaunchedEffect and the LazyColumn scrolls to external value updates.
- */
-@Composable
 private fun performSoftHaptic(context: Context, fallbackView: View) {
     val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val vibratorManager =
@@ -713,6 +702,16 @@ private fun performSoftHaptic(context: Context, fallbackView: View) {
     }
 }
 
+/**
+ * Existing HybridWheelPicker API:
+ * - [value] is the externally owned selected integer (the composable's value/setter input).
+ * - [onValueChange] reports user selection back to the owner for two-way state binding.
+ * - [valueRange] is the inclusive permitted range; [cyclic] controls wraparound.
+ * - [modifier], [containerHeight], [itemHeight], and [swipeEnabled] configure presentation/input.
+ * - There is no imperative setter and no separate minute-digit lock: this is a single-integer
+ *   picker. Interval UI passes total seconds in 1..600, so a minute-column lock is not applicable.
+ * The value is observed by LaunchedEffect and the LazyColumn scrolls to external value updates.
+ */
 @Composable
 private fun HybridWheelPicker(
     value: Int,
