@@ -173,6 +173,7 @@ class FullBottomSheet
     private var runnableRunning = false
     private var snippetsConfigurationKey: String? = null
     private var snippetsPlaybackFinished = false
+    private var snippetsSeekToStartOnTransition = false
     private var firstTime = false
     private var enableQualityInfo = false
 
@@ -1621,6 +1622,8 @@ class FullBottomSheet
             bottomSheetFullCover.dispose()
         }
         snippetsConfigurationKey = null
+        // Only a real media-item transition may start a new preview at its first zone.
+        snippetsSeekToStartOnTransition = SnippetsPreviewState.isSnippetsActive
         if (SnippetsPreviewState.isSnippetsActive) {
             SnippetsPreviewState.trackDurationMs = 0L
             SnippetsPreviewState.currentPositionMs = 0L
@@ -1843,11 +1846,22 @@ class FullBottomSheet
             )
             if (bounds.isEmpty()) return
 
+            val positionMs = player.currentPosition.coerceIn(0L, durationMs)
             state.trackDurationMs = durationMs
             state.snippetBounds = bounds
-            state.currentSnippetIndex = 0
-            state.currentPositionMs = bounds.first().first
+            state.currentPositionMs = positionMs
             state.isPlaying = player.isPlaying
+            // A settings change or UI recreation must not restart the current snippet.
+            // Keep the cursor attached to the real position and select the matching/next window.
+            val containingIndex = bounds.indexOfFirst { (startMs, endMs) ->
+                positionMs >= startMs && positionMs <= endMs
+            }
+            state.currentSnippetIndex = if (containingIndex >= 0) {
+                containingIndex
+            } else {
+                bounds.indexOfFirst { (_, endMs) -> positionMs < endMs }
+                    .takeIf { it >= 0 } ?: bounds.lastIndex
+            }
             snippetsPlaybackFinished = false
             // Overflow protection can disable trailing zones, so save the effective selection.
             snippetsConfigurationKey = buildString {
@@ -1859,19 +1873,31 @@ class FullBottomSheet
                 append('|')
                 append(state.activeZones.joinToString("") { if (it) "1" else "0" })
             }
-            player.seekTo(bounds.first().first)
+            if (snippetsSeekToStartOnTransition) {
+                snippetsSeekToStartOnTransition = false
+                val firstStartMs = bounds.first().first
+                state.currentSnippetIndex = 0
+                state.currentPositionMs = firstStartMs
+                player.seekTo(firstStartMs)
+            }
             return
         }
 
+        val positionMs = player.currentPosition.coerceIn(0L, durationMs)
         state.trackDurationMs = durationMs
-        state.currentPositionMs = player.currentPosition.coerceIn(0L, durationMs)
+        state.currentPositionMs = positionMs
         state.isPlaying = player.isPlaying
         val bounds = state.snippetBounds
-        if (bounds.isEmpty() || snippetsPlaybackFinished) return
+        if (bounds.isEmpty() || snippetsPlaybackFinished || !player.isPlaying) return
 
         val currentIndex = state.currentSnippetIndex.coerceIn(0, bounds.lastIndex)
-        val currentEndMs = bounds[currentIndex].second
-        if (state.currentPositionMs < currentEndMs) return
+        val (currentStartMs, currentEndMs) = bounds[currentIndex]
+        // When the player is already inside the active window, never seek it back to start.
+        if (positionMs >= currentStartMs && positionMs <= currentEndMs) return
+        // Before an upcoming window, let the real player continue naturally.
+        if (positionMs < currentStartMs) return
+        // The boundary has actually passed; only now jump to the next active window.
+        if (positionMs <= currentEndMs) return
 
         if (currentIndex < bounds.lastIndex) {
             val nextIndex = currentIndex + 1
