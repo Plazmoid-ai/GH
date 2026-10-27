@@ -852,6 +852,8 @@ class FullBottomSheet
         } else {
             snippetsConfigurationKey = null
             snippetsPlaybackFinished = false
+            // Do not carry a pending transition seek across a disable/re-enable cycle.
+            snippetsSeekToStartOnTransition = false
         }
         val activeTint = android.graphics.Color.parseColor("#9b8af5")
         val inactiveTint = MaterialColors.getColor(
@@ -1897,8 +1899,6 @@ class FullBottomSheet
         // Before an upcoming window, let the real player continue naturally.
         if (positionMs < currentStartMs) return
         // The boundary has actually passed; only now jump to the next active window.
-        if (positionMs <= currentEndMs) return
-
         if (currentIndex < bounds.lastIndex) {
             val nextIndex = currentIndex + 1
             state.currentSnippetIndex = nextIndex
