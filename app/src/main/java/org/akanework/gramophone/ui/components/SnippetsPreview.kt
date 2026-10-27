@@ -354,15 +354,21 @@ fun SnippetProgressCanvas(
                 val gap = 2.dp.toPx()
                 val left = index * segmentWidth + gap / 2f
                 val right = (index + 1) * segmentWidth - gap / 2f
-                drawRoundRect(
-                    color = if (zones[index]) selectedAccentColor else Color(0xFFA8A8A8),
-                    brush = if (zones[index]) accentBrush else Brush.horizontalGradient(
-                        listOf(Color(0xFFA8A8A8), Color(0xFFA8A8A8)),
-                    ),
-                    topLeft = Offset(left, top),
-                    size = Size((right - left).coerceAtLeast(0f), barHeight),
-                    cornerRadius = radius,
-                )
+                if (zones[index]) {
+                    drawRoundRect(
+                        brush = accentBrush,
+                        topLeft = Offset(left, top),
+                        size = Size((right - left).coerceAtLeast(0f), barHeight),
+                        cornerRadius = radius,
+                    )
+                } else {
+                    drawRoundRect(
+                        color = Color(0xFFA8A8A8),
+                        topLeft = Offset(left, top),
+                        size = Size((right - left).coerceAtLeast(0f), barHeight),
+                        cornerRadius = radius,
+                    )
+                }
                 if (zones[index]) {
                     val centerX = (index + 0.5f) * segmentWidth
                     val centerY = size.height / 2f
