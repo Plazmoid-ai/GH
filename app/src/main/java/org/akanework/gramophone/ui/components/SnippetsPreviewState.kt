@@ -13,6 +13,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.preference.PreferenceManager
 
@@ -27,8 +28,7 @@ object SnippetsPreviewState {
     var isSnippetsActive by mutableStateOf(false)
     var showSnippetsMenu by mutableStateOf(false)
     var previewDurationSec by mutableStateOf(30)
-    var snippetStartMs by mutableStateOf(75_000L)
-    var snippetEndMs by mutableStateOf(105_000L)
+    val activeZones = mutableStateListOf(true, false, false)
 
     private var observedPreferences: SharedPreferences? = null
 
@@ -60,24 +60,19 @@ object SnippetsPreviewState {
     }
 
     fun updateDuration(seconds: Int) {
-        val safeSeconds = seconds.coerceIn(1, (DUMMY_TRACK_DURATION_MS / 1_000L).toInt())
-        previewDurationSec = safeSeconds
-        val lengthMs = safeSeconds * 1_000L
-        snippetStartMs = ((DUMMY_TRACK_DURATION_MS / 2L) - lengthMs / 2L)
-            .coerceIn(0L, DUMMY_TRACK_DURATION_MS - lengthMs)
-        snippetEndMs = snippetStartMs + lengthMs
+        previewDurationSec = seconds.coerceIn(
+            1,
+            (DUMMY_TRACK_DURATION_MS / 1_000L).toInt(),
+        )
     }
 
-    fun moveSnippetTo(centerMs: Long) {
-        val lengthMs = previewDurationSec * 1_000L
-        snippetStartMs = (centerMs - lengthMs / 2L)
-            .coerceIn(0L, DUMMY_TRACK_DURATION_MS - lengthMs)
-        snippetEndMs = snippetStartMs + lengthMs
-    }
-
-    fun moveSnippetStart(startMs: Long) {
-        val lengthMs = previewDurationSec * 1_000L
-        snippetStartMs = startMs.coerceIn(0L, DUMMY_TRACK_DURATION_MS - lengthMs)
-        snippetEndMs = snippetStartMs + lengthMs
+    fun toggleZone(index: Int) {
+        if (index !in activeZones.indices) return
+        if (activeZones[index]) {
+            // Always keep at least one preview zone enabled.
+            if (activeZones.count { it } > 1) activeZones[index] = false
+        } else {
+            activeZones[index] = true
+        }
     }
 }
