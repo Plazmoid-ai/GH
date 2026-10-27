@@ -11,6 +11,7 @@ package org.akanework.gramophone.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -39,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -126,6 +129,72 @@ private fun SnippetsMenuContent() {
         Spacer(Modifier.height(24.dp))
 
         SnippetProgressCanvas(menuStyle = true)
+
+        Spacer(Modifier.height(24.dp))
+        Text(
+            text = "Акцент",
+            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(Modifier.height(12.dp))
+        val accents = listOf(
+            "По умолчанию" to Color(0xFF9B8AF5),
+            "Градиент" to Color(0xFF9B8AF5),
+            "Прозрачный" to Color.Transparent,
+            "Черный" to Color(0xFF000000),
+            "Красный" to Color(0xFFE53935),
+            "Оранжевый" to Color(0xFFFF9800),
+            "Голубой" to Color(0xFF29B6F6),
+            "Зеленый" to Color(0xFF43A047),
+            "Розовый" to Color(0xFFEC407A),
+            "Пурпурный" to Color(0xFFAB47BC),
+            "Синий" to Color(0xFF1E88E5),
+        )
+        accents.chunked(4).forEach { rowAccents ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly,
+            ) {
+                rowAccents.forEach { (name, color) ->
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { SnippetsPreviewState.selectedAccentName = name },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        val selected = SnippetsPreviewState.selectedAccentName == name
+                        val swatchModifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .then(
+                                if (name == "Градиент") {
+                                    Modifier.background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color(0xFF9B8AF5), Color(0xFFEC407A), Color(0xFF29B6F6)),
+                                        ),
+                                    )
+                                } else {
+                                    Modifier.background(color)
+                                },
+                            )
+                            .then(if (selected) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+                        Box(modifier = swatchModifier)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                repeat(4 - rowAccents.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
     }
 
     if (showDurationDialog) {
@@ -230,21 +299,36 @@ fun SnippetProgressCanvas(
     menuStyle: Boolean = false,
 ) {
     val zones = SnippetsPreviewState.activeZones
-    val zoneColors = zones.map { active ->
-        if (active) Color(0xFF9B8AF5) else Color(0xFFA8A8A8)
-    }
     val snippetsActive = SnippetsPreviewState.isSnippetsActive
+    val isPlaying = SnippetsPreviewState.isPlaying
     val currentPositionMs = SnippetsPreviewState.currentPositionMs
-    LaunchedEffect(snippetsActive, menuStyle) {
-        if (snippetsActive && !menuStyle) {
+    val previewDurationSec = SnippetsPreviewState.previewDurationSec
+    val selectedAccentName = SnippetsPreviewState.selectedAccentName
+    val selectedAccentColor = SnippetsPreviewState.selectedAccentColor
+    val accentBrush = if (selectedAccentName == "Градиент") {
+        Brush.horizontalGradient(
+            listOf(Color(0xFF9B8AF5), Color(0xFFEC407A), Color(0xFF29B6F6)),
+        )
+    } else {
+        Brush.horizontalGradient(listOf(selectedAccentColor, selectedAccentColor))
+    }
+
+    LaunchedEffect(snippetsActive, isPlaying, menuStyle, previewDurationSec) {
+        if (snippetsActive && isPlaying && !menuStyle) {
+            var lastFrameNanos = 0L
             while (true) {
-                delay(1_000L)
-                SnippetsPreviewState.advanceSimulatedPosition()
+                val frameNanos = withFrameNanos { it }
+                if (lastFrameNanos != 0L) {
+                    SnippetsPreviewState.advanceSimulatedPosition(
+                        ((frameNanos - lastFrameNanos) / 1_000_000L).coerceAtLeast(1L),
+                    )
+                }
+                lastFrameNanos = frameNanos
             }
         }
     }
-    var canvasWidthPx by remember { mutableFloatStateOf(1f) }
 
+    var canvasWidthPx by remember { mutableFloatStateOf(1f) }
     var canvasModifier = modifier
         .fillMaxWidth()
         .height(height)
@@ -259,40 +343,62 @@ fun SnippetProgressCanvas(
     }
 
     Canvas(modifier = canvasModifier) {
-        val gap = 2.dp.toPx()
         val segmentWidth = size.width / 3f
         val barHeight = if (menuStyle) size.height else 10.dp.toPx()
         val top = if (menuStyle) 0f else (size.height - barHeight) / 2f
         val radius = CornerRadius(if (menuStyle) 8.dp.toPx() else barHeight / 2f)
 
-        for (index in 0..2) {
-            val left = index * segmentWidth + gap / 2f
-            val right = (index + 1) * segmentWidth - gap / 2f
+        if (menuStyle) {
+            // Keep the three separate, tappable capsule switches in the settings menu.
+            for (index in 0..2) {
+                val gap = 2.dp.toPx()
+                val left = index * segmentWidth + gap / 2f
+                val right = (index + 1) * segmentWidth - gap / 2f
+                drawRoundRect(
+                    color = if (zones[index]) selectedAccentColor else Color(0xFFA8A8A8),
+                    brush = if (zones[index]) accentBrush else Brush.horizontalGradient(
+                        listOf(Color(0xFFA8A8A8), Color(0xFFA8A8A8)),
+                    ),
+                    topLeft = Offset(left, top),
+                    size = Size((right - left).coerceAtLeast(0f), barHeight),
+                    cornerRadius = radius,
+                )
+                if (zones[index]) {
+                    val centerX = (index + 0.5f) * segmentWidth
+                    val centerY = size.height / 2f
+                    val triangleWidth = 12.dp.toPx()
+                    val triangleHeight = 16.dp.toPx()
+                    val play = Path().apply {
+                        moveTo(centerX - triangleWidth / 2f, centerY - triangleHeight / 2f)
+                        lineTo(centerX - triangleWidth / 2f, centerY + triangleHeight / 2f)
+                        lineTo(centerX + triangleWidth / 2f, centerY)
+                        close()
+                    }
+                    drawPath(play, Color.White)
+                }
+            }
+        } else {
+            // One continuous grey track, with active sections painted over it.
             drawRoundRect(
-                color = zoneColors[index],
-                topLeft = Offset(left, top),
-                size = Size((right - left).coerceAtLeast(0f), barHeight),
+                color = Color(0xFF555555),
+                topLeft = Offset(0f, top),
+                size = Size(size.width, barHeight),
                 cornerRadius = radius,
             )
-            if (menuStyle && zones[index]) {
-                val centerX = (index + 0.5f) * segmentWidth
-                val centerY = size.height / 2f
-                val triangleWidth = 12.dp.toPx()
-                val triangleHeight = 16.dp.toPx()
-                val play = Path().apply {
-                    moveTo(centerX - triangleWidth / 2f, centerY - triangleHeight / 2f)
-                    lineTo(centerX - triangleWidth / 2f, centerY + triangleHeight / 2f)
-                    lineTo(centerX + triangleWidth / 2f, centerY)
-                    close()
+            for (index in 0..2) {
+                if (zones[index] && selectedAccentColor.alpha > 0f) {
+                    val left = index * segmentWidth
+                    val right = (index + 1) * segmentWidth
+                    drawRoundRect(
+                        brush = accentBrush,
+                        topLeft = Offset(left, top),
+                        size = Size(right - left, barHeight),
+                        cornerRadius = radius,
+                    )
                 }
-                drawPath(play, Color.White)
             }
-        }
-
-        if (!menuStyle) {
-            val trackDurationMs = SnippetsPreviewState.DUMMY_TRACK_DURATION_MS
-            val progress = (currentPositionMs.toFloat() / trackDurationMs)
-                .coerceIn(0f, 1f)
+            val trackDurationMs = (previewDurationSec * 3_000L).coerceAtLeast(1L)
+            val progress = (currentPositionMs.toFloat() / trackDurationMs).coerceIn(0f, 1f)
             val cursorX = (progress * size.width).coerceIn(0f, size.width)
             drawCircle(
                 color = Color.White,
@@ -347,7 +453,17 @@ fun SnippetCapsuleOverlay(modifier: Modifier = Modifier) {
                     )
                 }
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer)
+                .then(
+                    if (SnippetsPreviewState.selectedAccentName == "Градиент") {
+                        Modifier.background(
+                            Brush.horizontalGradient(
+                                listOf(Color(0xFF9B8AF5), Color(0xFFEC407A), Color(0xFF29B6F6)),
+                            ),
+                        )
+                    } else {
+                        Modifier.background(SnippetsPreviewState.selectedAccentColor)
+                    },
+                )
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
             Text(
