@@ -840,6 +840,7 @@ class FullBottomSheet
     private fun updateSnippetsUi() {
         val active = SnippetsPreviewState.isSnippetsEnabled &&
             SnippetsPreviewState.isSnippetsActive
+        SnippetsPreviewState.isPlaying = instance?.isPlaying == true
         val activeTint = android.graphics.Color.parseColor("#9b8af5")
         val inactiveTint = MaterialColors.getColor(
             bottomSheetSnippetsButton,
@@ -855,8 +856,9 @@ class FullBottomSheet
         if (active) {
             bottomSheetFullSeekBar.visibility = GONE
             bottomSheetFullSlider.visibility = GONE
-            bottomSheetFullPosition.visibility = GONE
-            bottomSheetFullDuration.visibility = GONE
+            bottomSheetFullPosition.visibility = VISIBLE
+            bottomSheetFullDuration.visibility = VISIBLE
+            updateSnippetsTimecodes()
         } else {
             val useMaterialSlider = prefs.getBooleanStrict("default_progress_bar", false)
             bottomSheetFullSlider.visibility = if (useMaterialSlider) VISIBLE else GONE
@@ -1620,6 +1622,11 @@ class FullBottomSheet
     }
 
     private fun updateDuration() {
+        if (SnippetsPreviewState.isSnippetsActive) {
+            updateSnippetsTimecodes()
+            bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
+            return
+        }
         val duration = instance?.contentDuration?.let { if (it == C.TIME_UNSET) null else it }
             ?: instance?.currentMediaItem?.mediaMetadata?.durationMs
         if (duration != null && duration.toInt() != bottomSheetFullSeekBar.max) {
@@ -1684,10 +1691,12 @@ class FullBottomSheet
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
+        SnippetsPreviewState.isPlaying = isPlaying
         onPlaybackStateChanged(instance?.playbackState ?: Player.STATE_IDLE)
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {
+        SnippetsPreviewState.isPlaying = instance?.isPlaying == true
         if (instance?.isPlaying == true) {
             if (bottomSheetFullControllerButton.getTag(R.id.play_next) as Int? != 1) {
                 bottomSheetFullControllerButton.icon =
@@ -1751,14 +1760,18 @@ class FullBottomSheet
 
     private val positionRunnable = object : Runnable {
         override fun run() {
-            updateDuration() // TODO: figure out which callback this can be put in.
-            val position =
-                CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
-            if (!isUserTracking) {
-                bottomSheetFullSeekBar.progress = instance?.currentPosition?.toInt() ?: 0
-                bottomSheetFullSlider.value =
-                    min(instance?.currentPosition?.toFloat() ?: 0f, bottomSheetFullSlider.valueTo)
-                bottomSheetFullPosition.text = position
+            updateDuration()
+            if (SnippetsPreviewState.isSnippetsActive) {
+                updateSnippetsTimecodes()
+            } else {
+                val position =
+                    CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
+                if (!isUserTracking) {
+                    bottomSheetFullSeekBar.progress = instance?.currentPosition?.toInt() ?: 0
+                    bottomSheetFullSlider.value =
+                        min(instance?.currentPosition?.toFloat() ?: 0f, bottomSheetFullSlider.valueTo)
+                    bottomSheetFullPosition.text = position
+                }
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
             if (instance?.isPlaying == true && runnableRunning) {
@@ -1767,6 +1780,15 @@ class FullBottomSheet
                 runnableRunning = false
             }
         }
+    }
+
+    private fun updateSnippetsTimecodes() {
+        val state = SnippetsPreviewState
+        val totalDurationMs = state.activeZones.count { it } * state.previewDurationSec * 1_000L
+        bottomSheetFullPosition.text =
+            CalculationUtils.convertDurationToTimeStamp(state.activeElapsedMs())
+        bottomSheetFullDuration.text =
+            CalculationUtils.convertDurationToTimeStamp(totalDurationMs)
     }
 
     class MyViewModel : ViewModel() {
