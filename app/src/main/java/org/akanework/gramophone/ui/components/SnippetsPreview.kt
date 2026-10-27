@@ -296,6 +296,7 @@ fun SnippetProgressCanvas(
     interactive: Boolean = true,
     height: Dp = 32.dp,
     menuStyle: Boolean = false,
+    onSeekToPosition: ((Long) -> Unit)? = null,
 ) {
     val zones = SnippetsPreviewState.activeZones
     val currentPositionMs = SnippetsPreviewState.currentPositionMs
@@ -303,14 +304,23 @@ fun SnippetProgressCanvas(
     val snippetBounds = SnippetsPreviewState.snippetBounds
     val previewDurationSec = SnippetsPreviewState.previewDurationSec
     val selectedAccentName = SnippetsPreviewState.selectedAccentName
-    val cursorProgressTarget = if (trackDurationMs > 0L) {
-        (currentPositionMs.toFloat() / trackDurationMs.toFloat()).coerceIn(0f, 1f)
+    val currentSnippetBounds = snippetBounds.getOrNull(
+        SnippetsPreviewState.currentSnippetIndex.coerceIn(
+            0,
+            (snippetBounds.size - 1).coerceAtLeast(0),
+        ),
+    )
+    val snippetStartMs = currentSnippetBounds?.first ?: 0L
+    val snippetEndMs = currentSnippetBounds?.second ?: 0L
+    val cursorProgressTarget = if (snippetEndMs > snippetStartMs) {
+        ((currentPositionMs - snippetStartMs).toFloat() /
+            (snippetEndMs - snippetStartMs).toFloat()).coerceIn(0f, 1f)
     } else {
         0f
     }
     val cursorProgress by animateFloatAsState(
         targetValue = cursorProgressTarget,
-        animationSpec = tween(durationMillis = 70, easing = LinearEasing),
+        animationSpec = tween(durationMillis = 16, easing = LinearEasing),
         label = "snippetsPlayerCursor",
     )
     val selectedAccentColor = SnippetsPreviewState.selectedAccentColor
@@ -328,10 +338,29 @@ fun SnippetProgressCanvas(
         .height(height)
         .onSizeChanged { canvasWidthPx = it.width.toFloat() }
     if (interactive) {
-        canvasModifier = canvasModifier.pointerInput(canvasWidthPx) {
+        canvasModifier = canvasModifier.pointerInput(
+            canvasWidthPx,
+            trackDurationMs,
+            snippetBounds,
+            menuStyle,
+        ) {
             detectTapGestures { position ->
-                val zoneIndex = (position.x / (canvasWidthPx / 3f)).toInt().coerceIn(0, 2)
-                SnippetsPreviewState.toggleZone(zoneIndex)
+                if (menuStyle) {
+                    val zoneIndex =
+                        (position.x / (canvasWidthPx / 3f)).toInt().coerceIn(0, 2)
+                    SnippetsPreviewState.toggleZone(zoneIndex)
+                } else if (canvasWidthPx > 0f && trackDurationMs > 0L) {
+                    val progress = (position.x / canvasWidthPx).coerceIn(0f, 1f)
+                    val targetMs = (progress * trackDurationMs.toFloat()).toLong()
+                    val targetIndex = snippetBounds.indexOfFirst { (startMs, endMs) ->
+                        targetMs >= startMs && targetMs <= endMs
+                    }
+                    if (targetIndex >= 0) {
+                        SnippetsPreviewState.currentSnippetIndex = targetIndex
+                        SnippetsPreviewState.currentPositionMs = targetMs
+                        onSeekToPosition?.invoke(targetMs)
+                    }
+                }
             }
         }
     }
@@ -399,7 +428,19 @@ fun SnippetProgressCanvas(
                     }
                 }
             }
-            val cursorX = (cursorProgress * size.width).coerceIn(0f, size.width)
+            val zoneStartX = if (trackDurationMs > 0L) {
+                (snippetStartMs.toFloat() / trackDurationMs.toFloat()) * size.width
+            } else {
+                0f
+            }
+            val zoneWidth = if (trackDurationMs > 0L) {
+                ((snippetEndMs - snippetStartMs).coerceAtLeast(0L).toFloat() /
+                    trackDurationMs.toFloat()) * size.width
+            } else {
+                0f
+            }
+            val cursorX = (zoneStartX + zoneWidth * cursorProgress)
+                .coerceIn(0f, size.width)
             drawCircle(
                 color = Color.White,
                 radius = 6.dp.toPx(),
