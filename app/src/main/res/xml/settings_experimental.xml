@@ -20,6 +20,20 @@
 
     <PreferenceCategory
         android:layout="@layout/preference_category_md"
+        android:title="Экспериментально">
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="snippets_preview"
+            android:layout="@layout/preference_switch"
+            android:title="Snippets Preview (Превью)"
+            android:widgetLayout="@layout/preference_switch_widget"
+            app:iconSpaceReserved="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:layout="@layout/preference_category_md"
         android:title="@string/settings_category_misc">
 
         <SwitchPreferenceCompat
