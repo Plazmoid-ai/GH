@@ -366,8 +366,9 @@ class FullBottomSheet
                     if (SnippetsPreviewState.isSnippetsActive) {
                         SnippetProgressCanvas(
                             modifier = Modifier.fillMaxSize(),
-                            interactive = false,
+                            interactive = true,
                             height = 48.dp,
+                            onSeekToPosition = { targetMs -> instance?.seekTo(targetMs) },
                         )
                     }
                 }
@@ -1802,7 +1803,7 @@ class FullBottomSheet
             ) {
                 handler.postDelayed(
                     this,
-                    if (SnippetsPreviewState.isSnippetsActive) 50L else SLIDER_UPDATE_INTERVAL,
+                    if (SnippetsPreviewState.isSnippetsActive) 16L else SLIDER_UPDATE_INTERVAL,
                 )
             } else {
                 runnableRunning = false
@@ -1880,7 +1881,9 @@ class FullBottomSheet
             player.seekTo(nextStartMs)
         } else {
             snippetsPlaybackFinished = true
-            player.pause()
+            // Finish the current preview sequence by advancing the real playlist.
+            // onMediaItemTransition clears the previous track's snippet state.
+            player.seekToNextMediaItem()
         }
     }
 
