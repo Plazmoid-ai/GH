@@ -12,8 +12,8 @@ package org.akanework.gramophone.ui.components
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.preference.PreferenceManager
 
