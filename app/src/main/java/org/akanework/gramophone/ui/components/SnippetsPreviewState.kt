@@ -28,6 +28,7 @@ object SnippetsPreviewState {
     var isSnippetsActive by mutableStateOf(false)
     var showSnippetsMenu by mutableStateOf(false)
     var previewDurationSec by mutableStateOf(30)
+    var currentPositionMs by mutableStateOf(0L)
     val activeZones = mutableStateListOf(true, false, false)
 
     private var observedPreferences: SharedPreferences? = null
@@ -64,6 +65,29 @@ object SnippetsPreviewState {
             1,
             (DUMMY_TRACK_DURATION_MS / 1_000L).toInt(),
         )
+    }
+
+    fun advanceSimulatedPosition() {
+        val trackDurationMs = DUMMY_TRACK_DURATION_MS
+        val nextPosition = currentPositionMs + 1_000L
+        if (nextPosition >= trackDurationMs) {
+            currentPositionMs = 0L
+            return
+        }
+
+        val zoneDurationMs = trackDurationMs / activeZones.size
+        val zoneIndex = (nextPosition / zoneDurationMs).toInt().coerceIn(activeZones.indices)
+        if (activeZones[zoneIndex]) {
+            currentPositionMs = nextPosition
+            return
+        }
+
+        // Skip inactive zones by teleporting to the beginning of the next active zone.
+        val nextActiveZone = (1..activeZones.size)
+            .asSequence()
+            .map { (zoneIndex + it) % activeZones.size }
+            .firstOrNull { activeZones[it] }
+        currentPositionMs = (nextActiveZone ?: zoneIndex) * zoneDurationMs
     }
 
     fun toggleZone(index: Int) {
