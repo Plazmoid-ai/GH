@@ -23,6 +23,7 @@ import android.os.Bundle
 import androidx.core.content.FileProvider
 import androidx.media3.common.util.Log
 import androidx.preference.Preference
+import androidx.preference.SwitchPreferenceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,6 +32,7 @@ import kotlinx.coroutines.withContext
 import org.akanework.gramophone.BuildConfig
 import org.akanework.gramophone.R
 import org.akanework.gramophone.logic.utils.Flags
+import org.akanework.gramophone.ui.components.SnippetsPreviewState
 import org.akanework.gramophone.ui.fragments.BasePreferenceFragment
 import org.akanework.gramophone.ui.fragments.BaseSettingsActivity
 import java.io.File
@@ -45,7 +47,16 @@ class ExperimentalSettingsFragment : BasePreferenceFragment() {
     private lateinit var e: Exception
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+        SnippetsPreviewState.initialize(requireContext())
         setPreferencesFromResource(R.xml.settings_experimental, rootKey)
+        findPreference<SwitchPreferenceCompat>(SnippetsPreviewState.PREFERENCE_KEY)
+            ?.setOnPreferenceChangeListener { _, newValue ->
+                SnippetsPreviewState.isSnippetsEnabled = newValue as Boolean
+                if (!SnippetsPreviewState.isSnippetsEnabled) {
+                    SnippetsPreviewState.showSnippetsMenu = false
+                }
+                true
+            }
         findPreference<Preference>("crash")!!.isVisible = BuildConfig.DEBUG
         if (!Flags.OFFLOAD)
             findPreference<Preference>("offload")!!.isVisible = false
