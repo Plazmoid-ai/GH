@@ -24,6 +24,7 @@ object SnippetsPreviewState {
     const val DUMMY_TRACK_DURATION_MS = 180_000L
 
     var isSnippetsEnabled by mutableStateOf(false)
+    var isSnippetsActive by mutableStateOf(false)
     var showSnippetsMenu by mutableStateOf(false)
     var previewDurationSec by mutableStateOf(30)
     var snippetStartMs by mutableStateOf(75_000L)
@@ -37,6 +38,7 @@ object SnippetsPreviewState {
                 isSnippetsEnabled =
                     sharedPreferences?.getBoolean(PREFERENCE_KEY, false) == true
                 if (!isSnippetsEnabled) {
+                    isSnippetsActive = false
                     showSnippetsMenu = false
                 }
             }
@@ -52,6 +54,7 @@ object SnippetsPreviewState {
         }
         isSnippetsEnabled = preferences.getBoolean(PREFERENCE_KEY, false)
         if (!isSnippetsEnabled) {
+            isSnippetsActive = false
             showSnippetsMenu = false
         }
     }
