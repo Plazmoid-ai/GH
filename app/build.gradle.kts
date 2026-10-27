@@ -42,15 +42,15 @@ fun ApkSigningConfig.configureFromEnv(project: Project, prefix: String) {
     if (missing.isNotEmpty()) {
         throw GradleException(
             "Signing config '$prefix' is incomplete. " +
-            "Missing env vars: ${missing.joinToString(", ")}. " +
-            "Check CI secrets and the env block in the workflow."
+                "Missing env vars: ${missing.joinToString(", ")}. " +
+                "Check CI secrets and the env block in the workflow."
         )
     }
 
     val keystore = project.file(storeFileEnv!!)
     require(keystore.exists()) {
         "Keystore file not found: ${keystore.absolutePath}. " +
-        "Check the base64 decode step in the workflow."
+            "Check the base64 decode step in the workflow."
     }
 
     storeFile = keystore
@@ -58,8 +58,6 @@ fun ApkSigningConfig.configureFromEnv(project: Project, prefix: String) {
     keyAlias = aliasEnv
     keyPassword = keyPassEnv
 }
-
-val targetAbi = providers.gradleProperty("targetAbi").orElse("arm64-v8a").get()
 
 android {
     val packageProperties = readProperties(file("../package.properties"))
@@ -134,9 +132,6 @@ android {
 
     defaultConfig {
         applicationId = appIdOverride ?: "org.akanework.gramophone"
-        ndk {
-            abiFilters += targetAbi
-        }
         minSdk = 23
         targetSdk = 37
         versionCode = 24
@@ -367,6 +362,7 @@ dependencies {
     //implementation("androidx.paging:paging-runtime-ktx:3.2.1") TODO paged, partial, flow based library loading
     //implementation("androidx.paging:paging-guava:3.2.1") TODO do we have guava? do we need this?
     implementation("androidx.preference:preference-ktx:1.2.1")
+    implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.transition:transition-ktx:1.6.0") // <-- for predictive back TODO can we remove explicit dep now?
     implementation("com.mikepenz:aboutlibraries-compose-m3:$aboutLibsVersion")
     implementation("com.google.android.material:material:1.13.0")
