@@ -309,7 +309,7 @@ fun SnippetCapsuleOverlay(modifier: Modifier = Modifier) {
                             capsuleOffsetY = capsuleOffsetY.coerceIn(0f, maxY)
                         },
                         onDragCancel = {
-                            capsuleOffsetX = if (capsuleOffsetX <= maxX / 2f) 0f else maxX
+                            capsuleOffsetX = if (capsuleOffsetX <= 0f) minOffsetX else maxOffsetX
                             capsuleOffsetY = capsuleOffsetY.coerceIn(0f, maxY)
                         },
                         onDrag = { change, dragAmount ->
