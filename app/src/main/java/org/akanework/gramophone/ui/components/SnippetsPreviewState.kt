@@ -13,6 +13,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.preference.PreferenceManager
@@ -29,6 +30,21 @@ object SnippetsPreviewState {
     var showSnippetsMenu by mutableStateOf(false)
     var previewDurationSec by mutableStateOf(30)
     var currentPositionMs by mutableStateOf(0L)
+    var isPlaying by mutableStateOf(false)
+    var selectedAccentName by mutableStateOf("По умолчанию")
+    val selectedAccentColor: Color
+        get() = when (selectedAccentName) {
+            "Прозрачный" -> Color.Transparent
+            "Черный" -> Color(0xFF000000)
+            "Красный" -> Color(0xFFE53935)
+            "Оранжевый" -> Color(0xFFFF9800)
+            "Голубой" -> Color(0xFF29B6F6)
+            "Зеленый" -> Color(0xFF43A047)
+            "Розовый" -> Color(0xFFEC407A)
+            "Пурпурный" -> Color(0xFFAB47BC)
+            "Синий" -> Color(0xFF1E88E5)
+            else -> Color(0xFF9B8AF5)
+        }
     val activeZones = mutableStateListOf(true, false, false)
 
     private var observedPreferences: SharedPreferences? = null
@@ -67,27 +83,28 @@ object SnippetsPreviewState {
         )
     }
 
-    fun advanceSimulatedPosition() {
-        val trackDurationMs = DUMMY_TRACK_DURATION_MS
-        val nextPosition = currentPositionMs + 1_000L
-        if (nextPosition >= trackDurationMs) {
-            currentPositionMs = 0L
-            return
-        }
+    fun simulatedTrackDurationMs(): Long = previewDurationSec * 3_000L
 
-        val zoneDurationMs = trackDurationMs / activeZones.size
-        val zoneIndex = (nextPosition / zoneDurationMs).toInt().coerceIn(activeZones.indices)
-        if (activeZones[zoneIndex]) {
-            currentPositionMs = nextPosition
-            return
-        }
+    fun advanceSimulatedPosition(deltaMs: Long) {
+        if (!isPlaying || deltaMs <= 0L) return
+        val duration = simulatedTrackDurationMs().coerceAtLeast(1L)
+        currentPositionMs = (currentPositionMs + deltaMs) % duration
+    }
 
-        // Skip inactive zones by teleporting to the beginning of the next active zone.
-        val nextActiveZone = (1..activeZones.size)
-            .asSequence()
-            .map { (zoneIndex + it) % activeZones.size }
-            .firstOrNull { activeZones[it] }
-        currentPositionMs = (nextActiveZone ?: zoneIndex) * zoneDurationMs
+    fun activeElapsedMs(): Long {
+        val zoneDurationMs = previewDurationSec * 1_000L
+        if (zoneDurationMs <= 0L) return 0L
+        val zoneIndex = (currentPositionMs / zoneDurationMs)
+            .toInt()
+            .coerceIn(activeZones.indices)
+        val withinZoneMs = currentPositionMs % zoneDurationMs
+        val completedActiveZones = activeZones.indices
+            .take(zoneIndex)
+            .count { activeZones[it] }
+        val elapsed = completedActiveZones * zoneDurationMs +
+            if (activeZones[zoneIndex]) withinZoneMs else 0L
+        val totalActiveDuration = activeZones.count { it } * zoneDurationMs
+        return elapsed.coerceIn(0L, totalActiveDuration)
     }
 
     fun toggleZone(index: Int) {
