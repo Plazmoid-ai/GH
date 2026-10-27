@@ -241,35 +241,33 @@ private fun DurationAdjustButton(label: String, step: Int) {
             .size(60.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.secondaryContainer)
-            .pointerInput(step) {
+            .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
-                        val pressScope = this
                         coroutineScope {
+                            var isPressed = true
                             var repeated = false
                             val pressedAt = SystemClock.elapsedRealtime()
                             val repeatJob = launch {
-                                delay(300)
-                                repeated = true
-                                SnippetsPreviewState.updateDuration(
-                                    SnippetsPreviewState.previewDurationSec + step,
-                                )
-                                while (true) {
+                                while (isPressed) {
                                     delay(100)
+                                    if (!isPressed) break
                                     val heldMs = SystemClock.elapsedRealtime() - pressedAt
                                     val accelerationStep = when {
-                                        heldMs >= 20_000L -> 10
+                                        heldMs > 20_000L -> 10
                                         heldMs >= 10_000L -> 5
                                         else -> 1
                                     }
                                     SnippetsPreviewState.updateDuration(
                                         SnippetsPreviewState.previewDurationSec + step * accelerationStep,
                                     )
+                                    repeated = true
                                 }
                             }
                             try {
-                                pressScope.tryAwaitRelease()
+                                tryAwaitRelease()
                             } finally {
+                                isPressed = false
                                 repeatJob.cancel()
                             }
                             if (!repeated) {
@@ -395,10 +393,11 @@ fun SnippetProgressCanvas(
                 if (zones[index] && selectedAccentColor.alpha > 0f) {
                     val left = index * segmentWidth
                     val right = (index + 1) * segmentWidth
-                    drawRect(
+                    drawRoundRect(
                         brush = accentBrush,
                         topLeft = Offset(left, top),
                         size = Size(right - left, barHeight),
+                        cornerRadius = CornerRadius(barHeight / 2f),
                     )
                 }
             }
@@ -458,22 +457,17 @@ fun SnippetCapsuleOverlay(modifier: Modifier = Modifier) {
                     )
                 }
                 .clip(CircleShape)
-                .then(
-                    if (SnippetsPreviewState.selectedAccentName == "Градиент") {
-                        Modifier.background(
-                            Brush.horizontalGradient(
-                                listOf(Color(0xFF9B8AF5), Color(0xFFEC407A), Color(0xFF29B6F6)),
-                            ),
-                        )
-                    } else {
-                        Modifier.background(SnippetsPreviewState.selectedAccentColor)
-                    },
+                .background(Color.Black.copy(alpha = 0.6f))
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.2f),
+                    shape = CircleShape,
                 )
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         ) {
             Text(
                 text = "Сниппет: ${SnippetsPreviewState.previewDurationSec}с",
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                color = Color.White,
                 style = MaterialTheme.typography.labelLarge,
             )
         }
