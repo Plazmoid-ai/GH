@@ -23,12 +23,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -456,6 +458,10 @@ fun SnippetCapsuleOverlay(modifier: Modifier = Modifier) {
     var capsuleOffsetY by remember { mutableFloatStateOf(0f) }
     var capsuleSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
+    val activeAccent = when (SnippetsPreviewState.selectedAccentName) {
+        "Градиент" -> Color(0xFF9B8AF5)
+        else -> SnippetsPreviewState.selectedAccentColor
+    }
 
     BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
@@ -473,7 +479,11 @@ fun SnippetCapsuleOverlay(modifier: Modifier = Modifier) {
                 .offset {
                     IntOffset(capsuleOffsetX.roundToInt(), capsuleOffsetY.roundToInt())
                 }
+                .width(224.dp)
+                .height(96.dp)
                 .onSizeChanged { capsuleSize = it }
+                // Drag is installed on the whole capsule. Once touch slop is crossed,
+                // consuming movement cancels the child button's tap gesture.
                 .pointerInput(maxX, maxY) {
                     detectDragGestures(
                         onDragEnd = {
@@ -493,20 +503,92 @@ fun SnippetCapsuleOverlay(modifier: Modifier = Modifier) {
                         },
                     )
                 }
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.6f))
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color.Black.copy(alpha = 0.62f))
                 .border(
                     width = 1.dp,
-                    color = Color.White.copy(alpha = 0.2f),
-                    shape = CircleShape,
-                )
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                    color = Color.White.copy(alpha = 0.24f),
+                    shape = RoundedCornerShape(20.dp),
+                ),
         ) {
-            Text(
-                text = "Сниппет: ${SnippetsPreviewState.previewDurationSec}с",
-                color = Color.White,
-                style = MaterialTheme.typography.labelLarge,
-            )
+            Column(modifier = Modifier.fillMaxSize()) {
+                // The upper half is the visual handle and displays the chosen snippet length.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(Color.White.copy(alpha = 0.055f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = formatSnippetDuration(SnippetsPreviewState.previewDurationSec),
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 5.dp)
+                            .size(width = 26.dp, height = 3.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.5f)),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(horizontal = 5.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    for (index in 0..2) {
+                        var pressed by remember(index) { mutableStateOf(false) }
+                        val enabled = SnippetsPreviewState.activeZones[index]
+                        val buttonBackground = when {
+                            enabled && activeAccent.alpha == 0f ->
+                                Color.White.copy(alpha = if (pressed) 0.24f else 0.14f)
+                            enabled ->
+                                activeAccent.copy(alpha = if (pressed) 0.5f else 0.76f)
+                            pressed -> Color.White.copy(alpha = 0.22f)
+                            else -> Color.White.copy(alpha = 0.075f)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(horizontal = 2.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(buttonBackground)
+                                .pointerInput(index) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            pressed = true
+                                            try {
+                                                tryAwaitRelease()
+                                            } finally {
+                                                pressed = false
+                                            }
+                                        },
+                                        onTap = {
+                                            SnippetsPreviewState.toggleZone(index)
+                                        },
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = (index + 1).toString(),
+                                color = Color.White.copy(alpha = if (enabled) 1f else 0.62f),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
