@@ -67,6 +67,8 @@ import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.postOnAnimationDelayed
 import androidx.core.widget.NestedScrollView
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.widget.TextViewCompat
 import androidx.core.widget.addTextChangedListener
 import androidx.lifecycle.ViewModel
@@ -263,6 +265,8 @@ class FullBottomSheet
     private val bottomSheetPlaylistButton: MaterialButton
     private val bottomSheetTimerButton: MaterialButton
     private val bottomSheetPlaybackSpeedButton: MaterialButton
+    private val bottomSheetSnippetsButton: MaterialButton
+    private lateinit var snippetsComposeView: ComposeView
     private val bottomSheetFavoriteButton: MaterialButton
     val bottomSheetLyricButton: MaterialButton
     private val bottomSheetFullSeekBar: SeekBar
@@ -290,10 +294,48 @@ class FullBottomSheet
         bottomSheetLoopButton = findViewById(R.id.sheet_loop)
         bottomSheetTimerButton = findViewById(R.id.timer)
         bottomSheetPlaybackSpeedButton = findViewById(R.id.playback_speed)
+        bottomSheetSnippetsButton = findViewById(R.id.snippets_preview_button)
         bottomSheetFavoriteButton = findViewById(R.id.favor)
         bottomSheetPlaylistButton = findViewById(R.id.playlist)
         bottomSheetLyricButton = findViewById(R.id.lyrics)
         bottomSheetFullQualityDetails = findViewById(R.id.quality_details)
+
+        SnippetsPreviewState.initialize(context)
+        snippetsComposeView = ComposeView(context).apply {
+            visibility = GONE
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                SnippetsMenuLayer {
+                    SnippetsPreviewState.showSnippetsMenu = false
+                    snippetsComposeView.postDelayed(
+                        { snippetsComposeView.visibility = GONE },
+                        400L,
+                    )
+                }
+            }
+        }
+        addView(
+            snippetsComposeView,
+            ConstraintLayout.LayoutParams(
+                ConstraintLayout.LayoutParams.MATCH_PARENT,
+                ConstraintLayout.LayoutParams.MATCH_PARENT,
+            ).apply {
+                startToStart = ConstraintLayout.LayoutParams.PARENT_ID
+                endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
+                topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+                bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+            },
+        )
+        bottomSheetSnippetsButton.setOnClickListener {
+            ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
+            SnippetsPreviewState.initialize(context)
+            if (SnippetsPreviewState.isSnippetsEnabled) {
+                snippetsComposeView.visibility = VISIBLE
+                snippetsComposeView.bringToFront()
+                SnippetsPreviewState.showSnippetsMenu = true
+            }
+        }
+
         refreshSettings(null)
         prefs.registerOnSharedPreferenceChangeListener(this)
         activity.controllerViewModel.customCommandListeners.addCallback(activity.lifecycle) { _, command, _ ->
@@ -670,6 +712,14 @@ class FullBottomSheet
     }
 
     private fun refreshSettings(key: String?) {
+        if (key == null || key == SnippetsPreviewState.PREFERENCE_KEY) {
+            SnippetsPreviewState.initialize(context)
+            bottomSheetSnippetsButton.isVisible = SnippetsPreviewState.isSnippetsEnabled
+            if (!SnippetsPreviewState.isSnippetsEnabled) {
+                SnippetsPreviewState.showSnippetsMenu = false
+                snippetsComposeView.visibility = GONE
+            }
+        }
         if (key == null || key == "default_progress_bar") {
             if (prefs.getBooleanStrict("default_progress_bar", false)) {
                 bottomSheetFullSlider.visibility = VISIBLE
