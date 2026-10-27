@@ -9,11 +9,9 @@
 
 package org.akanework.gramophone.ui.components
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -22,6 +20,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -58,10 +57,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,12 +122,6 @@ private fun SnippetsMenuContent() {
         Spacer(Modifier.height(24.dp))
 
         SnippetProgressCanvas()
-
-        Spacer(Modifier.height(18.dp))
-
-        SnippetCapsule()
-
-        Spacer(Modifier.height(12.dp))
     }
 
     if (showDurationDialog) {
@@ -165,7 +161,6 @@ private fun SnippetsMenuContent() {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DurationAdjustButton(label: String, step: Int) {
     Box(
@@ -173,18 +168,33 @@ private fun DurationAdjustButton(label: String, step: Int) {
             .size(60.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.secondaryContainer)
-            .combinedClickable(
-                onClick = {
-                    SnippetsPreviewState.updateDuration(
-                        SnippetsPreviewState.previewDurationSec + step,
-                    )
-                },
-                onLongClick = {
-                    SnippetsPreviewState.updateDuration(
-                        SnippetsPreviewState.previewDurationSec + step * 5,
-                    )
-                },
-            ),
+            .pointerInput(step) {
+                detectTapGestures(
+                    onPress = {
+                        var repeated = false
+                        val repeatJob = launch {
+                            delay(300)
+                            repeated = true
+                            SnippetsPreviewState.updateDuration(
+                                SnippetsPreviewState.previewDurationSec + step,
+                            )
+                            while (true) {
+                                delay(100)
+                                SnippetsPreviewState.updateDuration(
+                                    SnippetsPreviewState.previewDurationSec + step,
+                                )
+                            }
+                        }
+                        tryAwaitRelease()
+                        repeatJob.cancel()
+                        if (!repeated) {
+                            SnippetsPreviewState.updateDuration(
+                                SnippetsPreviewState.previewDurationSec + step,
+                            )
+                        }
+                    },
+                )
+            },
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -196,7 +206,11 @@ private fun DurationAdjustButton(label: String, step: Int) {
 }
 
 @Composable
-private fun SnippetProgressCanvas() {
+fun SnippetProgressCanvas(
+    modifier: Modifier = Modifier,
+    interactive: Boolean = true,
+    height: Dp = 32.dp,
+) {
     val totalMs = SnippetsPreviewState.DUMMY_TRACK_DURATION_MS
     val startMs = SnippetsPreviewState.snippetStartMs
     val endMs = SnippetsPreviewState.snippetEndMs
@@ -209,11 +223,12 @@ private fun SnippetProgressCanvas() {
         }
     }
 
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(32.dp)
-            .onSizeChanged { trackWidthPx = it.width.toFloat() }
+    var canvasModifier = modifier
+        .fillMaxWidth()
+        .height(height)
+        .onSizeChanged { trackWidthPx = it.width.toFloat() }
+    if (interactive) {
+        canvasModifier = canvasModifier
             .pointerInput(trackWidthPx) {
                 detectTapGestures { position -> moveToPointer(position.x) }
             }
@@ -225,8 +240,9 @@ private fun SnippetProgressCanvas() {
                         moveToPointer(change.position.x)
                     },
                 )
-            },
-    ) {
+            }
+    }
+    Canvas(modifier = canvasModifier) {
         val barHeight = 10.dp.toPx()
         val top = (size.height - barHeight) / 2f
         val startX = (startMs.toFloat() / totalMs.toFloat() * size.width)
@@ -263,24 +279,25 @@ private fun SnippetProgressCanvas() {
 }
 
 @Composable
-private fun SnippetCapsule() {
+fun SnippetCapsuleOverlay(modifier: Modifier = Modifier) {
     var capsuleOffsetX by remember { mutableFloatStateOf(0f) }
     var capsuleOffsetY by remember { mutableFloatStateOf(0f) }
     var capsuleSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
 
     BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp),
+        modifier = modifier.fillMaxSize(),
     ) {
         val maxX = (with(density) { maxWidth.toPx() } - capsuleSize.width)
             .coerceAtLeast(0f)
         val maxY = (with(density) { maxHeight.toPx() } - capsuleSize.height)
             .coerceAtLeast(0f)
+        val minOffsetX = -maxX / 2f
+        val maxOffsetX = maxX / 2f
 
         Box(
             modifier = Modifier
+                .align(Alignment.TopCenter)
                 .offset {
                     IntOffset(capsuleOffsetX.roundToInt(), capsuleOffsetY.roundToInt())
                 }
@@ -288,7 +305,7 @@ private fun SnippetCapsule() {
                 .pointerInput(maxX, maxY) {
                     detectDragGestures(
                         onDragEnd = {
-                            capsuleOffsetX = if (capsuleOffsetX <= maxX / 2f) 0f else maxX
+                            capsuleOffsetX = if (capsuleOffsetX <= 0f) minOffsetX else maxOffsetX
                             capsuleOffsetY = capsuleOffsetY.coerceIn(0f, maxY)
                         },
                         onDragCancel = {
@@ -298,7 +315,7 @@ private fun SnippetCapsule() {
                         onDrag = { change, dragAmount ->
                             change.consume()
                             capsuleOffsetX =
-                                (capsuleOffsetX + dragAmount.x).coerceIn(0f, maxX)
+                                (capsuleOffsetX + dragAmount.x).coerceIn(minOffsetX, maxOffsetX)
                             capsuleOffsetY =
                                 (capsuleOffsetY + dragAmount.y).coerceIn(0f, maxY)
                         },
