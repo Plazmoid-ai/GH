@@ -395,11 +395,10 @@ fun SnippetProgressCanvas(
                 if (zones[index] && selectedAccentColor.alpha > 0f) {
                     val left = index * segmentWidth
                     val right = (index + 1) * segmentWidth
-                    drawRoundRect(
+                    drawRect(
                         brush = accentBrush,
                         topLeft = Offset(left, top),
                         size = Size(right - left, barHeight),
-                        cornerRadius = radius,
                     )
                 }
             }
