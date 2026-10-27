@@ -786,12 +786,21 @@ class FullBottomSheet
             updateSnippetsUi()
         }
         if (key == null || key == "default_progress_bar") {
-            if (prefs.getBooleanStrict("default_progress_bar", false)) {
+            if (SnippetsPreviewState.isSnippetsActive) {
+                bottomSheetFullSlider.visibility = GONE
+                bottomSheetFullSeekBar.visibility = GONE
+                bottomSheetFullPosition.visibility = GONE
+                bottomSheetFullDuration.visibility = GONE
+            } else if (prefs.getBooleanStrict("default_progress_bar", false)) {
                 bottomSheetFullSlider.visibility = VISIBLE
                 bottomSheetFullSeekBar.visibility = GONE
+                bottomSheetFullPosition.visibility = VISIBLE
+                bottomSheetFullDuration.visibility = VISIBLE
             } else {
                 bottomSheetFullSlider.visibility = GONE
                 bottomSheetFullSeekBar.visibility = VISIBLE
+                bottomSheetFullPosition.visibility = VISIBLE
+                bottomSheetFullDuration.visibility = VISIBLE
             }
         }
         if (key == null || key == "audio_quality_info") {
