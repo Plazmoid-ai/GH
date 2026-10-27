@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,6 +66,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.os.SystemClock
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,7 +124,7 @@ private fun SnippetsMenuContent() {
 
         Spacer(Modifier.height(24.dp))
 
-        SnippetProgressCanvas()
+        SnippetProgressCanvas(menuStyle = true)
     }
 
     if (showDurationDialog) {
@@ -175,6 +177,7 @@ private fun DurationAdjustButton(label: String, step: Int) {
                         val pressScope = this
                         coroutineScope {
                             var repeated = false
+                            val pressedAt = SystemClock.elapsedRealtime()
                             val repeatJob = launch {
                                 delay(300)
                                 repeated = true
@@ -183,8 +186,10 @@ private fun DurationAdjustButton(label: String, step: Int) {
                                 )
                                 while (true) {
                                     delay(100)
+                                    val heldMs = SystemClock.elapsedRealtime() - pressedAt
+                                    val accelerationStep = if (heldMs >= 10_000L) 5 else 1
                                     SnippetsPreviewState.updateDuration(
-                                        SnippetsPreviewState.previewDurationSec + step,
+                                        SnippetsPreviewState.previewDurationSec + step * accelerationStep,
                                     )
                                 }
                             }
@@ -217,69 +222,64 @@ fun SnippetProgressCanvas(
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
     height: Dp = 32.dp,
+    menuStyle: Boolean = false,
 ) {
-    val totalMs = SnippetsPreviewState.DUMMY_TRACK_DURATION_MS
-    val startMs = SnippetsPreviewState.snippetStartMs
-    val endMs = SnippetsPreviewState.snippetEndMs
-    var trackWidthPx by remember { mutableFloatStateOf(1f) }
-
-    val moveToPointer: (Float) -> Unit = { x ->
-        if (trackWidthPx > 0f) {
-            val fraction = (x / trackWidthPx).coerceIn(0f, 1f)
-            SnippetsPreviewState.moveSnippetTo((fraction * totalMs).toLong())
-        }
+    val zones = SnippetsPreviewState.activeZones
+    val zoneColors = zones.map { active ->
+        if (active) Color(0xFF9B8AF5) else Color(0xFF888888)
     }
+    var canvasWidthPx by remember { mutableFloatStateOf(1f) }
 
     var canvasModifier = modifier
         .fillMaxWidth()
         .height(height)
-        .onSizeChanged { trackWidthPx = it.width.toFloat() }
+        .onSizeChanged { canvasWidthPx = it.width.toFloat() }
     if (interactive) {
-        canvasModifier = canvasModifier
-            .pointerInput(trackWidthPx) {
-                detectTapGestures { position -> moveToPointer(position.x) }
+        canvasModifier = canvasModifier.pointerInput(canvasWidthPx) {
+            detectTapGestures { position ->
+                val zoneIndex = (position.x / (canvasWidthPx / 3f)).toInt().coerceIn(0, 2)
+                SnippetsPreviewState.toggleZone(zoneIndex)
             }
-            .pointerInput(trackWidthPx) {
-                detectDragGestures(
-                    onDragStart = { position -> moveToPointer(position.x) },
-                    onDrag = { change, _ ->
-                        change.consume()
-                        moveToPointer(change.position.x)
-                    },
-                )
-            }
+        }
     }
-    Canvas(modifier = canvasModifier) {
-        val barHeight = 10.dp.toPx()
-        val top = (size.height - barHeight) / 2f
-        val startX = (startMs.toFloat() / totalMs.toFloat() * size.width)
-            .coerceIn(0f, size.width)
-        val endX = (endMs.toFloat() / totalMs.toFloat() * size.width)
-            .coerceIn(startX, size.width)
-        val radius = CornerRadius(barHeight / 2f, barHeight / 2f)
 
-        if (startX > 0f) {
+    Canvas(modifier = canvasModifier) {
+        val gap = 2.dp.toPx()
+        val segmentWidth = size.width / 3f
+        val barHeight = if (menuStyle) size.height else 10.dp.toPx()
+        val top = if (menuStyle) 0f else (size.height - barHeight) / 2f
+        val radius = CornerRadius(if (menuStyle) 8.dp.toPx() else barHeight / 2f)
+
+        for (index in 0..2) {
+            val left = index * segmentWidth + gap / 2f
+            val right = (index + 1) * segmentWidth - gap / 2f
             drawRoundRect(
-                color = Color(0xFFB0B0B0),
-                topLeft = Offset(0f, top),
-                size = Size(startX, barHeight),
+                color = zoneColors[index],
+                topLeft = Offset(left, top),
+                size = Size((right - left).coerceAtLeast(0f), barHeight),
                 cornerRadius = radius,
             )
+            if (menuStyle && zones[index]) {
+                val centerX = (index + 0.5f) * segmentWidth
+                val centerY = size.height / 2f
+                val triangleWidth = 12.dp.toPx()
+                val triangleHeight = 16.dp.toPx()
+                val play = Path().apply {
+                    moveTo(centerX - triangleWidth / 2f, centerY - triangleHeight / 2f)
+                    lineTo(centerX - triangleWidth / 2f, centerY + triangleHeight / 2f)
+                    lineTo(centerX + triangleWidth / 2f, centerY)
+                    close()
+                }
+                drawPath(play, Color.White)
+            }
         }
-        if (endX > startX) {
-            drawRoundRect(
-                color = Color(0xFF8B5CF6),
-                topLeft = Offset(startX, top),
-                size = Size(endX - startX, barHeight),
-                cornerRadius = radius,
-            )
-        }
-        if (endX < size.width) {
-            drawRoundRect(
-                color = Color(0xFFB0B0B0),
-                topLeft = Offset(endX, top),
-                size = Size(size.width - endX, barHeight),
-                cornerRadius = radius,
+
+        if (!menuStyle) {
+            // Placeholder playback thumb; it is intentionally independent of the real player.
+            drawCircle(
+                color = Color.White,
+                radius = 6.dp.toPx(),
+                center = Offset(7.dp.toPx(), size.height / 2f),
             )
         }
     }
