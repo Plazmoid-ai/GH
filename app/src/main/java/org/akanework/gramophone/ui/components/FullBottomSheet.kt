@@ -841,6 +841,21 @@ class FullBottomSheet
         )
         snippetsCapsuleComposeView.isVisible = active
         snippetsProgressComposeView.isVisible = active
+
+        // The custom canvas replaces, rather than overlays, the stock progress bar.
+        if (active) {
+            bottomSheetFullSeekBar.visibility = GONE
+            bottomSheetFullSlider.visibility = GONE
+            bottomSheetFullPosition.visibility = GONE
+            bottomSheetFullDuration.visibility = GONE
+        } else {
+            val useMaterialSlider = prefs.getBooleanStrict("default_progress_bar", false)
+            bottomSheetFullSlider.visibility = if (useMaterialSlider) VISIBLE else GONE
+            bottomSheetFullSeekBar.visibility = if (useMaterialSlider) GONE else VISIBLE
+            bottomSheetFullPosition.visibility = VISIBLE
+            bottomSheetFullDuration.visibility = VISIBLE
+        }
+
         if (!active) {
             SnippetsPreviewState.showSnippetsMenu = false
             snippetsComposeView.visibility = GONE
