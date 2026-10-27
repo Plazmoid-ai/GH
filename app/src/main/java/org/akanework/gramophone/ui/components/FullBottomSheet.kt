@@ -67,6 +67,7 @@ import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.postOnAnimationDelayed
 import androidx.core.widget.NestedScrollView
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.widget.TextViewCompat
@@ -305,12 +306,14 @@ class FullBottomSheet
             visibility = GONE
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                SnippetsMenuLayer {
-                    SnippetsPreviewState.showSnippetsMenu = false
-                    snippetsComposeView.postDelayed(
-                        { snippetsComposeView.visibility = GONE },
-                        400L,
-                    )
+                MaterialTheme {
+                    SnippetsMenuLayer {
+                        SnippetsPreviewState.showSnippetsMenu = false
+                        snippetsComposeView.postDelayed(
+                            { snippetsComposeView.visibility = GONE },
+                            400L,
+                        )
+                    }
                 }
             }
         }
