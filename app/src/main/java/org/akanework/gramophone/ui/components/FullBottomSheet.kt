@@ -68,6 +68,9 @@ import androidx.core.view.isVisible
 import androidx.core.view.postOnAnimationDelayed
 import androidx.core.widget.NestedScrollView
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.widget.TextViewCompat
@@ -268,6 +271,9 @@ class FullBottomSheet
     private val bottomSheetPlaybackSpeedButton: MaterialButton
     private val bottomSheetSnippetsButton: MaterialButton
     private lateinit var snippetsComposeView: ComposeView
+    private lateinit var snippetsCapsuleComposeView: ComposeView
+    private lateinit var snippetsProgressComposeView: ComposeView
+    private lateinit var bottomSheetFullSliderFrame: ViewGroup
     private val bottomSheetFavoriteButton: MaterialButton
     val bottomSheetLyricButton: MaterialButton
     private val bottomSheetFullSeekBar: SeekBar
@@ -280,6 +286,7 @@ class FullBottomSheet
     init {
         inflate(context, R.layout.full_player, this)
         bottomSheetFullCoverFrame = findViewById(R.id.album_cover_frame)
+        bottomSheetFullSliderFrame = findViewById(R.id.slider)
         bottomSheetFullCover = findViewById(R.id.full_sheet_cover)
         bottomSheetFullTitle = findViewById(R.id.full_song_name)
         bottomSheetFullSubtitle = findViewById(R.id.full_song_artist)
@@ -329,7 +336,58 @@ class FullBottomSheet
                 bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
             },
         )
+
+        snippetsCapsuleComposeView = ComposeView(context).apply {
+            visibility = GONE
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                MaterialTheme {
+                    if (SnippetsPreviewState.isSnippetsActive) {
+                        SnippetCapsuleOverlay(Modifier.fillMaxSize())
+                    }
+                }
+            }
+        }
+        bottomSheetFullCoverFrame.addView(
+            snippetsCapsuleComposeView,
+            android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
+        snippetsProgressComposeView = ComposeView(context).apply {
+            visibility = GONE
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                MaterialTheme {
+                    if (SnippetsPreviewState.isSnippetsActive) {
+                        SnippetProgressCanvas(
+                            modifier = Modifier.fillMaxSize(),
+                            interactive = false,
+                            height = 48.dp,
+                        )
+                    }
+                }
+            }
+        }
+        bottomSheetFullSliderFrame.addView(
+            snippetsProgressComposeView,
+            android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
         bottomSheetSnippetsButton.setOnClickListener {
+            ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
+            SnippetsPreviewState.initialize(context)
+            if (SnippetsPreviewState.isSnippetsEnabled) {
+                SnippetsPreviewState.isSnippetsActive = !SnippetsPreviewState.isSnippetsActive
+                updateSnippetsUi()
+            }
+        }
+        bottomSheetSnippetsButton.setOnLongClickListener {
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
             SnippetsPreviewState.initialize(context)
             if (SnippetsPreviewState.isSnippetsEnabled) {
@@ -337,6 +395,7 @@ class FullBottomSheet
                 snippetsComposeView.bringToFront()
                 SnippetsPreviewState.showSnippetsMenu = true
             }
+            true
         }
 
         refreshSettings(null)
@@ -719,9 +778,11 @@ class FullBottomSheet
             SnippetsPreviewState.initialize(context)
             bottomSheetSnippetsButton.isVisible = SnippetsPreviewState.isSnippetsEnabled
             if (!SnippetsPreviewState.isSnippetsEnabled) {
+                SnippetsPreviewState.isSnippetsActive = false
                 SnippetsPreviewState.showSnippetsMenu = false
                 snippetsComposeView.visibility = GONE
             }
+            updateSnippetsUi()
         }
         if (key == null || key == "default_progress_bar") {
             if (prefs.getBooleanStrict("default_progress_bar", false)) {
@@ -763,6 +824,25 @@ class FullBottomSheet
         }
         if (key == null || key == "cookie_cover") {
             bottomSheetFullCover.setClip(prefs.getBooleanStrict("cookie_cover", false))
+        }
+    }
+
+    private fun updateSnippetsUi() {
+        val active = SnippetsPreviewState.isSnippetsEnabled &&
+            SnippetsPreviewState.isSnippetsActive
+        val activeTint = android.graphics.Color.parseColor("#9b8af5")
+        val inactiveTint = MaterialColors.getColor(
+            bottomSheetSnippetsButton,
+            com.google.android.material.R.attr.colorOnSurface,
+        )
+        bottomSheetSnippetsButton.iconTint = ColorStateList.valueOf(
+            if (active) activeTint else inactiveTint
+        )
+        snippetsCapsuleComposeView.isVisible = active
+        snippetsProgressComposeView.isVisible = active
+        if (!active) {
+            SnippetsPreviewState.showSnippetsMenu = false
+            snippetsComposeView.visibility = GONE
         }
     }
 
