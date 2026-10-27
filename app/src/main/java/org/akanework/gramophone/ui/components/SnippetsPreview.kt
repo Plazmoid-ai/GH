@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -171,26 +172,32 @@ private fun DurationAdjustButton(label: String, step: Int) {
             .pointerInput(step) {
                 detectTapGestures(
                     onPress = {
-                        var repeated = false
-                        val repeatJob = launch {
-                            delay(300)
-                            repeated = true
-                            SnippetsPreviewState.updateDuration(
-                                SnippetsPreviewState.previewDurationSec + step,
-                            )
-                            while (true) {
-                                delay(100)
+                        val pressScope = this
+                        coroutineScope {
+                            var repeated = false
+                            val repeatJob = launch {
+                                delay(300)
+                                repeated = true
+                                SnippetsPreviewState.updateDuration(
+                                    SnippetsPreviewState.previewDurationSec + step,
+                                )
+                                while (true) {
+                                    delay(100)
+                                    SnippetsPreviewState.updateDuration(
+                                        SnippetsPreviewState.previewDurationSec + step,
+                                    )
+                                }
+                            }
+                            try {
+                                pressScope.tryAwaitRelease()
+                            } finally {
+                                repeatJob.cancel()
+                            }
+                            if (!repeated) {
                                 SnippetsPreviewState.updateDuration(
                                     SnippetsPreviewState.previewDurationSec + step,
                                 )
                             }
-                        }
-                        tryAwaitRelease()
-                        repeatJob.cancel()
-                        if (!repeated) {
-                            SnippetsPreviewState.updateDuration(
-                                SnippetsPreviewState.previewDurationSec + step,
-                            )
                         }
                     },
                 )
