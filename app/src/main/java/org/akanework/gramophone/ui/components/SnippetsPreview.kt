@@ -39,13 +39,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -209,7 +210,7 @@ private fun SnippetsMenuContent() {
                     },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    label = { Text("Секунды (1–180)") },
+                    label = { Text("Секунды (1–600)") },
                 )
             },
             confirmButton = {
@@ -297,11 +298,21 @@ fun SnippetProgressCanvas(
     menuStyle: Boolean = false,
 ) {
     val zones = SnippetsPreviewState.activeZones
-    val snippetsActive = SnippetsPreviewState.isSnippetsActive
-    val isPlaying = SnippetsPreviewState.isPlaying
     val currentPositionMs = SnippetsPreviewState.currentPositionMs
+    val trackDurationMs = SnippetsPreviewState.trackDurationMs
+    val snippetBounds = SnippetsPreviewState.snippetBounds
     val previewDurationSec = SnippetsPreviewState.previewDurationSec
     val selectedAccentName = SnippetsPreviewState.selectedAccentName
+    val cursorProgressTarget = if (trackDurationMs > 0L) {
+        (currentPositionMs.toFloat() / trackDurationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val cursorProgress by animateFloatAsState(
+        targetValue = cursorProgressTarget,
+        animationSpec = tween(durationMillis = 70, easing = LinearEasing),
+        label = "snippetsPlayerCursor",
+    )
     val selectedAccentColor = SnippetsPreviewState.selectedAccentColor
     val accentBrush = if (selectedAccentName == "Градиент") {
         Brush.horizontalGradient(
@@ -309,21 +320,6 @@ fun SnippetProgressCanvas(
         )
     } else {
         Brush.horizontalGradient(listOf(selectedAccentColor, selectedAccentColor))
-    }
-
-    LaunchedEffect(snippetsActive, isPlaying, menuStyle, previewDurationSec) {
-        if (snippetsActive && isPlaying && !menuStyle) {
-            var lastFrameNanos = 0L
-            while (true) {
-                val frameNanos = withFrameNanos { it }
-                if (lastFrameNanos != 0L) {
-                    SnippetsPreviewState.advanceSimulatedPosition(
-                        ((frameNanos - lastFrameNanos) / 1_000_000L).coerceAtLeast(1L),
-                    )
-                }
-                lastFrameNanos = frameNanos
-            }
-        }
     }
 
     var canvasWidthPx by remember { mutableFloatStateOf(1f) }
@@ -389,21 +385,21 @@ fun SnippetProgressCanvas(
                 size = Size(size.width, barHeight),
                 cornerRadius = radius,
             )
-            for (index in 0..2) {
-                if (zones[index] && selectedAccentColor.alpha > 0f) {
-                    val left = index * segmentWidth
-                    val right = (index + 1) * segmentWidth
-                    drawRoundRect(
-                        brush = accentBrush,
-                        topLeft = Offset(left, top),
-                        size = Size(right - left, barHeight),
-                        cornerRadius = CornerRadius(barHeight / 2f),
-                    )
+            if (trackDurationMs > 0L && selectedAccentColor.alpha > 0f) {
+                snippetBounds.forEach { (startMs, endMs) ->
+                    val left = (startMs.toFloat() / trackDurationMs.toFloat()) * size.width
+                    val right = (endMs.toFloat() / trackDurationMs.toFloat()) * size.width
+                    if (right > left) {
+                        drawRoundRect(
+                            brush = accentBrush,
+                            topLeft = Offset(left, top),
+                            size = Size(right - left, barHeight),
+                            cornerRadius = CornerRadius(barHeight / 2f),
+                        )
+                    }
                 }
             }
-            val trackDurationMs = (previewDurationSec * 3_000L).coerceAtLeast(1L)
-            val progress = (currentPositionMs.toFloat() / trackDurationMs).coerceIn(0f, 1f)
-            val cursorX = (progress * size.width).coerceIn(0f, size.width)
+            val cursorX = (cursorProgress * size.width).coerceIn(0f, size.width)
             drawCircle(
                 color = Color.White,
                 radius = 6.dp.toPx(),

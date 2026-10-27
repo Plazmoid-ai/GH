@@ -171,6 +171,8 @@ class FullBottomSheet
     private var currentDisposable: Disposable? = null
     private var isUserTracking = false
     private var runnableRunning = false
+    private var snippetsConfigurationKey: String? = null
+    private var snippetsPlaybackFinished = false
     private var firstTime = false
     private var enableQualityInfo = false
 
@@ -841,6 +843,14 @@ class FullBottomSheet
         val active = SnippetsPreviewState.isSnippetsEnabled &&
             SnippetsPreviewState.isSnippetsActive
         SnippetsPreviewState.isPlaying = instance?.isPlaying == true
+        if (active) {
+            updateSnippetsPlayback()
+            handler.removeCallbacks(positionRunnable)
+            handler.post(positionRunnable)
+        } else {
+            snippetsConfigurationKey = null
+            snippetsPlaybackFinished = false
+        }
         val activeTint = android.graphics.Color.parseColor("#9b8af5")
         val inactiveTint = MaterialColors.getColor(
             bottomSheetSnippetsButton,
@@ -1609,6 +1619,14 @@ class FullBottomSheet
         } else {
             bottomSheetFullCover.dispose()
         }
+        snippetsConfigurationKey = null
+        if (SnippetsPreviewState.isSnippetsActive) {
+            SnippetsPreviewState.trackDurationMs = 0L
+            SnippetsPreviewState.currentPositionMs = 0L
+            SnippetsPreviewState.snippetBounds = emptyList()
+            SnippetsPreviewState.currentSnippetIndex = 0
+            updateSnippetsPlayback()
+        }
     }
 
     override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
@@ -1697,6 +1715,7 @@ class FullBottomSheet
 
     override fun onPlaybackStateChanged(playbackState: Int) {
         SnippetsPreviewState.isPlaying = instance?.isPlaying == true
+        if (SnippetsPreviewState.isSnippetsActive) updateSnippetsPlayback()
         if (instance?.isPlaying == true) {
             if (bottomSheetFullControllerButton.getTag(R.id.play_next) as Int? != 1) {
                 bottomSheetFullControllerButton.icon =
@@ -1715,7 +1734,10 @@ class FullBottomSheet
             }
             if (!runnableRunning) {
                 runnableRunning = true
-                handler.postDelayed(positionRunnable, SLIDER_UPDATE_INTERVAL)
+                // Snippets mode already has a 50 ms polling loop, including while paused.
+                if (!SnippetsPreviewState.isSnippetsActive) {
+                    handler.postDelayed(positionRunnable, SLIDER_UPDATE_INTERVAL)
+                }
             }
             bottomSheetFullCover.startRotation()
         } else if (playbackState != Player.STATE_BUFFERING) {
@@ -1760,6 +1782,7 @@ class FullBottomSheet
 
     private val positionRunnable = object : Runnable {
         override fun run() {
+            if (SnippetsPreviewState.isSnippetsActive) updateSnippetsPlayback()
             updateDuration()
             if (SnippetsPreviewState.isSnippetsActive) {
                 updateSnippetsTimecodes()
@@ -1774,21 +1797,99 @@ class FullBottomSheet
                 }
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
-            if (instance?.isPlaying == true && runnableRunning) {
-                handler.postDelayed(this, SLIDER_UPDATE_INTERVAL)
+            if ((instance?.isPlaying == true && runnableRunning) ||
+                SnippetsPreviewState.isSnippetsActive
+            ) {
+                handler.postDelayed(
+                    this,
+                    if (SnippetsPreviewState.isSnippetsActive) 50L else SLIDER_UPDATE_INTERVAL,
+                )
             } else {
                 runnableRunning = false
             }
         }
     }
 
+    private fun updateSnippetsPlayback() {
+        val state = SnippetsPreviewState
+        if (!state.isSnippetsEnabled || !state.isSnippetsActive) {
+            snippetsConfigurationKey = null
+            snippetsPlaybackFinished = false
+            return
+        }
+
+        val player = instance ?: return
+        val mediaItem = player.currentMediaItem ?: return
+        val durationMs = player.duration
+            .takeIf { it != C.TIME_UNSET && it > 0L }
+            ?: mediaItem.mediaMetadata.durationMs?.takeIf { it > 0L }
+            ?: return
+        val mediaId = mediaItem.mediaId
+        val configurationKey = buildString {
+            append(mediaId)
+            append('|')
+            append(durationMs)
+            append('|')
+            append(state.previewDurationSec)
+            append('|')
+            append(state.activeZones.joinToString("") { if (it) "1" else "0" })
+        }
+
+        if (configurationKey != snippetsConfigurationKey) {
+            val bounds = state.resolveActiveSnippetBounds(
+                trackDurationMs = durationMs,
+                previewDurationMs = state.previewDurationSec * 1_000L,
+            )
+            if (bounds.isEmpty()) return
+
+            state.trackDurationMs = durationMs
+            state.snippetBounds = bounds
+            state.currentSnippetIndex = 0
+            state.currentPositionMs = bounds.first().first
+            state.isPlaying = player.isPlaying
+            snippetsPlaybackFinished = false
+            // Overflow protection can disable trailing zones, so save the effective selection.
+            snippetsConfigurationKey = buildString {
+                append(mediaId)
+                append('|')
+                append(durationMs)
+                append('|')
+                append(state.previewDurationSec)
+                append('|')
+                append(state.activeZones.joinToString("") { if (it) "1" else "0" })
+            }
+            player.seekTo(bounds.first().first)
+            return
+        }
+
+        state.trackDurationMs = durationMs
+        state.currentPositionMs = player.currentPosition.coerceIn(0L, durationMs)
+        state.isPlaying = player.isPlaying
+        val bounds = state.snippetBounds
+        if (bounds.isEmpty() || snippetsPlaybackFinished) return
+
+        val currentIndex = state.currentSnippetIndex.coerceIn(0, bounds.lastIndex)
+        val currentEndMs = bounds[currentIndex].second
+        if (state.currentPositionMs < currentEndMs) return
+
+        if (currentIndex < bounds.lastIndex) {
+            val nextIndex = currentIndex + 1
+            state.currentSnippetIndex = nextIndex
+            val nextStartMs = bounds[nextIndex].first
+            state.currentPositionMs = nextStartMs
+            player.seekTo(nextStartMs)
+        } else {
+            snippetsPlaybackFinished = true
+            player.pause()
+        }
+    }
+
     private fun updateSnippetsTimecodes() {
         val state = SnippetsPreviewState
-        val totalDurationMs = state.activeZones.count { it } * state.previewDurationSec * 1_000L
         bottomSheetFullPosition.text =
             CalculationUtils.convertDurationToTimeStamp(state.activeElapsedMs())
         bottomSheetFullDuration.text =
-            CalculationUtils.convertDurationToTimeStamp(totalDurationMs)
+            CalculationUtils.convertDurationToTimeStamp(state.totalSnippetDurationMs())
     }
 
     class MyViewModel : ViewModel() {

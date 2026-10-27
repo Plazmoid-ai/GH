@@ -13,23 +13,27 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.preference.PreferenceManager
 
 /**
- * UI-only state for Snippets Preview. It intentionally does not communicate with the player.
+ * State shared by the Snippets Preview controls and the real player controller.
+ * Playback itself remains owned by Gramophone's MediaSession/MediaBrowser.
  */
 object SnippetsPreviewState {
     const val PREFERENCE_KEY = "snippets_preview"
-    const val DUMMY_TRACK_DURATION_MS = 180_000L
+    const val MAX_PREVIEW_DURATION_SEC = 600
 
     var isSnippetsEnabled by mutableStateOf(false)
     var isSnippetsActive by mutableStateOf(false)
     var showSnippetsMenu by mutableStateOf(false)
     var previewDurationSec by mutableStateOf(30)
+    var trackDurationMs by mutableStateOf(0L)
     var currentPositionMs by mutableStateOf(0L)
+    var currentSnippetIndex by mutableStateOf(0)
+    var snippetBounds by mutableStateOf<List<Pair<Long, Long>>>(emptyList())
     var isPlaying by mutableStateOf(false)
     var selectedAccentName by mutableStateOf("По умолчанию")
     val selectedAccentColor: Color
@@ -77,34 +81,103 @@ object SnippetsPreviewState {
     }
 
     fun updateDuration(seconds: Int) {
-        previewDurationSec = seconds.coerceIn(
-            1,
-            (DUMMY_TRACK_DURATION_MS / 1_000L).toInt(),
-        )
+        previewDurationSec = seconds.coerceIn(1, MAX_PREVIEW_DURATION_SEC)
     }
 
-    fun simulatedTrackDurationMs(): Long = previewDurationSec * 3_000L
+    /**
+     * Returns candidate windows for the three macro-zones.
+     * Short previews are centered in the middle micro-zone of each macro-zone,
+     * medium previews in the macro-zone, and longer previews on macro-zone seams.
+     */
+    fun calculateSnippetBounds(
+        trackDurationMs: Long,
+        previewDurationMs: Long,
+    ): List<Pair<Long, Long>> {
+        if (trackDurationMs <= 0L || previewDurationMs <= 0L) return emptyList()
+        if (previewDurationMs >= trackDurationMs) return listOf(0L to trackDurationMs)
 
-    fun advanceSimulatedPosition(deltaMs: Long) {
-        if (!isPlaying || deltaMs <= 0L) return
-        val duration = simulatedTrackDurationMs().coerceAtLeast(1L)
-        currentPositionMs = (currentPositionMs + deltaMs) % duration
+        val macroZoneMs = trackDurationMs / 3L
+        val microZoneMs = macroZoneMs / 3L
+        val latestStart = (trackDurationMs - previewDurationMs).coerceAtLeast(0L)
+
+        return (0..2).map { index ->
+            val macroStart = macroZoneMs * index
+            val center = when {
+                previewDurationMs <= microZoneMs ->
+                    macroStart + microZoneMs + microZoneMs / 2L
+                previewDurationMs <= macroZoneMs ->
+                    macroStart + macroZoneMs / 2L
+                previewDurationMs < macroZoneMs * 2L ->
+                    macroZoneMs * (index + 1L).coerceAtMost(2L)
+                else -> trackDurationMs / 2L
+            }
+            val start = (center - previewDurationMs / 2L).coerceIn(0L, latestStart)
+            start to (start + previewDurationMs).coerceAtMost(trackDurationMs)
+        }
     }
 
+    /**
+     * Applies the selected zones and disables trailing active zones until the
+     * combined preview duration fits the track. If one preview cannot fit,
+     * the complete track is returned as a single window.
+     */
+    fun resolveActiveSnippetBounds(
+        trackDurationMs: Long,
+        previewDurationMs: Long,
+    ): List<Pair<Long, Long>> {
+        if (trackDurationMs <= 0L || previewDurationMs <= 0L) return emptyList()
+
+        if (previewDurationMs >= trackDurationMs) {
+            val keepIndex = activeZones.indexOfFirst { it }.takeIf { it >= 0 } ?: 0
+            activeZones.indices.forEach { activeZones[it] = it == keepIndex }
+            return listOf(0L to trackDurationMs)
+        }
+
+        var selectedIndices = activeZones.indices.filter { activeZones[it] }
+        if (selectedIndices.isEmpty()) {
+            activeZones[0] = true
+            selectedIndices = listOf(0)
+        }
+
+        while (
+            selectedIndices.size > 1 &&
+            previewDurationMs * selectedIndices.size.toLong() > trackDurationMs
+        ) {
+            activeZones[selectedIndices.last()] = false
+            selectedIndices = selectedIndices.dropLast(1)
+        }
+
+        val macroZoneMs = trackDurationMs / 3L
+        if (previewDurationMs > macroZoneMs && previewDurationMs < macroZoneMs * 2L) {
+            // There are only two macro seams available in this size range. When two
+            // zones remain, place them at 1/3 and 2/3 regardless of which toggles were chosen.
+            val centers = if (selectedIndices.size > 1) {
+                listOf(macroZoneMs, macroZoneMs * 2L)
+            } else {
+                listOf(trackDurationMs * 2L / 3L)
+            }
+            val latestStart = (trackDurationMs - previewDurationMs).coerceAtLeast(0L)
+            return selectedIndices.mapIndexed { index, _ ->
+                val center = centers[index.coerceAtMost(centers.lastIndex)]
+                val start = (center - previewDurationMs / 2L).coerceIn(0L, latestStart)
+                start to (start + previewDurationMs).coerceAtMost(trackDurationMs)
+            }.sortedBy { it.first }
+        }
+
+        val candidates = calculateSnippetBounds(trackDurationMs, previewDurationMs)
+        return selectedIndices.map { candidates[it] }.sortedBy { it.first }
+    }
+
+    fun totalSnippetDurationMs(): Long =
+        snippetBounds.sumOf { (start, end) -> (end - start).coerceAtLeast(0L) }
+
+    /** Position within the currently playing snippet, not including gaps or earlier snippets. */
     fun activeElapsedMs(): Long {
-        val zoneDurationMs = previewDurationSec * 1_000L
-        if (zoneDurationMs <= 0L) return 0L
-        val zoneIndex = (currentPositionMs / zoneDurationMs)
-            .toInt()
-            .coerceIn(activeZones.indices)
-        val withinZoneMs = currentPositionMs % zoneDurationMs
-        val completedActiveZones = activeZones.indices
-            .take(zoneIndex)
-            .count { activeZones[it] }
-        val elapsed = completedActiveZones * zoneDurationMs +
-            if (activeZones[zoneIndex]) withinZoneMs else 0L
-        val totalActiveDuration = activeZones.count { it } * zoneDurationMs
-        return elapsed.coerceIn(0L, totalActiveDuration)
+        if (snippetBounds.isEmpty()) return 0L
+        val index = currentSnippetIndex.coerceIn(0, snippetBounds.lastIndex)
+        val (start, end) = snippetBounds[index]
+        return (currentPositionMs - start)
+            .coerceIn(0L, (end - start).coerceAtLeast(0L))
     }
 
     fun toggleZone(index: Int) {
