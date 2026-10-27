@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -187,7 +188,11 @@ private fun DurationAdjustButton(label: String, step: Int) {
                                 while (true) {
                                     delay(100)
                                     val heldMs = SystemClock.elapsedRealtime() - pressedAt
-                                    val accelerationStep = if (heldMs >= 10_000L) 5 else 1
+                                    val accelerationStep = when {
+                                        heldMs >= 20_000L -> 10
+                                        heldMs >= 10_000L -> 5
+                                        else -> 1
+                                    }
                                     SnippetsPreviewState.updateDuration(
                                         SnippetsPreviewState.previewDurationSec + step * accelerationStep,
                                     )
@@ -226,7 +231,17 @@ fun SnippetProgressCanvas(
 ) {
     val zones = SnippetsPreviewState.activeZones
     val zoneColors = zones.map { active ->
-        if (active) Color(0xFF9B8AF5) else Color(0xFF888888)
+        if (active) Color(0xFF9B8AF5) else Color(0xFFA8A8A8)
+    }
+    val snippetsActive = SnippetsPreviewState.isSnippetsActive
+    val currentPositionMs = SnippetsPreviewState.currentPositionMs
+    LaunchedEffect(snippetsActive, menuStyle) {
+        if (snippetsActive && !menuStyle) {
+            while (true) {
+                delay(1_000L)
+                SnippetsPreviewState.advanceSimulatedPosition()
+            }
+        }
     }
     var canvasWidthPx by remember { mutableFloatStateOf(1f) }
 
@@ -275,11 +290,14 @@ fun SnippetProgressCanvas(
         }
 
         if (!menuStyle) {
-            // Placeholder playback thumb; it is intentionally independent of the real player.
+            val trackDurationMs = SnippetsPreviewState.DUMMY_TRACK_DURATION_MS
+            val progress = (currentPositionMs.toFloat() / trackDurationMs)
+                .coerceIn(0f, 1f)
+            val cursorX = (progress * size.width).coerceIn(0f, size.width)
             drawCircle(
                 color = Color.White,
                 radius = 6.dp.toPx(),
-                center = Offset(7.dp.toPx(), size.height / 2f),
+                center = Offset(cursorX, size.height / 2f),
             )
         }
     }
