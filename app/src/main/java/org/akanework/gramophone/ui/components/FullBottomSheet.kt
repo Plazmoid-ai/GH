@@ -379,6 +379,7 @@ class FullBottomSheet
             ),
         )
 
+        // Short tap toggles the preview; long press opens its settings sheet.
         bottomSheetSnippetsButton.setOnClickListener {
             ViewCompat.performHapticFeedback(it, HapticFeedbackConstantsCompat.CONTEXT_CLICK)
             SnippetsPreviewState.initialize(context)
