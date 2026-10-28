@@ -107,7 +107,11 @@ private fun autoCenteredBounds(
     intervalCount: Long,
     ctx: SnippetsContext,
 ): List<LongRange> {
-    if (intervalCount <= 0L || intervalCount > ctx.durationMs / ctx.lengthMs) {
+    if (
+        intervalCount <= 0L ||
+        intervalCount > Int.MAX_VALUE.toLong() ||
+        intervalCount > ctx.durationMs / ctx.lengthMs
+    ) {
         return emptyList()
     }
 
@@ -128,11 +132,12 @@ private fun autoCenteredBounds(
         gapMs = MIN_SNIPPET_GAP_MS
     }
 
-    val result = ArrayList<LongRange>(intervalCount.toInt())
+    val count = intervalCount.toInt()
+    val result = ArrayList<LongRange>(count)
     var startMs = edgeMs
-    repeat(intervalCount.toInt()) {
+    repeat(count) {
         val endExclusiveMs = startMs + ctx.lengthMs
-        result += startMs until endExclusiveMs
+        result.add(startMs..(endExclusiveMs - 1L))
         startMs = endExclusiveMs + gapMs
     }
     return result
@@ -147,12 +152,12 @@ fun fits(state: SnippetsState, ctx: SnippetsContext): Boolean {
     if (ctx.durationMs <= 0L || ctx.lengthMs <= 0L) return false
 
     val expectedCount = if (state.extraIntervalsCount > 0) {
-        3 + state.extraIntervalsCount
+        3L + state.extraIntervalsCount.toLong()
     } else {
-        state.activeHomeZones.count { it }
+        state.activeHomeZones.count { it }.toLong()
     }
     val calculated = bounds(state, ctx)
-    if (calculated.size != expectedCount || calculated.isEmpty()) return false
+    if (calculated.size.toLong() != expectedCount || calculated.isEmpty()) return false
 
     if (calculated.any { range ->
             range.first < 0L ||
