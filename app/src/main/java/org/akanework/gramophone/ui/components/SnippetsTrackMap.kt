@@ -13,7 +13,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -35,17 +34,17 @@ private val DEBUG_ZONE_COUNTS = listOf(1, 3, 4, 5, 7)
 @Composable
 fun SnippetsTrackMap(
     bounds: List<LongRange>,
+    colors: SnippetsColors,
     durationMs: Long,
     positionProvider: () -> Long,
     playWhenReady: Boolean,
 ) {
     // TODO этап 9: удалить — временный цикл тестовых наборов по долгому нажатию.
     var debugSetIndex by remember { mutableIntStateOf(-1) }
-    val colors = MaterialTheme.colorScheme
-    val backgroundColor = colors.surfaceVariant
-    val zoneColor = colors.primary
-    val fillColor = colors.tertiaryContainer
-    val outlineColor = colors.tertiary
+    val backgroundColor = colors.mapTrack
+    val zoneColor = colors.accent
+    val fillColor = colors.accent.copy(alpha = 0.35f)
+    val outlineColor = colors.accent
 
     val displayedBounds = if (debugSetIndex < 0) {
         bounds
@@ -110,23 +109,8 @@ fun SnippetsTrackMap(
                     color = backgroundColor,
                     topLeft = Offset.Zero,
                     size = Size(width, heightPx),
-                    cornerRadius = CornerRadius(outerRadius, outerRadius),
+                    cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
                 )
-
-                displayedBounds.forEach { range ->
-                    val left = (range.first.toDouble() / durationMs.toDouble() * width)
-                        .toFloat().coerceIn(0f, width)
-                    val right = (range.endMsExclusive.toDouble() / durationMs.toDouble() * width)
-                        .toFloat().coerceIn(0f, width)
-                    if (right > left) {
-                        drawRoundRect(
-                            color = zoneColor,
-                            topLeft = Offset(left, inset),
-                            size = Size(right - left, innerHeight),
-                            cornerRadius = CornerRadius(innerRadius, innerRadius),
-                        )
-                    }
-                }
 
                 if (currentIndex >= 0 && displayedBounds.isNotEmpty()) {
                     val currentRange = displayedBounds[currentIndex]
@@ -182,6 +166,22 @@ fun SnippetsTrackMap(
                         color = outlineColor,
                         style = Stroke(width = stroke),
                     )
+                }
+
+                // Draw zone blocks last so they remain visible over progress fill and outline.
+                displayedBounds.forEach { range ->
+                    val left = (range.first.toDouble() / durationMs.toDouble() * width)
+                        .toFloat().coerceIn(0f, width)
+                    val right = (range.endMsExclusive.toDouble() / durationMs.toDouble() * width)
+                        .toFloat().coerceIn(0f, width)
+                    if (right > left) {
+                        drawRoundRect(
+                            color = zoneColor,
+                            topLeft = Offset(left, inset),
+                            size = Size(right - left, innerHeight),
+                            cornerRadius = CornerRadius(innerRadius, innerRadius),
+                        )
+                    }
                 }
             },
     )
