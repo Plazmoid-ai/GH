@@ -168,7 +168,7 @@ class FullBottomSheet
         get() = context as MainActivity
     private val instance: MediaBrowser?
         get() = activity.getPlayer()
-    // This view's `handler` is null until attachment; use a stable main-thread mainHandler.
+    // This view's `handler` is null until attachment; use a handler that already exists.
     private val mainHandler = Handler(Looper.getMainLooper())
     var minimize: (() -> Unit)? = null
 
