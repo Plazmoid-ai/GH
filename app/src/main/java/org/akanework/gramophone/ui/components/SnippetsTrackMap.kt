@@ -148,7 +148,7 @@ fun SnippetsTrackMap(
 
                     val stroke = 2.dp.toPx()
                     val leftRadius = outerRadius
-                    val rightRadius = 6.dp.toPx()
+                    val rightRadius = outerRadius
                     val outlinePath = Path().apply {
                         moveTo(leftRadius, stroke / 2f)
                         lineTo((outlineBoundary - rightRadius).coerceAtLeast(leftRadius), stroke / 2f)
