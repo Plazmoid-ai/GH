@@ -41,9 +41,15 @@ fun SnippetsSandboxScreen() {
     var framePos by remember { mutableLongStateOf(0L) }
     val palettes = remember { palettes() }
     val port = remember { FakePlaybackPort(180_000L) }
-    val holder = remember(port) { SnippetsHolder(port, StubSnippetsEngine()) { intervalSec * 1000L } }
-    val state by holder.state.collectAsState()
     val engine = remember { StubSnippetsEngine() }
+    val holder = remember(port, engine) {
+        SnippetsHolder(port, engine) { intervalSec * 1000L }.also {
+            // Sandbox starts in INTERVALS mode with three active home zones.
+            it.dispatch(SnippetsEvent.TapPlus)
+            it.dispatch(SnippetsEvent.TapPlus)
+        }
+    }
+    val state by holder.state.collectAsState()
     val ctx = SnippetsContext(trackSec * 1000L, intervalSec * 1000L, engine)
     val bounds = remember(state, trackSec, intervalSec) { engine.bounds(state, ctx) }
     port.setBoundsProvider { engine.bounds(holder.state.value, SnippetsContext(port.durationMs.value, intervalSec * 1000L, engine)) }
