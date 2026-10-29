@@ -383,7 +383,7 @@ class FullBottomSheet
                         SnippetsTrackMap(
                             bounds = mapBounds,
                             durationMs = trackDurationMs,
-                            positionProvider = { instance?.currentPosition ?: 0L },
+                            positionProvider = { SnippetsPreviewState.currentPositionMs },
                             playWhenReady = instance?.playWhenReady == true,
                         )
                     }
