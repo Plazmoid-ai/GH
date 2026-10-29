@@ -262,9 +262,9 @@ class FullBottomSheet
                 }
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
-            if ((instance?.isPlaying == true && runnableRunning) ||
-                SnippetsPreviewState.isSnippetsActive
-            ) {
+            if (runnableRunning && isAttachedToWindow && instance != null) {
+                // Keep a single pending callback for this polling cycle.
+                mainHandler.removeCallbacks(this)
                 mainHandler.postDelayed(
                     this,
                     if (SnippetsPreviewState.isSnippetsActive) 16L else SLIDER_UPDATE_INTERVAL,
@@ -426,7 +426,11 @@ class FullBottomSheet
                             bounds = mapBounds,
                             colors = colors,
                             durationMs = trackDurationMs,
-                            positionProvider = { SnippetsPreviewState.currentPositionMs },
+                            // Read the live player position; the polling cycle also updates
+                            // Compose state so the map is redrawn as playback advances.
+                            positionProvider = {
+                                instance?.currentPosition ?: 0L
+                            },
                             playWhenReady = instance?.playWhenReady == true,
                         )
                     }
@@ -757,12 +761,24 @@ class FullBottomSheet
             )
             onMediaMetadataChanged(instance?.mediaMetadata ?: MediaMetadata.EMPTY)
             firstTime = false
+            // The controller can be new after Activity stop/recreation.
+            ensurePositionUpdates()
         }
     }
 
+    /**
+     * Starts the single position polling cycle only when its prerequisites are present.
+     * Safe to call from attachment, playback, and controller lifecycle callbacks.
+     */
+    fun ensurePositionUpdates() {
+        if (runnableRunning || !isAttachedToWindow || instance == null) return
+        mainHandler.removeCallbacks(positionRunnable)
+        runnableRunning = true
+        mainHandler.post(positionRunnable)
+    }
+
     override fun onDetachedFromWindow() {
-        // A main-thread Handler is not tied to this View's attachment state.
-        // Stop its callbacks so an old Activity cannot keep polling after recreation.
+        // Stop callbacks so an old Activity cannot keep polling after recreation.
         mainHandler.removeCallbacks(positionRunnable)
         mainHandler.removeCallbacks(formatUpdateRunnable)
         runnableRunning = false
@@ -771,14 +787,8 @@ class FullBottomSheet
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        // Resume position updates after a temporary detach or Activity recreation.
-        if (SnippetsPreviewState.isSnippetsActive) {
-            mainHandler.removeCallbacks(positionRunnable)
-            mainHandler.post(positionRunnable)
-        } else if (instance?.isPlaying == true && !runnableRunning) {
-            runnableRunning = true
-            mainHandler.postDelayed(positionRunnable, SLIDER_UPDATE_INTERVAL)
-        }
+        // The controller may connect after attachment; its connection callback retries this.
+        ensurePositionUpdates()
         val colorPrimary =
             MaterialColors.getColor(
                 context,
@@ -923,8 +933,7 @@ class FullBottomSheet
         SnippetsPreviewState.isPlaying = instance?.isPlaying == true
         if (active) {
             updateSnippetsPlayback()
-            mainHandler.removeCallbacks(positionRunnable)
-            mainHandler.post(positionRunnable)
+            ensurePositionUpdates()
         } else {
             snippetsConfigurationKey = null
             snippetsPlaybackFinished = false
@@ -1109,6 +1118,7 @@ class FullBottomSheet
 
     fun onStop() {
         pqs?.dismiss()
+        mainHandler.removeCallbacks(positionRunnable)
         runnableRunning = false
     }
 
@@ -1796,6 +1806,10 @@ class FullBottomSheet
         onPlaybackStateChanged(instance?.playbackState ?: Player.STATE_IDLE)
     }
 
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        if (playWhenReady) ensurePositionUpdates()
+    }
+
     override fun onPlaybackStateChanged(playbackState: Int) {
         SnippetsPreviewState.isPlaying = instance?.isPlaying == true
         if (SnippetsPreviewState.isSnippetsActive) updateSnippetsPlayback()
@@ -1815,13 +1829,7 @@ class FullBottomSheet
             if (!isUserTracking) {
                 progressDrawable.animate = true
             }
-            if (!runnableRunning) {
-                runnableRunning = true
-                // Snippets mode already has a 50 ms polling loop, including while paused.
-                if (!SnippetsPreviewState.isSnippetsActive) {
-                    mainHandler.postDelayed(positionRunnable, SLIDER_UPDATE_INTERVAL)
-                }
-            }
+            ensurePositionUpdates()
             bottomSheetFullCover.startRotation()
         } else if (playbackState != Player.STATE_BUFFERING) {
             if (bottomSheetFullControllerButton.getTag(R.id.play_next) as Int? != 2) {
@@ -1963,8 +1971,19 @@ class FullBottomSheet
 
     private fun updateSnippetsTimecodes() {
         val state = SnippetsPreviewState
+        // Use the controller's live position for the elapsed clock instead of relying
+        // on currentPositionMs being refreshed by a previous polling callback.
+        val positionMs = instance?.currentPosition ?: state.currentPositionMs
+        val bounds = state.snippetBounds
+        val activeElapsedMs = if (bounds.isEmpty()) {
+            0L
+        } else {
+            val index = state.currentSnippetIndex.coerceIn(0, bounds.lastIndex)
+            val (startMs, endMs) = bounds[index]
+            (positionMs - startMs).coerceIn(0L, (endMs - startMs).coerceAtLeast(0L))
+        }
         bottomSheetFullPosition.text =
-            CalculationUtils.convertDurationToTimeStamp(state.activeElapsedMs())
+            CalculationUtils.convertDurationToTimeStamp(activeElapsedMs)
         bottomSheetFullDuration.text =
             CalculationUtils.convertDurationToTimeStamp(state.totalSnippetDurationMs())
     }
