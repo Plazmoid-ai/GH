@@ -76,6 +76,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.os.SystemClock
 
+// TODO этап 9: удалить
+const val LEGACY_ZONE_CONTROLS_ENABLED = false
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SnippetsMenuLayer(onDismiss: () -> Unit) {
@@ -132,7 +135,9 @@ private fun SnippetsMenuContent() {
 
         Spacer(Modifier.height(24.dp))
 
-        SnippetProgressCanvas(menuStyle = true)
+        if (LEGACY_ZONE_CONTROLS_ENABLED) {
+            SnippetProgressCanvas(menuStyle = true)
+        }
 
         Spacer(Modifier.height(24.dp))
         Text(
