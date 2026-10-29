@@ -1807,8 +1807,6 @@ class FullBottomSheet
             updateDuration()
             if (SnippetsPreviewState.isSnippetsActive) {
                 updateSnippetsTimecodes()
-                // Redraw the stateless map; it reads the live player position only in drawBehind.
-                snippetsProgressComposeView.invalidate()
             } else {
                 val position =
                     CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
