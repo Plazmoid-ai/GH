@@ -868,8 +868,9 @@ class FullBottomSheet
             if (SnippetsPreviewState.isSnippetsActive) {
                 bottomSheetFullSlider.visibility = GONE
                 bottomSheetFullSeekBar.visibility = GONE
-                bottomSheetFullPosition.visibility = GONE
-                bottomSheetFullDuration.visibility = GONE
+                // Keep elapsed and total time visible alongside the track's audio-format details.
+                bottomSheetFullPosition.visibility = VISIBLE
+                bottomSheetFullDuration.visibility = VISIBLE
             } else if (prefs.getBooleanStrict("default_progress_bar", false)) {
                 bottomSheetFullSlider.visibility = VISIBLE
                 bottomSheetFullSeekBar.visibility = GONE
