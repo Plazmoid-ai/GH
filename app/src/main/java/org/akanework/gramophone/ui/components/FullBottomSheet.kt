@@ -1750,8 +1750,17 @@ class FullBottomSheet
             bottomSheetFullCover.dispose()
         }
         snippetsConfigurationKey = null
-        // Only a real media-item transition may start a new preview at its first zone.
-        snippetsSeekToStartOnTransition = SnippetsPreviewState.isSnippetsActive
+        // A synthetic PLAYLIST_CHANGED callback is also sent when the controller reconnects.
+        // Do not treat that callback as a new-track transition for Snippets.
+        val isRealSnippetsTransition =
+            reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+        snippetsSeekToStartOnTransition =
+            isRealSnippetsTransition && SnippetsPreviewState.isSnippetsActive
+        SnippetsDebug.log(
+            "onMediaItemTransition",
+            "transitionFilter isReal=$isRealSnippetsTransition reason=$reason active=${SnippetsPreviewState.isSnippetsActive} seekToStart=$snippetsSeekToStartOnTransition"
+        )
         if (SnippetsPreviewState.isSnippetsActive) {
             SnippetsPreviewState.trackDurationMs = 0L
             SnippetsPreviewState.currentPositionMs = 0L
@@ -2004,14 +2013,24 @@ class FullBottomSheet
             }
             if (snippetsSeekToStartOnTransition) {
                 snippetsSeekToStartOnTransition = false
-                val firstStartMs = bounds.first().first
-                state.currentSnippetIndex = 0
-                state.currentPositionMs = firstStartMs
-                SnippetsDebug.log(
-                    "seekTo",
-                    "target=$firstStartMs current=${player.currentPosition} reason=mediaItemTransitionStart caller=${Throwable().stackTrace.getOrNull(2)?.methodName}"
-                )
-                player.seekTo(firstStartMs)
+                val firstStartMs = bounds.firstOrNull()?.first ?: 0L
+                val lastEndMs = bounds.lastOrNull()?.second ?: 0L
+                val currentPos = player.currentPosition
+
+                if (currentPos < firstStartMs || currentPos > lastEndMs) {
+                    state.currentSnippetIndex = 0
+                    state.currentPositionMs = firstStartMs
+                    SnippetsDebug.log(
+                        "seekTo",
+                        "target=$firstStartMs current=$currentPos reason=mediaItemTransitionStart action=seek boundsEnvelope=$firstStartMs..$lastEndMs caller=${Throwable().stackTrace.getOrNull(2)?.methodName}"
+                    )
+                    player.seekTo(firstStartMs)
+                } else {
+                    SnippetsDebug.log(
+                        "seekTo",
+                        "target=$firstStartMs current=$currentPos reason=mediaItemTransitionStart action=skip_inside_bounds_envelope boundsEnvelope=$firstStartMs..$lastEndMs"
+                    )
+                }
             }
             logSnippetsPlaybackSnapshot("return configurationChanged", player, bounds.size)
             return
