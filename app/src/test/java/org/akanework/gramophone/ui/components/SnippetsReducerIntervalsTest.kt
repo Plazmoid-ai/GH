@@ -99,6 +99,32 @@ class SnippetsReducerIntervalsTest {
     }
 
     @Test
+    fun pausedTapPlusSkipsFreeHomeThatDoesNotFitAndUsesNextFittingHome() {
+        val ctx = SnippetsContext(durationMs = 240_000L, lengthMs = 75_000L)
+        val state = intervalsState(active = listOf(true, false, false))
+        val firstCandidate = state.copy(activeHomeZones = listOf(true, true, false))
+        val secondCandidate = state.copy(activeHomeZones = listOf(true, false, true))
+        assertFalse(
+            "Expected enabling home zone 1 not to fit; actual fits=${fits(firstCandidate, ctx)}",
+            fits(firstCandidate, ctx),
+        )
+        assertTrue(
+            "Expected enabling home zone 2 to fit; actual fits=${fits(secondCandidate, ctx)}",
+            fits(secondCandidate, ctx),
+        )
+
+        val (actual, effect) = reduce(
+            state,
+            SnippetsEvent.TapPlus,
+            ctx,
+            playing = false,
+        )
+
+        assertEquals("TapPlus must skip the non-fitting lower-index home and enable zone 2; actual=$actual", secondCandidate, actual)
+        assertSeekMatchesNewState(effect, actual, ctx, "TapPlus choosing the next fitting home")
+    }
+
+    @Test
     fun pausedTapPlusShowsTooltipWhenNoExtraIntervalCanFit() {
         val ctx = SnippetsContext(durationMs = 65_000L, lengthMs = 10_000L)
         val state = intervalsState(active = listOf(true, true, true))
