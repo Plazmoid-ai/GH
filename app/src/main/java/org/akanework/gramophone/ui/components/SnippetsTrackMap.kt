@@ -10,9 +10,10 @@
 package org.akanework.gramophone.ui.components
 
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -21,18 +22,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.MaterialTheme
-import kotlin.math.max
 
 private val DEBUG_ZONE_COUNTS = listOf(1, 3, 4, 5, 7)
 
@@ -43,7 +39,7 @@ fun SnippetsTrackMap(
     positionProvider: () -> Long,
     playWhenReady: Boolean,
 ) {
-    // TODO этап 9: удалить — temporary long-press cycle for visual verification.
+    // TODO этап 9: удалить — временный цикл тестовых наборов по долгому нажатию.
     var debugSetIndex by remember { mutableIntStateOf(-1) }
     val colors = MaterialTheme.colorScheme
     val backgroundColor = colors.surfaceVariant
@@ -76,21 +72,10 @@ fun SnippetsTrackMap(
         )
     }
 
-    val zoneIndexAtPosition by remember(displayedBounds, durationMs, playWhenReady) {
-        derivedStateOf {
-            // Evaluated only from the draw phase below; position is never read in composition.
-            val position = positionProvider()
-            displayedBounds.indexOfLast { it.first <= position }
-                .coerceIn(-1, displayedBounds.lastIndex)
-        }
-    }
-
-    Modifier
-    androidx.compose.foundation.Canvas(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(20.dp)
-            .padding(0.dp)
             .pointerInput(debugSetIndex, displayedBounds, durationMs) {
                 detectTapGestures(
                     onLongPress = {
@@ -99,19 +84,20 @@ fun SnippetsTrackMap(
                 )
             }
             .drawBehind {
-                val trackDuration = durationMs
-                if (trackDuration <= 0L) return@drawBehind
+                if (durationMs <= 0L) return@drawBehind
 
-                val position = positionProvider()
-                val currentIndex = displayedBounds.indexOfLast { it.first <= position }
-                    .coerceIn(-1, displayedBounds.lastIndex)
+                val positionMs = positionProvider()
+                // The index is derived in the draw phase: player position is never read in composition.
+                val currentIndex = derivedStateOf {
+                    displayedBounds.indexOfLast { it.first <= positionMs }
+                        .coerceIn(-1, displayedBounds.lastIndex)
+                }.value
 
                 val width = size.width
                 val heightPx = size.height
                 val outerRadius = heightPx / 2f
-                val innerInset = 5.dp.toPx()
-                val innerTop = innerInset
-                val innerHeight = (heightPx - innerInset * 2f).coerceAtLeast(0f)
+                val inset = 5.dp.toPx()
+                val innerHeight = (heightPx - inset * 2f).coerceAtLeast(0f)
                 val innerRadius = 3.dp.toPx()
 
                 drawRoundRect(
@@ -122,14 +108,14 @@ fun SnippetsTrackMap(
                 )
 
                 displayedBounds.forEach { range ->
-                    val left = (range.first.toDouble() / trackDuration.toDouble() * width).toFloat()
-                        .coerceIn(0f, width)
-                    val right = (range.endMsExclusive.toDouble() / trackDuration.toDouble() * width).toFloat()
-                        .coerceIn(0f, width)
+                    val left = (range.first.toDouble() / durationMs.toDouble() * width)
+                        .toFloat().coerceIn(0f, width)
+                    val right = (range.endMsExclusive.toDouble() / durationMs.toDouble() * width)
+                        .toFloat().coerceIn(0f, width)
                     if (right > left) {
                         drawRoundRect(
                             color = zoneColor,
-                            topLeft = Offset(left, innerTop),
+                            topLeft = Offset(left, inset),
                             size = Size(right - left, innerHeight),
                             cornerRadius = CornerRadius(innerRadius, innerRadius),
                         )
@@ -138,51 +124,57 @@ fun SnippetsTrackMap(
 
                 if (currentIndex >= 0 && displayedBounds.isNotEmpty()) {
                     val currentRange = displayedBounds[currentIndex]
-                    val fillBoundary = if (currentIndex == displayedBounds.lastIndex) {
-                        width
+                    val fillBoundary = if (currentIndex == 0) {
+                        0f
                     } else {
-                        val nextStart = displayedBounds[currentIndex + 1].first
-                        val currentEnd = currentRange.endMsExclusive
-                        (((currentEnd + nextStart) / 2.0) / trackDuration.toDouble() * width)
+                        val previousEnd = displayedBounds[currentIndex - 1].endMsExclusive
+                        (((previousEnd + currentRange.first) / 2.0) / durationMs.toDouble() * width)
                             .toFloat().coerceIn(0f, width)
                     }
                     val outlineBoundary = if (currentIndex == displayedBounds.lastIndex) {
                         width
                     } else {
                         val nextStart = displayedBounds[currentIndex + 1].first
-                        val currentEnd = currentRange.endMsExclusive
-                        (((currentEnd + nextStart) / 2.0) / trackDuration.toDouble() * width)
+                        (((currentRange.endMsExclusive + nextStart) / 2.0) / durationMs.toDouble() * width)
                             .toFloat().coerceIn(0f, width)
                     }
-                    if (position > displayedBounds.first().first) {
+                    val afterLastZone = currentIndex == displayedBounds.lastIndex &&
+                        positionMs >= currentRange.endMsExclusive
+                    val effectiveFillBoundary = if (afterLastZone) width else fillBoundary
+
+                    if (positionMs > displayedBounds.first().first && effectiveFillBoundary > 0f) {
                         val fillPath = Path().apply {
-                            val radius = outerRadius
                             moveTo(0f, 0f)
-                            lineTo((fillBoundary - radius).coerceAtLeast(0f), 0f)
-                            quadraticTo(fillBoundary, 0f, fillBoundary, radius)
-                            lineTo(fillBoundary, heightPx - radius)
-                            quadraticTo(fillBoundary, heightPx, (fillBoundary - radius).coerceAtLeast(0f), heightPx)
+                            lineTo(effectiveFillBoundary, 0f)
+                            lineTo(effectiveFillBoundary, heightPx)
                             lineTo(0f, heightPx)
+                            quadraticTo(0f, heightPx, 0f, heightPx - outerRadius)
+                            lineTo(0f, outerRadius)
+                            quadraticTo(0f, 0f, outerRadius, 0f)
                             close()
                         }
                         drawPath(fillPath, fillColor)
                     }
+
+                    val stroke = 2.dp.toPx()
+                    val leftRadius = outerRadius
+                    val rightRadius = 6.dp.toPx()
                     val outlinePath = Path().apply {
-                        moveTo(outerRadius, 1.dp.toPx())
-                        lineTo((outlineBoundary - 6.dp.toPx()).coerceAtLeast(outerRadius), 1.dp.toPx())
-                        quadraticTo(outlineBoundary, 1.dp.toPx(), outlineBoundary, 6.dp.toPx())
-                        lineTo(outlineBoundary, heightPx - 6.dp.toPx())
-                        quadraticTo(outlineBoundary, heightPx - 1.dp.toPx(), (outlineBoundary - 6.dp.toPx()).coerceAtLeast(outerRadius), heightPx - 1.dp.toPx())
-                        lineTo(outerRadius, heightPx - 1.dp.toPx())
-                        quadraticTo(1.dp.toPx(), heightPx - 1.dp.toPx(), 1.dp.toPx(), heightPx - outerRadius)
-                        lineTo(1.dp.toPx(), outerRadius)
-                        quadraticTo(1.dp.toPx(), 1.dp.toPx(), outerRadius, 1.dp.toPx())
+                        moveTo(leftRadius, stroke / 2f)
+                        lineTo((outlineBoundary - rightRadius).coerceAtLeast(leftRadius), stroke / 2f)
+                        quadraticTo(outlineBoundary, stroke / 2f, outlineBoundary, rightRadius)
+                        lineTo(outlineBoundary, heightPx - rightRadius)
+                        quadraticTo(outlineBoundary, heightPx - stroke / 2f, (outlineBoundary - rightRadius).coerceAtLeast(leftRadius), heightPx - stroke / 2f)
+                        lineTo(leftRadius, heightPx - stroke / 2f)
+                        quadraticTo(stroke / 2f, heightPx - stroke / 2f, stroke / 2f, heightPx - leftRadius)
+                        lineTo(stroke / 2f, leftRadius)
+                        quadraticTo(stroke / 2f, stroke / 2f, leftRadius, stroke / 2f)
                         close()
                     }
                     drawPath(
                         path = outlinePath,
                         color = outlineColor,
-                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+                        style = Stroke(width = stroke),
                     )
                 }
             },
