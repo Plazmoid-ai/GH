@@ -30,6 +30,8 @@ import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Parcelable
 import android.text.format.DateFormat
 import android.util.AttributeSet
@@ -166,6 +168,8 @@ class FullBottomSheet
         get() = context as MainActivity
     private val instance: MediaBrowser?
         get() = activity.getPlayer()
+    // This view's `handler` is null until attachment; use a stable main-thread mainHandler.
+    private val mainHandler = Handler(Looper.getMainLooper())
     var minimize: (() -> Unit)? = null
 
     private val viewModel by activity.viewModels<MyViewModel>()
@@ -241,6 +245,36 @@ class FullBottomSheet
                 AudioFormatDetector.detectAudioFormat(currentFormat) else null
         )
     }
+    private val positionRunnable = object : Runnable {
+        override fun run() {
+            if (SnippetsPreviewState.isSnippetsActive) updateSnippetsPlayback()
+            updateDuration()
+            if (SnippetsPreviewState.isSnippetsActive) {
+                updateSnippetsTimecodes()
+            } else {
+                val position =
+                    CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
+                if (!isUserTracking) {
+                    bottomSheetFullSeekBar.progress = instance?.currentPosition?.toInt() ?: 0
+                    bottomSheetFullSlider.value =
+                        min(instance?.currentPosition?.toFloat() ?: 0f, bottomSheetFullSlider.valueTo)
+                    bottomSheetFullPosition.text = position
+                }
+            }
+            bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
+            if ((instance?.isPlaying == true && runnableRunning) ||
+                SnippetsPreviewState.isSnippetsActive
+            ) {
+                mainHandler.postDelayed(
+                    this,
+                    if (SnippetsPreviewState.isSnippetsActive) 16L else SLIDER_UPDATE_INTERVAL,
+                )
+            } else {
+                runnableRunning = false
+            }
+        }
+    }
+
     var visibilityDueToLyrics: Int = VISIBLE
         set(value) {
             if (field != value) {
@@ -442,10 +476,10 @@ class FullBottomSheet
                     val format = instance?.getAudioFormat()
                     this.currentFormat = format
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-                        !handler.hasCallbacks(formatUpdateRunnable)
+                        !mainHandler.hasCallbacks(formatUpdateRunnable)
                     ) {
                         // TODO: is 300ms long enough wait for stuff like bitrate? 100ms isn't.
-                        handler.postDelayed(formatUpdateRunnable, 300)
+                        mainHandler.postDelayed(formatUpdateRunnable, 300)
                     }
                 }
 
@@ -726,8 +760,25 @@ class FullBottomSheet
         }
     }
 
+    override fun onDetachedFromWindow() {
+        // A main-thread Handler is not tied to this View's attachment state.
+        // Stop its callbacks so an old Activity cannot keep polling after recreation.
+        mainHandler.removeCallbacks(positionRunnable)
+        mainHandler.removeCallbacks(formatUpdateRunnable)
+        runnableRunning = false
+        super.onDetachedFromWindow()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        // Resume position updates after a temporary detach or Activity recreation.
+        if (SnippetsPreviewState.isSnippetsActive) {
+            mainHandler.removeCallbacks(positionRunnable)
+            mainHandler.post(positionRunnable)
+        } else if (instance?.isPlaying == true && !runnableRunning) {
+            runnableRunning = true
+            mainHandler.postDelayed(positionRunnable, SLIDER_UPDATE_INTERVAL)
+        }
         val colorPrimary =
             MaterialColors.getColor(
                 context,
@@ -871,8 +922,8 @@ class FullBottomSheet
         SnippetsPreviewState.isPlaying = instance?.isPlaying == true
         if (active) {
             updateSnippetsPlayback()
-            handler.removeCallbacks(positionRunnable)
-            handler.post(positionRunnable)
+            mainHandler.removeCallbacks(positionRunnable)
+            mainHandler.post(positionRunnable)
         } else {
             snippetsConfigurationKey = null
             snippetsPlaybackFinished = false
@@ -1767,7 +1818,7 @@ class FullBottomSheet
                 runnableRunning = true
                 // Snippets mode already has a 50 ms polling loop, including while paused.
                 if (!SnippetsPreviewState.isSnippetsActive) {
-                    handler.postDelayed(positionRunnable, SLIDER_UPDATE_INTERVAL)
+                    mainHandler.postDelayed(positionRunnable, SLIDER_UPDATE_INTERVAL)
                 }
             }
             bottomSheetFullCover.startRotation()
@@ -1811,35 +1862,6 @@ class FullBottomSheet
         }
     }
 
-    private val positionRunnable = object : Runnable {
-        override fun run() {
-            if (SnippetsPreviewState.isSnippetsActive) updateSnippetsPlayback()
-            updateDuration()
-            if (SnippetsPreviewState.isSnippetsActive) {
-                updateSnippetsTimecodes()
-            } else {
-                val position =
-                    CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
-                if (!isUserTracking) {
-                    bottomSheetFullSeekBar.progress = instance?.currentPosition?.toInt() ?: 0
-                    bottomSheetFullSlider.value =
-                        min(instance?.currentPosition?.toFloat() ?: 0f, bottomSheetFullSlider.valueTo)
-                    bottomSheetFullPosition.text = position
-                }
-            }
-            bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
-            if ((instance?.isPlaying == true && runnableRunning) ||
-                SnippetsPreviewState.isSnippetsActive
-            ) {
-                handler.postDelayed(
-                    this,
-                    if (SnippetsPreviewState.isSnippetsActive) 16L else SLIDER_UPDATE_INTERVAL,
-                )
-            } else {
-                runnableRunning = false
-            }
-        }
-    }
 
     private fun updateSnippetsPlayback() {
         val state = SnippetsPreviewState
