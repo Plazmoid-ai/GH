@@ -365,11 +365,26 @@ class FullBottomSheet
             setContent {
                 MaterialTheme {
                     if (SnippetsPreviewState.isSnippetsActive) {
-                        SnippetProgressCanvas(
-                            modifier = Modifier.fillMaxSize(),
-                            interactive = true,
-                            height = 48.dp,
-                            onSeekToPosition = { targetMs -> instance?.seekTo(targetMs) },
+                        val trackDurationMs = SnippetsPreviewState.trackDurationMs
+                        val lengthMs = SnippetsPreviewState.previewDurationSec * 1_000L
+                        val initialState = SnippetsState(
+                            mode = SnippetsMode.PREVIEW,
+                            selectedPreviewZone = 0,
+                            activeHomeZones = listOf(true, false, false),
+                            extraIntervalsCount = 0,
+                        ).normalized()
+                        val mapBounds = SnippetsIntervalLogic.bounds(
+                            initialState,
+                            SnippetsContext(
+                                durationMs = trackDurationMs,
+                                lengthMs = lengthMs,
+                            ),
+                        )
+                        SnippetsTrackMap(
+                            bounds = mapBounds,
+                            durationMs = trackDurationMs,
+                            positionProvider = { instance?.currentPosition ?: 0L },
+                            playWhenReady = instance?.playWhenReady == true,
                         )
                     }
                 }
@@ -1792,6 +1807,8 @@ class FullBottomSheet
             updateDuration()
             if (SnippetsPreviewState.isSnippetsActive) {
                 updateSnippetsTimecodes()
+                // Redraw the stateless map; it reads the live player position only in drawBehind.
+                snippetsProgressComposeView.invalidate()
             } else {
                 val position =
                     CalculationUtils.convertDurationToTimeStamp(instance?.currentPosition ?: 0)
