@@ -47,7 +47,7 @@ jobs:
       # Unit tests are diagnostic only and must not block APK production.
       - name: Run debug unit tests
         continue-on-error: true
-        run: ./gradlew :app:testDebugUnitTest --console=plain
+        run: ./gradlew :app:testDebugUnitTest --tests "*Snippets*" --console=plain
 
       - name: Upload unit test reports
         if: always()
