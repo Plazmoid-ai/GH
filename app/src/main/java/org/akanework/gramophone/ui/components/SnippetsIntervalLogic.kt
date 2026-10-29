@@ -19,8 +19,11 @@ enum class SnippetsMode {
 /**
  * Pure model of the preview/interval selection. This does not own playback or UI state.
  *
- * PREVIEW always has exactly one active home zone and no extra intervals.
- * Extra intervals are only valid in INTERVALS mode, where all three home zones are active.
+ * Valid PREVIEW state has exactly one active home zone and no extra intervals.
+ * If extra intervals are present, all home zones must be active in INTERVALS mode.
+ *
+ * Constructor deliberately does not enforce invariants: callers can validate with isValid()
+ * or repair input with normalized().
  */
 data class SnippetsState(
     val mode: SnippetsMode = SnippetsMode.PREVIEW,
@@ -28,30 +31,57 @@ data class SnippetsState(
     val activeHomeZones: List<Boolean> = listOf(true, false, false),
     val extraIntervalsCount: Int = 0,
 ) {
-    init {
-        require(selectedPreviewZone in 0..2) {
-            "selectedPreviewZone must be in 0..2"
-        }
-        require(activeHomeZones.size == 3) {
-            "activeHomeZones must contain exactly three entries"
-        }
-        require(activeHomeZones.any { it }) {
-            "At least one home zone must be active"
-        }
-        require(extraIntervalsCount >= 0) {
-            "extraIntervalsCount cannot be negative"
-        }
+    fun isValid(): Boolean {
+        if (selectedPreviewZone !in 0..2) return false
+        if (activeHomeZones.size != 3) return false
+        if (activeHomeZones.none { it }) return false
+        if (extraIntervalsCount < 0) return false
+
         if (mode == SnippetsMode.PREVIEW) {
-            require(activeHomeZones.count { it } == 1 && extraIntervalsCount == 0) {
-                "PREVIEW requires exactly one active home zone and no extra intervals"
-            }
-            require(activeHomeZones[selectedPreviewZone]) {
-                "The selected preview zone must be the only active home zone"
-            }
+            if (activeHomeZones.count { it } != 1 || extraIntervalsCount != 0) return false
+            if (!activeHomeZones[selectedPreviewZone]) return false
         }
         if (extraIntervalsCount > 0) {
-            require(mode == SnippetsMode.INTERVALS && activeHomeZones.all { it }) {
-                "Extra intervals require INTERVALS mode and all three home zones active"
+            if (mode != SnippetsMode.INTERVALS || !activeHomeZones.all { it }) return false
+        }
+        return true
+    }
+
+    /**
+     * Returns a state with the mode invariants repaired.
+     * PREVIEW keeps only the selected home zone and clears extra intervals.
+     * Any positive extra count switches to INTERVALS and enables all home zones.
+     */
+    fun normalized(): SnippetsState {
+        val selected = selectedPreviewZone.coerceIn(0, 2)
+        val homeZones = activeHomeZones.take(3).toMutableList().apply {
+            while (size < 3) add(false)
+        }
+        val extras = extraIntervalsCount.coerceAtLeast(0)
+
+        return when {
+            extras > 0 -> copy(
+                mode = SnippetsMode.INTERVALS,
+                selectedPreviewZone = selected,
+                activeHomeZones = listOf(true, true, true),
+                extraIntervalsCount = extras,
+            )
+
+            mode == SnippetsMode.PREVIEW -> copy(
+                mode = SnippetsMode.PREVIEW,
+                selectedPreviewZone = selected,
+                activeHomeZones = List(3) { it == selected },
+                extraIntervalsCount = 0,
+            )
+
+            else -> {
+                if (homeZones.none { it }) homeZones[selected] = true
+                copy(
+                    mode = SnippetsMode.INTERVALS,
+                    selectedPreviewZone = selected,
+                    activeHomeZones = homeZones.toList(),
+                    extraIntervalsCount = 0,
+                )
             }
         }
     }
@@ -62,9 +92,13 @@ data class SnippetsContext(
     val lengthMs: Long,
 )
 
+/** Inclusive LongRange end represented as the first millisecond position after the range. */
+val LongRange.endExclusive: Long
+    get() = last + 1L
+
 /**
- * Returns the active zones as LongRanges. The range endpoints are inclusive, so each
- * returned range contains exactly lengthMs millisecond positions when it fits.
+ * Returns the active zones as inclusive LongRanges. The range endpoints are inclusive,
+ * so a zone of lengthMs contains exactly lengthMs millisecond positions when it fits.
  *
  * For up to three active zones, starts are taken from the existing calculateSnippetBounds()
  * algorithm. We deliberately do not call resolveActiveSnippetBounds(): it reads and mutates
@@ -88,8 +122,6 @@ fun bounds(state: SnippetsState, ctx: SnippetsContext): List<LongRange> {
     )
     if (candidates.isEmpty()) return emptyList()
 
-    // The existing calculator collapses to the whole track when length >= duration.
-    // Keep that real boundary; fits() will reject it if the requested interval cannot fit.
     if (candidates.size == 1) {
         return candidates.mapNotNull { (start, endExclusive) ->
             start.toInclusiveRange(endExclusive)
@@ -161,15 +193,15 @@ fun fits(state: SnippetsState, ctx: SnippetsContext): Boolean {
 
     if (calculated.any { range ->
             range.first < 0L ||
-                range.last >= ctx.durationMs ||
-                range.last - range.first + 1L < ctx.lengthMs
+                range.endExclusive > ctx.durationMs ||
+                range.endExclusive - range.first < ctx.lengthMs
         }
     ) {
         return false
     }
 
     return calculated.zipWithNext().all { (current, next) ->
-        next.first - current.last - 1L >= MIN_SNIPPET_GAP_MS
+        next.first - current.endExclusive >= MIN_SNIPPET_GAP_MS
     }
 }
 

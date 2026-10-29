@@ -283,6 +283,13 @@ android {
     testOptions.unitTests.isIncludeAndroidResources = true
 }
 
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging {
+        events("passed", "failed")
+        showStandardStreams = true
+    }
+}
+
 resourcePlaceholders {
     files.set(listOf("xml/shortcuts.xml"))
 }
