@@ -231,8 +231,17 @@ class SnippetsReducerIntervalsTest {
 
     @Test
     fun tapPlusWithExtraIntervalsShowsTooltipWhenIncreasingNDoesNotFit() {
-        val ctx = SnippetsContext(durationMs = 65_000L, lengthMs = 10_000L)
+        val ctx = SnippetsContext(durationMs = 70_000L, lengthMs = 10_000L)
         val state = intervalsState(active = listOf(true, true, true), extras = 1)
+        val nextCountCandidate = state.copy(extraIntervalsCount = 2)
+        assertTrue(
+            "Expected the current four-zone state to fit; actual fits=${fits(state, ctx)}",
+            fits(state, ctx),
+        )
+        assertFalse(
+            "Expected adding a fifth zone not to fit; actual fits=${fits(nextCountCandidate, ctx)}",
+            fits(nextCountCandidate, ctx),
+        )
 
         val (actual, effect) = reduce(state, SnippetsEvent.TapPlus, ctx, playing = false)
 
