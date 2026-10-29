@@ -67,7 +67,10 @@ import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.postOnAnimationDelayed
 import androidx.core.widget.NestedScrollView
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
@@ -167,6 +170,7 @@ class FullBottomSheet
 
     private val viewModel by activity.viewModels<MyViewModel>()
     private var wrappedContext: Context? = null
+    private val snippetsColorsState = mutableStateOf(snippetsColorsFromPlayerPalette(context))
     private var currentJob: CoroutineScope? = null
     private var currentDisposable: Disposable? = null
     private var isUserTracking = false
@@ -363,25 +367,30 @@ class FullBottomSheet
             visibility = GONE
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
-                MaterialTheme {
-                    if (SnippetsPreviewState.isSnippetsActive) {
-                        val trackDurationMs = SnippetsPreviewState.trackDurationMs
-                        val lengthMs = SnippetsPreviewState.previewDurationSec * 1_000L
-                        val initialState = SnippetsState(
-                            mode = SnippetsMode.PREVIEW,
-                            selectedPreviewZone = 0,
-                            activeHomeZones = listOf(true, false, false),
-                            extraIntervalsCount = 0,
-                        ).normalized()
-                        val mapBounds = bounds(
-                            initialState,
-                            SnippetsContext(
-                                durationMs = trackDurationMs,
-                                lengthMs = lengthMs,
-                            ),
-                        )
+                if (SnippetsPreviewState.isSnippetsActive) {
+                    val colors = snippetsColorsState.value
+                    val trackDurationMs = SnippetsPreviewState.trackDurationMs
+                    val lengthMs = SnippetsPreviewState.previewDurationSec * 1_000L
+                    val initialState = SnippetsState(
+                        mode = SnippetsMode.PREVIEW,
+                        selectedPreviewZone = 0,
+                        activeHomeZones = listOf(true, false, false),
+                        extraIntervalsCount = 0,
+                    ).normalized()
+                    val mapBounds = bounds(
+                        initialState,
+                        SnippetsContext(
+                            durationMs = trackDurationMs,
+                            lengthMs = lengthMs,
+                        ),
+                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         SnippetsTrackMap(
                             bounds = mapBounds,
+                            colors = colors,
                             durationMs = trackDurationMs,
                             positionProvider = { SnippetsPreviewState.currentPositionMs },
                             playWhenReady = instance?.playWhenReady == true,
@@ -1234,6 +1243,7 @@ class FullBottomSheet
 
     private suspend fun applyColorScheme(animate: Boolean = true) {
         val ctx = wrappedContext ?: context
+        snippetsColorsState.value = snippetsColorsFromPlayerPalette(ctx)
 
         val colorSurface = MaterialColors.getColor(
             ctx,
