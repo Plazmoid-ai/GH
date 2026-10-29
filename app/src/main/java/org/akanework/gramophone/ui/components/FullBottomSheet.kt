@@ -182,6 +182,7 @@ class FullBottomSheet
     private var snippetsConfigurationKey: String? = null
     private var snippetsPlaybackFinished = false
     private var snippetsSeekToStartOnTransition = false
+    private var lastSnippetsMediaId: String? = null
     private var firstTime = false
     private var enableQualityInfo = false
 
@@ -247,6 +248,7 @@ class FullBottomSheet
     }
     private val positionRunnable = object : Runnable {
         override fun run() {
+            SnippetsDebug.recordPositionTick()
             if (SnippetsPreviewState.isSnippetsActive) updateSnippetsPlayback()
             updateDuration()
             if (SnippetsPreviewState.isSnippetsActive) {
@@ -323,6 +325,7 @@ class FullBottomSheet
     private var pqs: PlaylistQueueSheet? = null
 
     init {
+        SnippetsDebug.log("FullBottomSheet", "created hash=${hashCode()}")
         inflate(context, R.layout.full_player, this)
         bottomSheetFullCoverFrame = findViewById(R.id.album_cover_frame)
         bottomSheetFullSliderFrame = findViewById(R.id.slider)
@@ -430,6 +433,24 @@ class FullBottomSheet
                                 instance?.currentPosition ?: 0L
                             },
                             playWhenReady = instance?.playWhenReady == true,
+                        )
+                        SnippetsDebugIndicator(
+                            modifier = Modifier.align(Alignment.TopStart),
+                            statusProvider = {
+                                SnippetsDebugStatus(
+                                    positionMs = instance?.currentPosition ?: 0L,
+                                    currentSnippetIndex = SnippetsPreviewState.currentSnippetIndex,
+                                    boundsCount = SnippetsPreviewState.snippetBounds.size,
+                                    playWhenReady = instance?.playWhenReady == true,
+                                    isPlaying = instance?.isPlaying == true,
+                                    runnableRunning = runnableRunning,
+                                    tps = SnippetsDebug.ticksPerSecond(),
+                                    positionTickAgeMs = SnippetsDebug.positionTickAgeMs(),
+                                    snippetsPlaybackFinished = snippetsPlaybackFinished,
+                                    snippetsSeekToStartOnTransition = snippetsSeekToStartOnTransition,
+                                    fullBottomSheetHash = this@FullBottomSheet.hashCode(),
+                                )
+                            },
                         )
                     }
                 }
@@ -769,23 +790,36 @@ class FullBottomSheet
      * Safe to call from attachment, playback, and controller lifecycle callbacks.
      */
     fun ensurePositionUpdates() {
-        if (!isAttachedToWindow || instance == null) return
+        if (!isAttachedToWindow || instance == null) {
+            SnippetsDebug.log(
+                "positionRunnable",
+                "start skipped reason=notAttachedOrNoController attached=$isAttachedToWindow controller=${instance != null} runnableRunning=$runnableRunning"
+            )
+            return
+        }
         // Always collapse any pending callback to one before starting/restarting the cycle.
         mainHandler.removeCallbacks(positionRunnable)
         runnableRunning = true
+        SnippetsDebug.log(
+            "positionRunnable",
+            "start reason=ensurePositionUpdates caller=${Throwable().stackTrace.getOrNull(2)?.methodName} runnableRunning=$runnableRunning"
+        )
         mainHandler.post(positionRunnable)
     }
 
     override fun onDetachedFromWindow() {
+        SnippetsDebug.log("FullBottomSheet", "onDetachedFromWindow hash=${hashCode()} runnableRunning(before)=$runnableRunning")
         // Stop callbacks so an old Activity cannot keep polling after recreation.
         mainHandler.removeCallbacks(positionRunnable)
         mainHandler.removeCallbacks(formatUpdateRunnable)
         runnableRunning = false
+        SnippetsDebug.log("positionRunnable", "stop reason=onDetachedFromWindow runnableRunning=$runnableRunning")
         super.onDetachedFromWindow()
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        SnippetsDebug.log("FullBottomSheet", "onAttachedToWindow hash=${hashCode()} runnableRunning=$runnableRunning")
         // The controller may connect after attachment; its connection callback retries this.
         ensurePositionUpdates()
         val colorPrimary =
@@ -1116,9 +1150,11 @@ class FullBottomSheet
     }
 
     fun onStop() {
+        SnippetsDebug.log("FullBottomSheet", "onStop hash=${hashCode()} runnableRunning(before)=$runnableRunning")
         pqs?.dismiss()
         mainHandler.removeCallbacks(positionRunnable)
         runnableRunning = false
+        SnippetsDebug.log("positionRunnable", "stop reason=onStop runnableRunning=$runnableRunning")
     }
 
     override fun dispatchApplyWindowInsets(platformInsets: WindowInsets): WindowInsets {
@@ -1686,6 +1722,10 @@ class FullBottomSheet
         mediaItem: MediaItem?,
         reason: Int
     ) {
+        SnippetsDebug.log(
+            "onMediaItemTransition",
+            "reason=$reason mediaId=${mediaItem?.mediaId} lastSnippetsMediaId=$lastSnippetsMediaId snippetsSeekToStartOnTransition=$snippetsSeekToStartOnTransition snippetsConfigurationKey=$snippetsConfigurationKey isSnippetsActive=${SnippetsPreviewState.isSnippetsActive}"
+        )
         if (instance?.mediaItemCount != 0) {
             bottomSheetFullCover.dispose()
             bottomSheetFullCover.loadNoPlaceholder(mediaItem?.mediaMetadata?.artworkUri) {
@@ -1719,6 +1759,7 @@ class FullBottomSheet
             SnippetsPreviewState.currentSnippetIndex = 0
             updateSnippetsPlayback()
         }
+        lastSnippetsMediaId = mediaItem?.mediaId
     }
 
     override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
@@ -1877,20 +1918,42 @@ class FullBottomSheet
     }
 
 
+    private fun logSnippetsPlaybackSnapshot(
+        reason: String,
+        player: Player? = instance,
+        boundsSize: Int? = null,
+    ) {
+        val state = SnippetsPreviewState
+        SnippetsDebug.log(
+            "updateSnippetsPlayback",
+            "reason=$reason boundsSize=${boundsSize ?: state.snippetBounds.size} currentSnippetIndex=${state.currentSnippetIndex} duration=${player?.duration ?: "n/a"} currentPosition=${player?.currentPosition ?: "n/a"} activeZones=${state.activeZones.joinToString("") { if (it) "1" else "0" }}"
+        )
+    }
+
     private fun updateSnippetsPlayback() {
         val state = SnippetsPreviewState
         if (!state.isSnippetsEnabled || !state.isSnippetsActive) {
             snippetsConfigurationKey = null
             snippetsPlaybackFinished = false
+            logSnippetsPlaybackSnapshot("early-exit disabledOrInactive")
             return
         }
 
-        val player = instance ?: return
-        val mediaItem = player.currentMediaItem ?: return
+        val player = instance ?: run {
+            logSnippetsPlaybackSnapshot("early-exit noController", player = null)
+            return
+        }
+        val mediaItem = player.currentMediaItem ?: run {
+            logSnippetsPlaybackSnapshot("early-exit noCurrentMediaItem", player)
+            return
+        }
         val durationMs = player.duration
             .takeIf { it != C.TIME_UNSET && it > 0L }
             ?: mediaItem.mediaMetadata.durationMs?.takeIf { it > 0L }
-            ?: return
+            ?: run {
+                logSnippetsPlaybackSnapshot("early-exit unknownDuration", player)
+                return
+            }
         val mediaId = mediaItem.mediaId
         val configurationKey = buildString {
             append(mediaId)
@@ -1907,7 +1970,10 @@ class FullBottomSheet
                 trackDurationMs = durationMs,
                 previewDurationMs = state.previewDurationSec * 1_000L,
             )
-            if (bounds.isEmpty()) return
+            if (bounds.isEmpty()) {
+                logSnippetsPlaybackSnapshot("early-exit emptyBoundsOnConfigurationChange", player, bounds.size)
+                return
+            }
 
             val positionMs = player.currentPosition.coerceIn(0L, durationMs)
             state.trackDurationMs = durationMs
@@ -1941,8 +2007,13 @@ class FullBottomSheet
                 val firstStartMs = bounds.first().first
                 state.currentSnippetIndex = 0
                 state.currentPositionMs = firstStartMs
+                SnippetsDebug.log(
+                    "seekTo",
+                    "target=$firstStartMs current=${player.currentPosition} reason=mediaItemTransitionStart caller=${Throwable().stackTrace.getOrNull(2)?.methodName}"
+                )
                 player.seekTo(firstStartMs)
             }
+            logSnippetsPlaybackSnapshot("return configurationChanged", player, bounds.size)
             return
         }
 
@@ -1951,25 +2022,50 @@ class FullBottomSheet
         state.currentPositionMs = positionMs
         state.isPlaying = player.isPlaying
         val bounds = state.snippetBounds
-        if (bounds.isEmpty() || snippetsPlaybackFinished || !player.isPlaying) return
+        if (bounds.isEmpty()) {
+            logSnippetsPlaybackSnapshot("early-exit emptyBounds", player, bounds.size)
+            return
+        }
+        if (snippetsPlaybackFinished) {
+            logSnippetsPlaybackSnapshot("early-exit snippetsPlaybackFinished", player, bounds.size)
+            return
+        }
+        if (!player.isPlaying) {
+            logSnippetsPlaybackSnapshot("early-exit playerNotPlaying", player, bounds.size)
+            return
+        }
 
         val currentIndex = state.currentSnippetIndex.coerceIn(0, bounds.lastIndex)
         val (currentStartMs, currentEndMs) = bounds[currentIndex]
         // When the player is already inside the active window, never seek it back to start.
-        if (positionMs >= currentStartMs && positionMs <= currentEndMs) return
+        if (positionMs >= currentStartMs && positionMs <= currentEndMs) {
+            logSnippetsPlaybackSnapshot("early-exit insideCurrentBounds", player, bounds.size)
+            return
+        }
         // Before an upcoming window, let the real player continue naturally.
-        if (positionMs < currentStartMs) return
+        if (positionMs < currentStartMs) {
+            logSnippetsPlaybackSnapshot("early-exit beforeCurrentStart", player, bounds.size)
+            return
+        }
         // The boundary has actually passed; only now jump to the next active window.
         if (currentIndex < bounds.lastIndex) {
             val nextIndex = currentIndex + 1
             state.currentSnippetIndex = nextIndex
             val nextStartMs = bounds[nextIndex].first
             state.currentPositionMs = nextStartMs
+            SnippetsDebug.log(
+                "seekTo",
+                "target=$nextStartMs current=${player.currentPosition} reason=activeZoneBoundary caller=${Throwable().stackTrace.getOrNull(2)?.methodName}"
+            )
             player.seekTo(nextStartMs)
         } else {
             snippetsPlaybackFinished = true
             // Finish the current preview sequence by advancing the real playlist.
             // onMediaItemTransition clears the previous track's snippet state.
+            SnippetsDebug.log(
+                "seekToNextMediaItem",
+                "current=${player.currentPosition} reason=allActiveZonesPlayed caller=${Throwable().stackTrace.getOrNull(2)?.methodName}"
+            )
             player.seekToNextMediaItem()
         }
     }
