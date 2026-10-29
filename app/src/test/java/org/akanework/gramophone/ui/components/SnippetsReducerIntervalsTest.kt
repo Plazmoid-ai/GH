@@ -302,11 +302,11 @@ class SnippetsReducerIntervalsTest {
         val result = trimToFit(state, ctx)
 
         assertNotNull("Expected trimming to find a fitting three-home state", result)
-        result!!
-        assertEquals("Expected both extra intervals to be removed first; actual=$result", 2, result.removedCount)
-        assertEquals("Expected N=0 after trimming; actual=$result", 0, result.state.extraIntervalsCount)
-        assertEquals("Home zones should not be removed while extras can be removed; actual=$result", listOf(true, true, true), result.state.activeHomeZones)
-        assertTrue("Trim result must fit context=$ctx; state=${result.state}", fits(result.state, ctx))
+        val trimmed = result ?: throw AssertionError("Expected a non-null trim result")
+        assertEquals("Expected both extra intervals to be removed first; actual=$trimmed", 2, trimmed.removedCount)
+        assertEquals("Expected N=0 after trimming; actual=$trimmed", 0, trimmed.state.extraIntervalsCount)
+        assertEquals("Home zones should not be removed while extras can be removed; actual=$trimmed", listOf(true, true, true), trimmed.state.activeHomeZones)
+        assertTrue("Trim result must fit context=$ctx; state=${trimmed.state}", fits(trimmed.state, ctx))
     }
 
     @Test
@@ -317,15 +317,15 @@ class SnippetsReducerIntervalsTest {
         val result = trimToFit(state, ctx)
 
         assertNotNull("Expected one home zone to fit; result=$result", result)
-        result!!
-        assertEquals("Expected two removed zones; actual=$result", 2, result.removedCount)
+        val trimmed = result ?: throw AssertionError("Expected a non-null trim result")
+        assertEquals("Expected two removed zones; actual=$trimmed", 2, trimmed.removedCount)
         assertEquals(
-            "Right-to-left trimming must leave home zone 0 active; actual=$result",
+            "Right-to-left trimming must leave home zone 0 active; actual=$trimmed",
             listOf(true, false, false),
-            result.state.activeHomeZones,
+            trimmed.state.activeHomeZones,
         )
-        assertEquals("Trimming must retain INTERVALS mode; actual=$result", SnippetsMode.INTERVALS, result.state.mode)
-        assertTrue("One active home zone must fit context=$ctx; state=${result.state}", fits(result.state, ctx))
+        assertEquals("Trimming must retain INTERVALS mode; actual=$trimmed", SnippetsMode.INTERVALS, trimmed.state.mode)
+        assertTrue("One active home zone must fit context=$ctx; state=${trimmed.state}", fits(trimmed.state, ctx))
     }
 
     @Test
