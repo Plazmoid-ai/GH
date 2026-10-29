@@ -16,6 +16,7 @@ class FakePlaybackPort(duration: Long) : SnippetsPlaybackPort {
     private var position = 0L
     private var speed = 1
     private var lastTick = 0L
+    private var currentZoneIndex = 0
     private var boundsProvider: () -> List<LongRange> = { emptyList() }
     private val ticker = object : Runnable {
         override fun run() {
@@ -24,15 +25,18 @@ class FakePlaybackPort(duration: Long) : SnippetsPlaybackPort {
             position += (if (lastTick == 0L) 16L else now - lastTick).coerceAtLeast(0L) * speed
             lastTick = now
             val zones = boundsProvider()
-            val index = zones.indexOfFirst { position >= it.first && position < it.endMsExclusive }
-            if (index >= 0 && position >= zones[index].endMsExclusive) {
-                if (index < zones.lastIndex) position = zones[index + 1].first else {
-                    pause()
-                    position = zones.firstOrNull()?.first ?: 0L
+            if (zones.isNotEmpty()) {
+                currentZoneIndex = currentZoneIndex.coerceIn(0, zones.lastIndex)
+                if (position >= zones[currentZoneIndex].endMsExclusive) {
+                    if (currentZoneIndex < zones.lastIndex) {
+                        currentZoneIndex++
+                        position = zones[currentZoneIndex].first
+                    } else {
+                        pause()
+                        currentZoneIndex = 0
+                        position = zones.first().first
+                    }
                 }
-            } else if (zones.isNotEmpty() && position >= zones.last().endMsExclusive) {
-                pause()
-                position = zones.first().first
             }
             handler.postDelayed(this, 16L)
         }
@@ -41,7 +45,7 @@ class FakePlaybackPort(duration: Long) : SnippetsPlaybackPort {
     fun setSpeed(value: Int) { speed = if (value >= 5) 5 else 1 }
     fun setBoundsProvider(provider: () -> List<LongRange>) { boundsProvider = provider }
     override fun positionMs() = position
-    override fun seekTo(ms: Long) { position = ms.coerceIn(0L, durationFlow.value); lastTick = SystemClock.elapsedRealtime() }
+    override fun seekTo(ms: Long) { position = ms.coerceIn(0L, durationFlow.value); currentZoneIndex = boundsProvider().indexOfFirst { position < it.endMsExclusive }.coerceAtLeast(0); lastTick = SystemClock.elapsedRealtime() }
     override fun play() { if (!playingFlow.value) { playingFlow.value = true; lastTick = 0L; handler.removeCallbacks(ticker); handler.postDelayed(ticker, 16L) } }
     override fun pause() { playingFlow.value = false; lastTick = 0L; handler.removeCallbacks(ticker) }
     fun release() { pause(); handler.removeCallbacksAndMessages(null) }

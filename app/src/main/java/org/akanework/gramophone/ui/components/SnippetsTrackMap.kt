@@ -87,70 +87,58 @@ fun SnippetsTrackMap(
                     cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
                 )
 
-                // 2. Fully elapsed zones are filled independently, never across the gaps.
-                displayedBounds.forEach { range ->
-                    val startMs = range.first
-                    val endMs = range.endMsExclusive
-                    if (endMs <= drawPositionMs && endMs > startMs) {
-                        val startX = xFor(startMs)
-                        val endX = xFor(endMs)
-                        if (endX > startX) {
-                            drawRoundRect(
-                                color = zoneColor,
-                                topLeft = Offset(startX, inset),
-                                size = Size(endX - startX, innerHeight),
-                                cornerRadius = CornerRadius(innerRadius, innerRadius),
-                            )
-                        }
-                    }
+                // Resolve the logical current zone during drawing from the live player position.
+                val drawCurrentIndex = displayedBounds.indexOfFirst { drawPositionMs < it.endMsExclusive }
+                val currentZone = if (drawCurrentIndex >= 0) displayedBounds[drawCurrentIndex] else null
+                val previousBoundaryMs = if (drawCurrentIndex > 0) {
+                    val previousEnd = displayedBounds[drawCurrentIndex - 1].endMsExclusive
+                    previousEnd + (displayedBounds[drawCurrentIndex].first - previousEnd) / 2L
+                } else 0L
+                val nextBoundaryMs = if (drawCurrentIndex >= 0 && drawCurrentIndex < displayedBounds.lastIndex) {
+                    val currentEnd = displayedBounds[drawCurrentIndex].endMsExclusive
+                    val nextStart = displayedBounds[drawCurrentIndex + 1].first
+                    currentEnd + (nextStart - currentEnd) / 2L
+                } else durationMs
+
+                // 2. Step fill: everything before the current-zone boundary is filled.
+                val fillEndMs = if (currentZone == null) durationMs else previousBoundaryMs
+                if (fillEndMs > 0L) {
+                    drawRoundRect(
+                        color = zoneColor,
+                        topLeft = Offset.Zero,
+                        size = Size(xFor(fillEndMs), heightPx),
+                        cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
+                    )
                 }
 
-                // 3. Only a position inside a zone makes that zone current.
-                // If position is in a gap, currentIndex is -1 and no partial zone is filled.
-                if (drawCurrentIndex >= 0 && drawCurrentIndex < displayedBounds.size) {
-                    val currentRange = displayedBounds[drawCurrentIndex]
-                    val startMs = currentRange.first
-                    val endMs = currentRange.endMsExclusive
-                    val startX = xFor(startMs)
-                    val endX = xFor(endMs)
-
-                    if (endMs > startMs && endX > startX) {
-                        // Outline the complete current zone first.
-                        drawRoundRect(
-                            color = zoneColor,
-                            topLeft = Offset(startX, inset),
-                            size = Size(endX - startX, innerHeight),
-                            cornerRadius = CornerRadius(innerRadius, innerRadius),
-                            style = Stroke(width = strokeWidth),
-                        )
-
-                        // Then fill only the elapsed portion within this zone.
-                        val progressInZone = (
-                            (drawPositionMs - startMs).toFloat() /
-                                (endMs - startMs).toFloat()
-                            ).coerceIn(0f, 1f)
-                        val progressX = startX + (endX - startX) * progressInZone
-                        if (progressX > startX) {
-                            drawRoundRect(
-                                color = zoneColor,
-                                topLeft = Offset(startX, inset),
-                                size = Size(progressX - startX, innerHeight),
-                                cornerRadius = CornerRadius(innerRadius, innerRadius),
-                            )
-                        }
-                    }
+                // 3. Outline runs from the beginning through the boundary after current zone.
+                if (currentZone != null) {
+                    drawRoundRect(
+                        color = zoneColor,
+                        topLeft = Offset.Zero,
+                        size = Size(xFor(nextBoundaryMs), heightPx),
+                        cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
+                        style = Stroke(width = strokeWidth),
+                    )
                 }
 
-                // 4. Static interval blocks are drawn LAST over the stepped fill/outline.
+                // 4. Static interval blocks are drawn LAST over the fill and outline.
                 displayedBounds.forEach { range ->
                     val startX = xFor(range.first)
                     val endX = xFor(range.endMsExclusive)
                     if (endX > startX) {
                         drawRoundRect(
-                            color = zoneColor,
+                            color = zoneColor.copy(alpha = 0.22f),
                             topLeft = Offset(startX, inset),
                             size = Size(endX - startX, innerHeight),
                             cornerRadius = CornerRadius(innerRadius, innerRadius),
+                        )
+                        drawRoundRect(
+                            color = outlineColor,
+                            topLeft = Offset(startX, inset),
+                            size = Size(endX - startX, innerHeight),
+                            cornerRadius = CornerRadius(innerRadius, innerRadius),
+                            style = Stroke(width = strokeWidth),
                         )
                     }
                 }
