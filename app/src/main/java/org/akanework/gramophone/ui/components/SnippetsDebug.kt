@@ -36,13 +36,13 @@ import java.util.ArrayDeque
  */
 object SnippetsDebug {
     private const val CAPACITY = 300
-    private val startedAtMs = SystemClock.elapsedRealtime()
+    private val startedAtMs = android.os.Process.getStartUptimeMillis()
     private val events = ArrayDeque<String>(CAPACITY)
     private val positionTicks = ArrayDeque<Long>()
 
     @Synchronized
     fun log(tag: String, text: String) {
-        val elapsedMs = (SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L)
+        val elapsedMs = (SystemClock.uptimeMillis() - startedAtMs).coerceAtLeast(0L)
         if (events.size >= CAPACITY) events.removeFirst()
         events.addLast("+${elapsedMs}ms [$tag] $text")
     }
