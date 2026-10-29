@@ -373,7 +373,7 @@ class FullBottomSheet
                             activeHomeZones = listOf(true, false, false),
                             extraIntervalsCount = 0,
                         ).normalized()
-                        val mapBounds = SnippetsIntervalLogic.bounds(
+                        val mapBounds = bounds(
                             initialState,
                             SnippetsContext(
                                 durationMs = trackDurationMs,
