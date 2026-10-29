@@ -150,10 +150,10 @@ fun SnippetsTrackMap(
 
                     if (positionMs > displayedBounds.first().first && effectiveFillBoundary > 0f) {
                         val fillPath = Path().apply {
-                            moveTo(0f, 0f)
+                            moveTo(outerRadius, 0f)
                             lineTo(effectiveFillBoundary, 0f)
                             lineTo(effectiveFillBoundary, heightPx)
-                            lineTo(0f, heightPx)
+                            lineTo(outerRadius, heightPx)
                             quadraticTo(0f, heightPx, 0f, heightPx - outerRadius)
                             lineTo(0f, outerRadius)
                             quadraticTo(0f, 0f, outerRadius, 0f)
