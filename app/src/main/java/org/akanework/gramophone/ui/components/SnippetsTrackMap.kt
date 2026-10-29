@@ -36,15 +36,14 @@ fun SnippetsTrackMap(
     bounds: List<LongRange>,
     colors: SnippetsColors,
     durationMs: Long,
-    positionProvider: () -> Long,
+    currentPositionMs: Long,
     playWhenReady: Boolean,
 ) {
     // TODO этап 9: удалить — временный цикл тестовых наборов по долгому нажатию.
     var debugSetIndex by remember { mutableIntStateOf(-1) }
     val backgroundColor = colors.mapTrack
     val zoneColor = colors.accent
-    val fillColor = colors.accent.copy(alpha = 0.35f)
-    val outlineColor = colors.accent
+    val outlineColor = colors.accent.copy(alpha = 0.55f)
 
     val displayedBounds = if (debugSetIndex < 0) {
         bounds
@@ -71,12 +70,18 @@ fun SnippetsTrackMap(
         )
     }
 
-    val currentIndexState = remember(displayedBounds, durationMs, playWhenReady) {
+    // currentPositionMs is supplied from Compose state updated by FullBottomSheet's
+    // existing positionRunnable, so position changes invalidate this composable.
+    val currentIndex by remember(displayedBounds, durationMs, currentPositionMs) {
         derivedStateOf {
-            // positionProvider is evaluated only when this state is read in drawBehind.
-            val position = positionProvider()
-            displayedBounds.indexOfLast { it.first <= position }
-                .coerceIn(-1, displayedBounds.lastIndex)
+            if (durationMs <= 0L) {
+                -1
+            } else {
+                displayedBounds.indexOfFirst { range ->
+                    currentPositionMs >= range.first &&
+                        currentPositionMs < range.endMsExclusive
+                }
+            }
         }
     }
 
@@ -94,17 +99,19 @@ fun SnippetsTrackMap(
             .drawBehind {
                 if (durationMs <= 0L) return@drawBehind
 
-                // Reading the derived state here registers a draw-phase dependency, not a composition dependency.
-                val currentIndex = currentIndexState.value
-                val positionMs = positionProvider()
-
                 val width = size.width
                 val heightPx = size.height
-                val outerRadius = heightPx / 2f
                 val inset = 5.dp.toPx()
                 val innerHeight = (heightPx - inset * 2f).coerceAtLeast(0f)
                 val innerRadius = 3.dp.toPx()
+                val strokeWidth = 1.5.dp.toPx()
 
+                fun xFor(positionMs: Long): Float =
+                    (positionMs.toDouble() / durationMs.toDouble() * width)
+                        .toFloat()
+                        .coerceIn(0f, width)
+
+                // 1. Base track: all future space remains gray.
                 drawRoundRect(
                     color = backgroundColor,
                     topLeft = Offset.Zero,
@@ -112,75 +119,75 @@ fun SnippetsTrackMap(
                     cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
                 )
 
-                if (currentIndex >= 0 && displayedBounds.isNotEmpty()) {
-                    val currentRange = displayedBounds[currentIndex]
-                    val fillBoundary = if (currentIndex == 0) {
-                        0f
-                    } else {
-                        val previousEnd = displayedBounds[currentIndex - 1].endMsExclusive
-                        (((previousEnd + currentRange.first) / 2.0) / durationMs.toDouble() * width)
-                            .toFloat().coerceIn(0f, width)
-                    }
-                    val outlineBoundary = if (currentIndex == displayedBounds.lastIndex) {
-                        width
-                    } else {
-                        val nextStart = displayedBounds[currentIndex + 1].first
-                        (((currentRange.endMsExclusive + nextStart) / 2.0) / durationMs.toDouble() * width)
-                            .toFloat().coerceIn(0f, width)
-                    }
-                    val afterLastZone = currentIndex == displayedBounds.lastIndex &&
-                        positionMs >= currentRange.endMsExclusive
-                    val effectiveFillBoundary = if (afterLastZone) width else fillBoundary
-
-                    if (positionMs > displayedBounds.first().first && effectiveFillBoundary > 0f) {
-                        val fillPath = Path().apply {
-                            moveTo(outerRadius, 0f)
-                            lineTo(effectiveFillBoundary, 0f)
-                            lineTo(effectiveFillBoundary, heightPx)
-                            lineTo(outerRadius, heightPx)
-                            quadraticTo(0f, heightPx, 0f, heightPx - outerRadius)
-                            lineTo(0f, outerRadius)
-                            quadraticTo(0f, 0f, outerRadius, 0f)
-                            close()
+                // 2. Fully elapsed zones are filled independently, never across the gaps.
+                displayedBounds.forEach { range ->
+                    val startMs = range.first
+                    val endMs = range.endMsExclusive
+                    if (endMs <= currentPositionMs && endMs > startMs) {
+                        val startX = xFor(startMs)
+                        val endX = xFor(endMs)
+                        if (endX > startX) {
+                            drawRoundRect(
+                                color = zoneColor,
+                                topLeft = Offset(startX, inset),
+                                size = Size(endX - startX, innerHeight),
+                                cornerRadius = CornerRadius(innerRadius, innerRadius),
+                            )
                         }
-                        drawPath(fillPath, fillColor)
                     }
-
-                    val stroke = 2.dp.toPx()
-                    val leftRadius = outerRadius
-                    val rightRadius = outerRadius
-                    val outlinePath = Path().apply {
-                        moveTo(leftRadius, stroke / 2f)
-                        lineTo((outlineBoundary - rightRadius).coerceAtLeast(leftRadius), stroke / 2f)
-                        quadraticTo(outlineBoundary, stroke / 2f, outlineBoundary, rightRadius)
-                        lineTo(outlineBoundary, heightPx - rightRadius)
-                        quadraticTo(outlineBoundary, heightPx - stroke / 2f, (outlineBoundary - rightRadius).coerceAtLeast(leftRadius), heightPx - stroke / 2f)
-                        lineTo(leftRadius, heightPx - stroke / 2f)
-                        quadraticTo(stroke / 2f, heightPx - stroke / 2f, stroke / 2f, heightPx - leftRadius)
-                        lineTo(stroke / 2f, leftRadius)
-                        quadraticTo(stroke / 2f, stroke / 2f, leftRadius, stroke / 2f)
-                        close()
-                    }
-                    drawPath(
-                        path = outlinePath,
-                        color = outlineColor,
-                        style = Stroke(width = stroke),
-                    )
                 }
 
-                // Draw zone blocks last so they remain visible over progress fill and outline.
-                displayedBounds.forEach { range ->
-                    val left = (range.first.toDouble() / durationMs.toDouble() * width)
-                        .toFloat().coerceIn(0f, width)
-                    val right = (range.endMsExclusive.toDouble() / durationMs.toDouble() * width)
-                        .toFloat().coerceIn(0f, width)
-                    if (right > left) {
+                // 3. Only a position inside a zone makes that zone current.
+                // If position is in a gap, currentIndex is -1 and no partial zone is filled.
+                if (currentIndex >= 0 && currentIndex < displayedBounds.size) {
+                    val currentRange = displayedBounds[currentIndex]
+                    val startMs = currentRange.first
+                    val endMs = currentRange.endMsExclusive
+                    val startX = xFor(startMs)
+                    val endX = xFor(endMs)
+
+                    if (endMs > startMs && endX > startX) {
+                        // Outline the complete current zone first.
                         drawRoundRect(
                             color = zoneColor,
-                            topLeft = Offset(left, inset),
-                            size = Size(right - left, innerHeight),
+                            topLeft = Offset(startX, inset),
+                            size = Size(endX - startX, innerHeight),
                             cornerRadius = CornerRadius(innerRadius, innerRadius),
+                            style = Stroke(width = strokeWidth),
                         )
+
+                        // Then fill only the elapsed portion within this zone.
+                        val progressInZone = (
+                            (currentPositionMs - startMs).toFloat() /
+                                (endMs - startMs).toFloat()
+                            ).coerceIn(0f, 1f)
+                        val progressX = startX + (endX - startX) * progressInZone
+                        if (progressX > startX) {
+                            drawRoundRect(
+                                color = zoneColor,
+                                topLeft = Offset(startX, inset),
+                                size = Size(progressX - startX, innerHeight),
+                                cornerRadius = CornerRadius(innerRadius, innerRadius),
+                            )
+                        }
+                    }
+                }
+
+                // 4. Future zones get subtle markers; no opaque zone blocks are drawn
+                // over the progress fill or current-zone outline.
+                displayedBounds.forEach { range ->
+                    if (range.first > currentPositionMs) {
+                        val startX = xFor(range.first)
+                        val endX = xFor(range.endMsExclusive)
+                        if (endX > startX) {
+                            drawRoundRect(
+                                color = outlineColor,
+                                topLeft = Offset(startX, inset),
+                                size = Size(endX - startX, innerHeight),
+                                cornerRadius = CornerRadius(innerRadius, innerRadius),
+                                style = Stroke(width = strokeWidth),
+                            )
+                        }
                     }
                 }
             },
