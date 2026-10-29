@@ -40,11 +40,6 @@ fun snippetsColorsFromPlayerPalette(context: Context): SnippetsColors {
         com.google.android.material.R.attr.colorSurface,
         -1,
     )
-    val colorOnSurface = MaterialColors.getColor(
-        context,
-        com.google.android.material.R.attr.colorOnSurface,
-        -1,
-    )
     val colorOnSurfaceVariant = MaterialColors.getColor(
         context,
         com.google.android.material.R.attr.colorOnSurfaceVariant,
