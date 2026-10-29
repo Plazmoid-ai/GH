@@ -401,6 +401,12 @@ class PlayerBottomSheet private constructor(
         }
     }
 
+    override fun onStart(owner: LifecycleOwner) {
+        super.onStart(owner)
+        // Resume the same polling cycle when the Activity returns from stopped state.
+        fullPlayer.ensurePositionUpdates()
+    }
+
     override fun onStop(owner: LifecycleOwner) {
         super.onStop(owner)
         fullPlayer.onStop()
