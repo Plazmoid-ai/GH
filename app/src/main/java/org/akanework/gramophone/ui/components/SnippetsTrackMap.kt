@@ -66,7 +66,7 @@ fun SnippetsTrackMap(
                 extraIntervalsCount = requestedCount - 3,
             )
         }.normalized()
-        SnippetsIntervalLogic.bounds(
+        bounds(
             debugState,
             SnippetsContext(durationMs = durationMs, lengthMs = lengthMs),
         )
