@@ -427,11 +427,9 @@ class FullBottomSheet
                             bounds = mapBounds,
                             colors = colors,
                             durationMs = trackDurationMs,
-                            // Read the live player position; the polling cycle also updates
-                            // Compose state so the map is redrawn as playback advances.
-                            positionProvider = {
-                                instance?.currentPosition ?: 0L
-                            },
+                            // This observable Compose state is updated by the existing
+                            // positionRunnable and invalidates the map as playback advances.
+                            currentPositionMs = SnippetsPreviewState.currentPositionMs,
                             playWhenReady = instance?.playWhenReady == true,
                         )
                         SnippetsDebugIndicator(
