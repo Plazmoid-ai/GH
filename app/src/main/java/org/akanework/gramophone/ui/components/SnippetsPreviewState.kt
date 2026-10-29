@@ -49,7 +49,7 @@ object SnippetsPreviewState {
             "Синий" -> Color(0xFF1E88E5)
             else -> Color(0xFF9B8AF5)
         }
-    val activeZones = mutableStateListOf(true, false, false)
+    val activeZones = mutableStateListOf(true, true, true)
 
     private var observedPreferences: SharedPreferences? = null
 
