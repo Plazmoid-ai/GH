@@ -93,7 +93,7 @@ data class SnippetsContext(
 )
 
 /** Inclusive LongRange end represented as the first millisecond position after the range. */
-val LongRange.endExclusive: Long
+val LongRange.endMsExclusive: Long
     get() = last + 1L
 
 /**
@@ -123,8 +123,8 @@ fun bounds(state: SnippetsState, ctx: SnippetsContext): List<LongRange> {
     if (candidates.isEmpty()) return emptyList()
 
     if (candidates.size == 1) {
-        return candidates.mapNotNull { (start, endExclusive) ->
-            start.toInclusiveRange(endExclusive)
+        return candidates.mapNotNull { (start, endMsExclusive) ->
+            start.toInclusiveRange(endMsExclusive)
         }
     }
 
@@ -168,9 +168,9 @@ private fun autoCenteredBounds(
     val result = ArrayList<LongRange>(count)
     var startMs = edgeMs
     repeat(count) {
-        val endExclusiveMs = startMs + ctx.lengthMs
-        result.add(startMs..(endExclusiveMs - 1L))
-        startMs = endExclusiveMs + gapMs
+        val endMsExclusiveMs = startMs + ctx.lengthMs
+        result.add(startMs..(endMsExclusiveMs - 1L))
+        startMs = endMsExclusiveMs + gapMs
     }
     return result
 }
@@ -193,19 +193,19 @@ fun fits(state: SnippetsState, ctx: SnippetsContext): Boolean {
 
     if (calculated.any { range ->
             range.first < 0L ||
-                range.endExclusive > ctx.durationMs ||
-                range.endExclusive - range.first < ctx.lengthMs
+                range.endMsExclusive > ctx.durationMs ||
+                range.endMsExclusive - range.first < ctx.lengthMs
         }
     ) {
         return false
     }
 
     return calculated.zipWithNext().all { (current, next) ->
-        next.first - current.endExclusive >= MIN_SNIPPET_GAP_MS
+        next.first - current.endMsExclusive >= MIN_SNIPPET_GAP_MS
     }
 }
 
-private fun Long.toInclusiveRange(endExclusive: Long): LongRange? {
-    if (endExclusive <= this) return null
-    return this..(endExclusive - 1L)
+private fun Long.toInclusiveRange(endMsExclusive: Long): LongRange? {
+    if (endMsExclusive <= this) return null
+    return this..(endMsExclusive - 1L)
 }
