@@ -210,6 +210,7 @@ class PlayerBottomSheet private constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        SnippetsDebug.log("PlayerBottomSheet", "onAttachedToWindow hash=${hashCode()} fullPlayerHash=${fullPlayer.hashCode()}")
         doOnLayout { // wait for CoordinatorLayout to finish to allow getting behaviour
             standardBottomSheetBehavior = MyBottomSheetBehavior.from(this)
             fullPlayer.minimize = {
@@ -293,6 +294,7 @@ class PlayerBottomSheet private constructor(
     }
 
     override fun onDetachedFromWindow() {
+        SnippetsDebug.log("PlayerBottomSheet", "onDetachedFromWindow hash=${hashCode()} fullPlayerHash=${fullPlayer.hashCode()}")
         super.onDetachedFromWindow()
         lastActuallyVisible = null
         lastMeasuredHeight = null
@@ -403,11 +405,13 @@ class PlayerBottomSheet private constructor(
 
     override fun onStart(owner: LifecycleOwner) {
         super.onStart(owner)
+        SnippetsDebug.log("PlayerBottomSheet", "onStart owner=${owner.javaClass.simpleName} hash=${hashCode()} fullPlayerHash=${fullPlayer.hashCode()}")
         // Resume the same polling cycle when the Activity returns from stopped state.
         fullPlayer.ensurePositionUpdates()
     }
 
     override fun onStop(owner: LifecycleOwner) {
+        SnippetsDebug.log("PlayerBottomSheet", "onStop owner=${owner.javaClass.simpleName} hash=${hashCode()} fullPlayerHash=${fullPlayer.hashCode()}")
         super.onStop(owner)
         fullPlayer.onStop()
     }
