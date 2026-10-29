@@ -38,6 +38,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import org.akanework.gramophone.logic.GramophoneApplication
 import org.akanework.gramophone.logic.GramophonePlaybackService
 import org.akanework.gramophone.logic.utils.LifecycleCallbackListImpl
+import org.akanework.gramophone.ui.components.SnippetsDebug
 import java.util.concurrent.ExecutionException
 
 class MediaControllerViewModel(application: Application) : AndroidViewModel(application),
@@ -58,6 +59,7 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
         get() = connectionListenersImpl.toBaseInterface()
 
     override fun onStart(owner: LifecycleOwner) {
+        SnippetsDebug.log("MediaControllerViewModel", "onStart connect requested owner=${owner.javaClass.simpleName} futureHash=${controllerFuture?.let { System.identityHashCode(it) }}")
         val sessionToken =
             SessionToken(context, ComponentName(context, GramophonePlaybackService::class.java))
         val lc = LifecycleHost()
@@ -73,7 +75,10 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
                 .apply {
                     addListener(
                         {
-                            if (isCancelled) return@addListener
+                            if (isCancelled) {
+                                SnippetsDebug.log("MediaControllerViewModel", "connection callback cancelled futureHash=${System.identityHashCode(this)}")
+                                return@addListener
+                            }
                             val instance = try {
                                 get()
                             } catch (e: ExecutionException) {
@@ -89,15 +94,18 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
                                 null
                             }
                             if (this == controllerFuture && instance == null) {
+                                SnippetsDebug.log("MediaControllerViewModel", "connection failed currentFuture=true futureHash=${System.identityHashCode(this)}")
                                 controllerFuture = null
                                 controllerLifecycle = null
                             }
                             if (this != controllerFuture || instance == null) {
+                                SnippetsDebug.log("MediaControllerViewModel", "stale connection futureHash=${System.identityHashCode(this)} controllerHash=${instance?.let { System.identityHashCode(it) }} releasing=${instance != null}")
                                 // If there is a race condition that would cause this controller
                                 // to leak, which can happen, just make sure we don't leak.
                                 lc.destroy()
                                 instance?.release()
                             } else {
+                                SnippetsDebug.log("MediaControllerViewModel", "controller connected controllerHash=${System.identityHashCode(instance)} mediaId=${instance.currentMediaItem?.mediaId} futureHash=${System.identityHashCode(this)}")
                                 lc.lifecycleRegistry.currentState = Lifecycle.State.CREATED
                                 connectionListenersImpl.dispatch { it(instance, lc.lifecycle) }
                             }
@@ -144,6 +152,7 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
     }
 
     override fun onDisconnected(controller: MediaController) {
+        SnippetsDebug.log("MediaControllerViewModel", "controller disconnected controllerHash=${System.identityHashCode(controller)} mediaId=${controller.currentMediaItem?.mediaId}")
         controllerLifecycle?.destroy()
         controllerLifecycle = null
         controllerFuture = null
@@ -152,13 +161,16 @@ class MediaControllerViewModel(application: Application) : AndroidViewModel(appl
     // TODO reconsider whether onStop is a good place, as getting stopped is quite easy and
     //  predictive back makes it obvious that we are reconnecting
     override fun onStop(owner: LifecycleOwner) {
+        SnippetsDebug.log("MediaControllerViewModel", "onStop owner=${owner.javaClass.simpleName} futureHash=${controllerFuture?.let { System.identityHashCode(it) }} done=${controllerFuture?.isDone} cancelled=${controllerFuture?.isCancelled}")
         if (controllerFuture?.isDone == true) {
             if (controllerFuture?.isCancelled == false) {
+                SnippetsDebug.log("MediaControllerViewModel", "releasing connected controller futureHash=${controllerFuture?.let { System.identityHashCode(it) }}")
                 controllerFuture?.get()?.release()
             } else {
                 throw IllegalStateException("controllerFuture?.isCancelled != false")
             }
         } else {
+            SnippetsDebug.log("MediaControllerViewModel", "cancelling pending controller connection futureHash=${controllerFuture?.let { System.identityHashCode(it) }}")
             controllerFuture?.cancel(true)
             controllerLifecycle?.destroy()
             controllerLifecycle = null
