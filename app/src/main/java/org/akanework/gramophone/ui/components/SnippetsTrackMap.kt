@@ -72,6 +72,15 @@ fun SnippetsTrackMap(
         )
     }
 
+    val currentIndexState = remember(displayedBounds, durationMs, playWhenReady) {
+        derivedStateOf {
+            // positionProvider is evaluated only when this state is read in drawBehind.
+            val position = positionProvider()
+            displayedBounds.indexOfLast { it.first <= position }
+                .coerceIn(-1, displayedBounds.lastIndex)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -86,12 +95,9 @@ fun SnippetsTrackMap(
             .drawBehind {
                 if (durationMs <= 0L) return@drawBehind
 
+                // Reading the derived state here registers a draw-phase dependency, not a composition dependency.
+                val currentIndex = currentIndexState.value
                 val positionMs = positionProvider()
-                // The index is derived in the draw phase: player position is never read in composition.
-                val currentIndex = derivedStateOf {
-                    displayedBounds.indexOfLast { it.first <= positionMs }
-                        .coerceIn(-1, displayedBounds.lastIndex)
-                }.value
 
                 val width = size.width
                 val heightPx = size.height
