@@ -90,7 +90,6 @@ data class SnippetsState(
 data class SnippetsContext(
     val durationMs: Long,
     val lengthMs: Long,
-    val engine: SnippetsEngine = RealSnippetsEngine,
 )
 
 /** Inclusive LongRange end represented as the first millisecond position after the range. */

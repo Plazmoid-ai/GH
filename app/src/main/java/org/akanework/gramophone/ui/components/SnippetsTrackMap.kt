@@ -9,26 +9,23 @@
 
 package org.akanework.gramophone.ui.components
 
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
-private val DEBUG_ZONE_COUNTS = listOf(1, 3, 4, 5, 7)
+// TODO очистка: удалить скрытый debug-hook после завершения песочницы.
+private const val SANDBOX_MAP_DEBUG_ENABLED = false
 
 @Composable
 fun SnippetsTrackMap(
@@ -37,37 +34,14 @@ fun SnippetsTrackMap(
     durationMs: Long,
     currentPositionMs: Long,
     playWhenReady: Boolean,
+    positionProvider: (() -> Long)? = null,
 ) {
-    // TODO этап 9: удалить — временный цикл тестовых наборов по долгому нажатию.
-    var debugSetIndex by remember { mutableIntStateOf(-1) }
+    // TODO очистка: временные тестовые наборы отключены флагом.
     val backgroundColor = colors.mapTrack
     val zoneColor = colors.accent
     val outlineColor = colors.accent.copy(alpha = 0.55f)
 
-    val displayedBounds = if (debugSetIndex < 0) {
-        bounds
-    } else {
-        val requestedCount = DEBUG_ZONE_COUNTS[debugSetIndex]
-        val lengthMs = bounds.firstOrNull()?.let { it.endMsExclusive - it.first } ?: 0L
-        val debugState = when (requestedCount) {
-            1 -> SnippetsState(
-                mode = SnippetsMode.PREVIEW,
-                selectedPreviewZone = 0,
-                activeHomeZones = listOf(true, false, false),
-                extraIntervalsCount = 0,
-            )
-            else -> SnippetsState(
-                mode = SnippetsMode.INTERVALS,
-                selectedPreviewZone = 0,
-                activeHomeZones = listOf(true, true, true),
-                extraIntervalsCount = requestedCount - 3,
-            )
-        }.normalized()
-        bounds(
-            debugState,
-            SnippetsContext(durationMs = durationMs, lengthMs = lengthMs),
-        )
-    }
+    val displayedBounds = bounds
 
     // currentPositionMs is supplied from Compose state updated by FullBottomSheet's
     // existing positionRunnable, so position changes invalidate this composable.
@@ -88,15 +62,10 @@ fun SnippetsTrackMap(
         modifier = Modifier
             .fillMaxWidth()
             .height(20.dp)
-            .pointerInput(debugSetIndex, displayedBounds, durationMs) {
-                detectTapGestures(
-                    onLongPress = {
-                        debugSetIndex = (debugSetIndex + 1) % DEBUG_ZONE_COUNTS.size
-                    },
-                )
-            }
             .drawBehind {
                 if (durationMs <= 0L) return@drawBehind
+                val drawPositionMs = positionProvider?.invoke() ?: currentPositionMs
+                val drawCurrentIndex = displayedBounds.indexOfFirst { it.first <= drawPositionMs && drawPositionMs < it.endMsExclusive }
 
                 val width = size.width
                 val heightPx = size.height
@@ -122,7 +91,7 @@ fun SnippetsTrackMap(
                 displayedBounds.forEach { range ->
                     val startMs = range.first
                     val endMs = range.endMsExclusive
-                    if (endMs <= currentPositionMs && endMs > startMs) {
+                    if (endMs <= drawPositionMs && endMs > startMs) {
                         val startX = xFor(startMs)
                         val endX = xFor(endMs)
                         if (endX > startX) {
@@ -138,8 +107,8 @@ fun SnippetsTrackMap(
 
                 // 3. Only a position inside a zone makes that zone current.
                 // If position is in a gap, currentIndex is -1 and no partial zone is filled.
-                if (currentIndex >= 0 && currentIndex < displayedBounds.size) {
-                    val currentRange = displayedBounds[currentIndex]
+                if (drawCurrentIndex >= 0 && drawCurrentIndex < displayedBounds.size) {
+                    val currentRange = displayedBounds[drawCurrentIndex]
                     val startMs = currentRange.first
                     val endMs = currentRange.endMsExclusive
                     val startX = xFor(startMs)
@@ -157,7 +126,7 @@ fun SnippetsTrackMap(
 
                         // Then fill only the elapsed portion within this zone.
                         val progressInZone = (
-                            (currentPositionMs - startMs).toFloat() /
+                            (drawPositionMs - startMs).toFloat() /
                                 (endMs - startMs).toFloat()
                             ).coerceIn(0f, 1f)
                         val progressX = startX + (endX - startX) * progressInZone
@@ -172,21 +141,17 @@ fun SnippetsTrackMap(
                     }
                 }
 
-                // 4. Future zones get subtle markers; no opaque zone blocks are drawn
-                // over the progress fill or current-zone outline.
+                // 4. Static interval blocks are drawn LAST over the stepped fill/outline.
                 displayedBounds.forEach { range ->
-                    if (range.first > currentPositionMs) {
-                        val startX = xFor(range.first)
-                        val endX = xFor(range.endMsExclusive)
-                        if (endX > startX) {
-                            drawRoundRect(
-                                color = outlineColor,
-                                topLeft = Offset(startX, inset),
-                                size = Size(endX - startX, innerHeight),
-                                cornerRadius = CornerRadius(innerRadius, innerRadius),
-                                style = Stroke(width = strokeWidth),
-                            )
-                        }
+                    val startX = xFor(range.first)
+                    val endX = xFor(range.endMsExclusive)
+                    if (endX > startX) {
+                        drawRoundRect(
+                            color = zoneColor,
+                            topLeft = Offset(startX, inset),
+                            size = Size(endX - startX, innerHeight),
+                            cornerRadius = CornerRadius(innerRadius, innerRadius),
+                        )
                     }
                 }
             },

@@ -23,6 +23,8 @@ import android.os.Bundle
 import androidx.core.content.FileProvider
 import androidx.media3.common.util.Log
 import androidx.preference.Preference
+import org.akanework.gramophone.ui.components.SANDBOX_ENABLED
+import org.akanework.gramophone.ui.components.showSnippetsSandbox
 import androidx.preference.SwitchPreferenceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +59,20 @@ class ExperimentalSettingsFragment : BasePreferenceFragment() {
                 }
                 true
             }
-        findPreference<Preference>("crash")!!.isVisible = BuildConfig.DEBUG
+        if (SANDBOX_ENABLED) {
+            val sandboxPreference = Preference(requireContext()).apply {
+                key = "snippets_sandbox"
+                title = "Песочница интервалов"
+                summary = "Изолированный макет карты и имитация воспроизведения"
+                isIconSpaceReserved = false
+            }
+            preferenceScreen.addPreference(sandboxPreference)
+            sandboxPreference.setOnPreferenceClickListener {
+                showSnippetsSandbox(requireContext())
+                true
+            }
+        }
+                findPreference<Preference>("crash")!!.isVisible = BuildConfig.DEBUG
         if (!Flags.OFFLOAD)
             findPreference<Preference>("offload")!!.isVisible = false
         if (!Flags.MQ_PREVIEW)

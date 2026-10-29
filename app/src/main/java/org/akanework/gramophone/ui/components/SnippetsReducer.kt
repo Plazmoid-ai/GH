@@ -158,7 +158,7 @@ private fun reduceIntervalsTapTab(
             active || zoneIndex == index
         },
     )
-    if (!ctx.engine.fits(candidate, ctx)) {
+    if (!fits(candidate, ctx)) {
         return state to SnippetsEffect.Tooltip(SNIPPETS_NO_FIT_TOOLTIP)
     }
     return candidate to seekToFirstZone(candidate, ctx)
@@ -186,7 +186,7 @@ private fun reduceTapPlus(
                 },
                 extraIntervalsCount = 0,
             )
-            if (ctx.engine.fits(candidate, ctx)) {
+            if (fits(candidate, ctx)) {
                 return candidate to seekToFirstZone(candidate, ctx)
             }
         }
@@ -199,7 +199,7 @@ private fun reduceTapPlus(
     val base = state.normalized()
     if (base.extraIntervalsCount > 0) {
         val candidate = base.copy(extraIntervalsCount = base.extraIntervalsCount + 1)
-        if (!ctx.engine.fits(candidate, ctx)) {
+        if (!fits(candidate, ctx)) {
             return state to SnippetsEffect.Tooltip(SNIPPETS_NO_FIT_TOOLTIP)
         }
         return candidate to seekToFirstZone(candidate, ctx)
@@ -213,7 +213,7 @@ private fun reduceTapPlus(
                     active || index == freeHome
                 },
             )
-            if (ctx.engine.fits(candidate, ctx)) {
+            if (fits(candidate, ctx)) {
                 return candidate to seekToFirstZone(candidate, ctx)
             }
         }
@@ -225,7 +225,7 @@ private fun reduceTapPlus(
         activeHomeZones = listOf(true, true, true),
         extraIntervalsCount = 1,
     )
-    if (!ctx.engine.fits(candidate, ctx)) {
+    if (!fits(candidate, ctx)) {
         return state to SnippetsEffect.Tooltip(SNIPPETS_NO_FIT_TOOLTIP)
     }
     return candidate to seekToFirstZone(candidate, ctx)
@@ -283,7 +283,7 @@ private fun seekToFirstZone(
 ): SnippetsEffect.SeekTo = SnippetsEffect.SeekTo(firstZoneStart(state, ctx))
 
 private fun firstZoneStart(state: SnippetsState, ctx: SnippetsContext): Long =
-    ctx.engine.bounds(state, ctx).minByOrNull { it.first }?.first ?: 0L
+    bounds(state, ctx).minByOrNull { it.first }?.first ?: 0L
 
 /**
  * Reduces an INTERVALS state until its selected zones fit the track.
@@ -302,7 +302,7 @@ fun trimToFit(state: SnippetsState, ctx: SnippetsContext): TrimResult? {
     var current = state.normalized()
     var removedCount = 0
 
-    while (!ctx.engine.fits(current, ctx)) {
+    while (!fits(current, ctx)) {
         if (current.extraIntervalsCount > 0) {
             current = current.copy(
                 mode = SnippetsMode.INTERVALS,
