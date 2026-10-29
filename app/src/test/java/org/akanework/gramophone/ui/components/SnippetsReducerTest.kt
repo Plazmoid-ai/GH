@@ -199,19 +199,37 @@ class SnippetsReducerTest {
     }
 
     @Test
-    fun tabAndPlusAreNotImplementedForIntervalsMode() {
-        val state = SnippetsState(
+    fun intervalsTapTabAndPlusApplyRealHomeZoneLogic() {
+        val allHomesActive = SnippetsState(
             mode = SnippetsMode.INTERVALS,
             selectedPreviewZone = 0,
             activeHomeZones = listOf(true, true, true),
             extraIntervalsCount = 0,
         )
+        val expectedAfterTab = allHomesActive.copy(
+            activeHomeZones = listOf(true, false, true),
+        )
+        val expectedTabStart = bounds(expectedAfterTab, standardContext).minByOrNull { it.first }!!.first
 
-        listOf(SnippetsEvent.TapTab(2), SnippetsEvent.TapPlus).forEach { event ->
-            val (actualState, effect) = reduce(state, event, standardContext, playing = false)
-            assertEquals("INTERVALS-mode event $event must preserve state in this stage; actual=$actualState", state, actualState)
-            assertEquals("INTERVALS-mode event $event must produce None in this stage; actual=$effect", SnippetsEffect.None, effect)
-        }
+        val (afterTab, tabEffect) = reduce(
+            allHomesActive,
+            SnippetsEvent.TapTab(1),
+            standardContext,
+            playing = false,
+        )
+        assertEquals("Tapping active home zone 1 should disable it; actual=$afterTab", expectedAfterTab, afterTab)
+        assertEquals("Expected SeekTo($expectedTabStart) based on the new state; actual=$tabEffect", SnippetsEffect.SeekTo(expectedTabStart), tabEffect)
+
+        val expectedAfterPlus = allHomesActive
+        val expectedPlusStart = bounds(expectedAfterPlus, standardContext).minByOrNull { it.first }!!.first
+        val (afterPlus, plusEffect) = reduce(
+            afterTab,
+            SnippetsEvent.TapPlus,
+            standardContext,
+            playing = false,
+        )
+        assertEquals("TapPlus should enable the first free home zone (zone 1); actual=$afterPlus", expectedAfterPlus, afterPlus)
+        assertEquals("Expected SeekTo($expectedPlusStart) based on the new state; actual=$plusEffect", SnippetsEffect.SeekTo(expectedPlusStart), plusEffect)
     }
 
     private fun previewState(selected: Int): SnippetsState = SnippetsState(
