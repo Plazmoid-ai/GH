@@ -769,7 +769,8 @@ class FullBottomSheet
      * Safe to call from attachment, playback, and controller lifecycle callbacks.
      */
     fun ensurePositionUpdates() {
-        if (runnableRunning || !isAttachedToWindow || instance == null) return
+        if (!isAttachedToWindow || instance == null) return
+        // Always collapse any pending callback to one before starting/restarting the cycle.
         mainHandler.removeCallbacks(positionRunnable)
         runnableRunning = true
         mainHandler.post(positionRunnable)
@@ -1770,7 +1771,13 @@ class FullBottomSheet
         newPosition: Player.PositionInfo,
         reason: Int
     ) {
-        positionRunnable.run()
+        // Refresh UI without running the Runnable directly (which would schedule another chain).
+        updateSnippetsPlayback()
+        updateDuration()
+        if (SnippetsPreviewState.isSnippetsActive) {
+            updateSnippetsTimecodes()
+        }
+        ensurePositionUpdates()
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
