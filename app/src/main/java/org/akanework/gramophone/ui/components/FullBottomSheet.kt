@@ -1969,9 +1969,8 @@ class FullBottomSheet
 
     private fun updateSnippetsTimecodes() {
         val state = SnippetsPreviewState
-        // Use the controller's live position for the elapsed clock instead of relying
-        // on currentPositionMs being refreshed by a previous polling callback.
-        val positionMs = instance?.currentPosition ?: state.currentPositionMs
+        // Read the controller's live position instead of a cached UI-state value.
+        val positionMs = instance?.currentPosition ?: 0L
         val bounds = state.snippetBounds
         val activeElapsedMs = if (bounds.isEmpty()) {
             0L
