@@ -205,17 +205,19 @@ private fun reduceTapPlus(
         return candidate to seekToFirstZone(candidate, ctx)
     }
 
-    val freeHome = base.activeHomeZones.indices.firstOrNull { !base.activeHomeZones[it] }
-    if (freeHome != null) {
-        val candidate = base.copy(
-            activeHomeZones = base.activeHomeZones.mapIndexed { index, active ->
-                active || index == freeHome
-            },
-        )
-        if (!fits(candidate, ctx)) {
-            return state to SnippetsEffect.Tooltip(SNIPPETS_NO_FIT_TOOLTIP)
+    val freeHomes = base.activeHomeZones.indices.filter { !base.activeHomeZones[it] }
+    if (freeHomes.isNotEmpty()) {
+        for (freeHome in freeHomes) {
+            val candidate = base.copy(
+                activeHomeZones = base.activeHomeZones.mapIndexed { index, active ->
+                    active || index == freeHome
+                },
+            )
+            if (fits(candidate, ctx)) {
+                return candidate to seekToFirstZone(candidate, ctx)
+            }
         }
-        return candidate to seekToFirstZone(candidate, ctx)
+        return state to SnippetsEffect.Tooltip(SNIPPETS_NO_FIT_TOOLTIP)
     }
 
     // All three home zones are active; try adding the first extra interval.
