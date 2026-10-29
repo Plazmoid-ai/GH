@@ -262,15 +262,13 @@ class FullBottomSheet
                 }
             }
             bottomSheetFullLyricView.updateLyricPositionFromPlaybackPos()
-            if (runnableRunning && isAttachedToWindow && instance != null) {
+            if (runnableRunning && isAttachedToWindow) {
                 // Keep a single pending callback for this polling cycle.
                 mainHandler.removeCallbacks(this)
                 mainHandler.postDelayed(
                     this,
                     if (SnippetsPreviewState.isSnippetsActive) 16L else SLIDER_UPDATE_INTERVAL,
                 )
-            } else {
-                runnableRunning = false
             }
         }
     }
