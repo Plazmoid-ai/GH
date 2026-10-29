@@ -349,7 +349,7 @@ class FullBottomSheet
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
                 MaterialTheme {
-                    if (SnippetsPreviewState.isSnippetsActive) {
+                    if (LEGACY_ZONE_CONTROLS_ENABLED && SnippetsPreviewState.isSnippetsActive) {
                         SnippetCapsuleOverlay(Modifier.fillMaxSize())
                     }
                 }
@@ -887,7 +887,7 @@ class FullBottomSheet
         bottomSheetSnippetsButton.iconTint = ColorStateList.valueOf(
             if (active) activeTint else inactiveTint
         )
-        snippetsCapsuleComposeView.isVisible = active
+        snippetsCapsuleComposeView.isVisible = active && LEGACY_ZONE_CONTROLS_ENABLED
         snippetsProgressComposeView.isVisible = active
 
         // The custom canvas replaces, rather than overlays, the stock progress bar.
