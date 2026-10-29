@@ -82,7 +82,7 @@ class SnippetsIntervalLogicTest {
 
         invalidDurations.forEach { duration ->
             val ctx = SnippetsContext(durationMs = duration, lengthMs = 10_000L)
-            assertTrue("Expected empty bounds for duration=$duration", bounds(state, ctx).isEmpty())
+            assertTrue("Expected empty bounds for duration=$duration; actual=${bounds(state, ctx)}", bounds(state, ctx).isEmpty())
             assertFalse("Expected fits=false for duration=$duration", fits(state, ctx))
         }
     }
