@@ -10,6 +10,8 @@
 package org.akanework.gramophone.ui.components
 
 import android.net.Uri
+import android.widget.ImageView
+import androidx.appcompat.widget.AppCompatImageView
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import coil3.compose.AsyncImage
 import org.akanework.gramophone.R
 
@@ -34,6 +37,9 @@ internal fun NowPlayingCarousel(
     previousArtworkUri: Uri?,
     currentArtworkUri: Uri?,
     nextArtworkUri: Uri?,
+    hasPreviousTrack: Boolean,
+    hasCurrentTrack: Boolean,
+    hasNextTrack: Boolean,
     modifier: Modifier = Modifier,
     onPreviousArtworkClick: () -> Unit,
     onCurrentArtworkClick: () -> Unit,
@@ -52,9 +58,24 @@ internal fun NowPlayingCarousel(
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ArtworkCard(previousArtworkUri, sideSize, onPreviousArtworkClick)
-            ArtworkCard(currentArtworkUri, centerSize, onCurrentArtworkClick)
-            ArtworkCard(nextArtworkUri, sideSize, onNextArtworkClick)
+            ArtworkCard(
+                artworkUri = previousArtworkUri,
+                enabled = hasPreviousTrack,
+                size = sideSize,
+                onClick = onPreviousArtworkClick,
+            )
+            ArtworkCard(
+                artworkUri = currentArtworkUri,
+                enabled = hasCurrentTrack,
+                size = centerSize,
+                onClick = onCurrentArtworkClick,
+            )
+            ArtworkCard(
+                artworkUri = nextArtworkUri,
+                enabled = hasNextTrack,
+                size = sideSize,
+                onClick = onNextArtworkClick,
+            )
         }
     }
 }
@@ -62,6 +83,7 @@ internal fun NowPlayingCarousel(
 @Composable
 private fun ArtworkCard(
     artworkUri: Uri?,
+    enabled: Boolean,
     size: Dp,
     onClick: () -> Unit,
 ) {
@@ -71,17 +93,30 @@ private fun ArtworkCard(
         modifier = Modifier
             .size(size)
             .clip(shape)
-            .clickable { onClick() },
+            .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        AsyncImage(
-            model = artworkUri ?: R.drawable.ic_default_cover,
-            contentDescription = null,
+        // ic_default_cover is a LayerDrawable, not a VectorDrawable or bitmap.
+        // Render it with a native ImageView so it works exactly like the XML player artwork.
+        AndroidView(
+            factory = { context ->
+                AppCompatImageView(context).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setImageResource(R.drawable.ic_default_cover)
+                }
+            },
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            error = null,
-            fallback = null,
-            placeholder = null,
         )
+
+        // The default cover remains visible underneath while Coil loads the image and
+        // whenever the URI has no embedded/available artwork or the request fails.
+        if (artworkUri != null) {
+            AsyncImage(
+                model = artworkUri,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
     }
 }
