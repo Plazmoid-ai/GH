@@ -40,7 +40,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     AppBarLayout.OnOffsetChangedListener {
     companion object {
         const val PREF_HIDE_HEADER_ON_SCROLL = "mods_hide_header_on_scroll"
-        private const val HEADER_SCROLL_THRESHOLD_PX = 10
+        private const val HEADER_SCROLL_THRESHOLD_DP = 48
     }
 
     constructor(context: Context, attributeSet: AttributeSet?, defStyleAttr: Int) :
@@ -70,6 +70,8 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     private var scrollInProgress = false
     private var scrollIsNatural = false
     private var headerAutoHideEnabled = false
+    private val headerScrollThresholdPx =
+        (HEADER_SCROLL_THRESHOLD_DP * resources.displayMetrics.density).toInt().coerceAtLeast(1)
     private var accumulatedHeaderScrollPx = 0
     private var lastHeaderScrollDirection = 0
     private var headerTargetExpanded = true
@@ -93,7 +95,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
             }
 
             // Ignore tiny movements and only react after a consistent scroll direction.
-            if (accumulatedHeaderScrollPx >= HEADER_SCROLL_THRESHOLD_PX) {
+            if (accumulatedHeaderScrollPx >= headerScrollThresholdPx) {
                 setAppBarExpanded(direction < 0)
                 accumulatedHeaderScrollPx = 0
             }
