@@ -41,6 +41,21 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
+      # Reinstall the pinned NDK if the runner's copy is incomplete.
+      - name: Repair Android NDK installation
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          NDK_VERSION="28.2.13676358"
+          NDK_DIR="$ANDROID_HOME/ndk/$NDK_VERSION"
+
+          if [ ! -f "$NDK_DIR/source.properties" ]; then
+            rm -rf "$NDK_DIR"
+            yes | "$SDKMANAGER" --licenses
+            "$SDKMANAGER" "ndk;$NDK_VERSION"
+          fi
+
+          test -f "$NDK_DIR/source.properties"
+
       - name: Set release type
         run: echo releaseType=CI > package.properties
 
