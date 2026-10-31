@@ -63,7 +63,6 @@ abstract class PickerActivity<T : Any> : BaseActivity() {
         val songAdapter = makeAdapter()
 
         recyclerView.enableEdgeToEdgePaddingListener()
-        recyclerView.setAppBar(appBarLayout)
         recyclerView.adapter = songAdapter.concatAdapter
 
         // Build FastScroller.
