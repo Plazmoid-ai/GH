@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [ "beta", "new_swipe_smart" ]
+    branches: [ "beta", "new_swipe_smart", "experimen/main-screen-list" ]
     paths-ignore:
       - ".github/**"
       - "!.github/workflows/**"
