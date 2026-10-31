@@ -112,7 +112,6 @@ class PlaylistEditFragment : BaseFragment(false) {
 
         adapter = PlaylistEditAdapter()
         recyclerView.enableEdgeToEdgePaddingListener()
-        recyclerView.setAppBar(appBarLayout)
         recyclerView.adapter = adapter
         touchHelper = ItemTouchHelper(adapter.PlaylistCardMoveCallback())
         touchHelper.attachToRecyclerView(recyclerView)
