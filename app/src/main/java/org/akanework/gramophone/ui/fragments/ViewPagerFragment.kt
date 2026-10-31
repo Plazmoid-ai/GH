@@ -29,6 +29,7 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.RecyclerView
@@ -78,6 +79,43 @@ class ViewPagerFragment : BaseFragment(true) {
         savedInstanceState: Bundle?,
     ): View? {
         val rootView = inflater.inflate(R.layout.fragment_viewpager, container, false)
+
+        // Keep the status-bar inset outside the scrolling AppBarLayout. Otherwise
+        // the toolbar can slide into the status-bar area while it collapses.
+        val systemBarTypes =
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        val initialTopPadding = rootView.paddingTop
+        rootView.clipToPadding = true
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, insets ->
+            val visibleInsets = insets.getInsets(systemBarTypes)
+            val stableInsets = insets.getInsetsIgnoringVisibility(systemBarTypes)
+            view.setPadding(
+                view.paddingLeft,
+                initialTopPadding + visibleInsets.top,
+                view.paddingRight,
+                view.paddingBottom
+            )
+            WindowInsetsCompat.Builder(insets)
+                .setInsets(
+                    systemBarTypes,
+                    Insets.of(
+                        visibleInsets.left,
+                        0,
+                        visibleInsets.right,
+                        visibleInsets.bottom
+                    )
+                )
+                .setInsetsIgnoringVisibility(
+                    systemBarTypes,
+                    Insets.of(
+                        stableInsets.left,
+                        0,
+                        stableInsets.right,
+                        stableInsets.bottom
+                    )
+                )
+                .build()
+        }
         val tabLayout = rootView.findViewById<TabLayout>(R.id.tab_layout)
         val topAppBar = rootView.findViewById<MaterialToolbar>(R.id.topAppBar)
         viewPager2 = rootView.findViewById(R.id.fragment_viewpager)
