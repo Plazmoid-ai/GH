@@ -178,6 +178,9 @@ class FullBottomSheet
     private var carouselPreviousArtwork: Uri? by mutableStateOf(null)
     private var carouselCurrentArtwork: Uri? by mutableStateOf(null)
     private var carouselNextArtwork: Uri? by mutableStateOf(null)
+    private var carouselHasPreviousTrack by mutableStateOf(false)
+    private var carouselHasCurrentTrack by mutableStateOf(false)
+    private var carouselHasNextTrack by mutableStateOf(false)
     private var currentFormat: AudioFormatDetector.AudioFormats? = null
 
     companion object {
@@ -313,9 +316,28 @@ class FullBottomSheet
                 previousArtworkUri = carouselPreviousArtwork,
                 currentArtworkUri = carouselCurrentArtwork,
                 nextArtworkUri = carouselNextArtwork,
-                onPreviousArtworkClick = { /* TODO: connect previous-track action in step 2. */ },
-                onCurrentArtworkClick = { /* TODO: connect current-track action in step 2. */ },
-                onNextArtworkClick = { /* TODO: connect next-track action in step 2. */ }
+                hasPreviousTrack = carouselHasPreviousTrack,
+                hasCurrentTrack = carouselHasCurrentTrack,
+                hasNextTrack = carouselHasNextTrack,
+                onPreviousArtworkClick = {
+                    val player = instance
+                    if (player != null &&
+                        player.previousMediaItemIndex in 0 until player.mediaItemCount
+                    ) {
+                        player.seekToPrevious()
+                    }
+                },
+                onCurrentArtworkClick = {
+                    instance?.takeIf { it.currentMediaItem != null }?.playOrPause()
+                },
+                onNextArtworkClick = {
+                    val player = instance
+                    if (player != null &&
+                        player.nextMediaItemIndex in 0 until player.mediaItemCount
+                    ) {
+                        player.seekToNext()
+                    }
+                }
             )
         }
         updateCarouselArtwork()
@@ -1456,20 +1478,30 @@ class FullBottomSheet
 
     private fun updateCarouselArtwork() {
         val player = instance
+        val itemCount = player?.mediaItemCount ?: 0
+        val previousIndex = player?.previousMediaItemIndex ?: C.INDEX_UNSET
+        val currentIndex = player?.currentMediaItemIndex ?: C.INDEX_UNSET
+        val nextIndex = player?.nextMediaItemIndex ?: C.INDEX_UNSET
 
-        fun artworkAt(index: Int): Uri? {
-            return if (player != null && index in 0 until player.mediaItemCount) {
-                player.getMediaItemAt(index).mediaMetadata.artworkUri
-            } else {
-                null
-            }
+        carouselHasPreviousTrack = previousIndex in 0 until itemCount
+        carouselHasCurrentTrack = currentIndex in 0 until itemCount
+        carouselHasNextTrack = nextIndex in 0 until itemCount
+
+        carouselPreviousArtwork = if (carouselHasPreviousTrack) {
+            player?.getMediaItemAt(previousIndex)?.mediaMetadata?.artworkUri
+        } else {
+            null
         }
-
-        carouselPreviousArtwork =
-            artworkAt(player?.previousMediaItemIndex ?: C.INDEX_UNSET)
-        carouselCurrentArtwork = player?.currentMediaItem?.mediaMetadata?.artworkUri
-        carouselNextArtwork =
-            artworkAt(player?.nextMediaItemIndex ?: C.INDEX_UNSET)
+        carouselCurrentArtwork = if (carouselHasCurrentTrack) {
+            player?.currentMediaItem?.mediaMetadata?.artworkUri
+        } else {
+            null
+        }
+        carouselNextArtwork = if (carouselHasNextTrack) {
+            player?.getMediaItemAt(nextIndex)?.mediaMetadata?.artworkUri
+        } else {
+            null
+        }
     }
 
     override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -1483,9 +1515,15 @@ class FullBottomSheet
     ) {
         if (instance?.mediaItemCount != 0) {
             bottomSheetFullCover.dispose()
-            bottomSheetFullCover.loadNoPlaceholder(mediaItem?.mediaMetadata?.artworkUri) {
-                scale(Scale.FILL)
-                error(R.drawable.ic_default_cover)
+            val artworkUri = mediaItem?.mediaMetadata?.artworkUri
+            if (artworkUri == null) {
+                // Keep the XML LayerDrawable placeholder visible when the track has no art URI.
+                bottomSheetFullCover.setImageResource(R.drawable.ic_default_cover)
+            } else {
+                bottomSheetFullCover.loadNoPlaceholder(artworkUri) {
+                    scale(Scale.FILL)
+                    error(R.drawable.ic_default_cover)
+                }
             }
             if (DynamicColors.isDynamicColorAvailable() &&
                 prefs.getBooleanStrict("content_based_color", true)
@@ -1503,6 +1541,7 @@ class FullBottomSheet
             updateDuration()
         } else {
             bottomSheetFullCover.dispose()
+            bottomSheetFullCover.setImageResource(R.drawable.ic_default_cover)
         }
         updateCarouselArtwork()
     }
@@ -1554,6 +1593,7 @@ class FullBottomSheet
         reason: Int
     ) {
         positionRunnable.run()
+        updateCarouselArtwork()
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
