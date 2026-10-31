@@ -49,6 +49,12 @@ import android.widget.ListView
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.platform.setContent
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.appcompat.view.ContextThemeWrapper
@@ -76,6 +82,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.Log
 import androidx.media3.session.MediaBrowser
 import androidx.media3.session.SessionError
@@ -169,6 +176,9 @@ class FullBottomSheet
     private var enableQualityInfo = false
 
     private val prefs = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+    private var carouselPreviousArtwork: Uri? by mutableStateOf(null)
+    private var carouselCurrentArtwork: Uri? by mutableStateOf(null)
+    private var carouselNextArtwork: Uri? by mutableStateOf(null)
     private var currentFormat: AudioFormatDetector.AudioFormats? = null
 
     companion object {
@@ -268,6 +278,7 @@ class FullBottomSheet
     private val bottomSheetFullSeekBar: SeekBar
     private val bottomSheetFullSlider: Slider
     private val bottomSheetFullCoverFrame: MaterialCardView
+    private lateinit var bottomSheetCarouselControls: ComposeView
     val bottomSheetFullLyricView: LyricsView by lazy { (parent as ViewGroup).findViewById(R.id.lyric_frame)!! }
     private val progressDrawable: SquigglyProgress
     private var pqs: PlaylistQueueSheet? = null
@@ -294,6 +305,21 @@ class FullBottomSheet
         bottomSheetPlaylistButton = findViewById(R.id.playlist)
         bottomSheetLyricButton = findViewById(R.id.lyrics)
         bottomSheetFullQualityDetails = findViewById(R.id.quality_details)
+        bottomSheetCarouselControls = findViewById(R.id.carousel_controls)
+        bottomSheetCarouselControls.setViewCompositionStrategy(
+            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed
+        )
+        bottomSheetCarouselControls.setContent {
+            NowPlayingCarousel(
+                previousArtworkUri = carouselPreviousArtwork,
+                currentArtworkUri = carouselCurrentArtwork,
+                nextArtworkUri = carouselNextArtwork,
+                onPreviousArtworkClick = { /* TODO: connect previous-track action in step 2. */ },
+                onCurrentArtworkClick = { /* TODO: connect current-track action in step 2. */ },
+                onNextArtworkClick = { /* TODO: connect next-track action in step 2. */ }
+            )
+        }
+        updateCarouselArtwork()
         refreshSettings(null)
         prefs.registerOnSharedPreferenceChangeListener(this)
         activity.controllerViewModel.customCommandListeners.addCallback(activity.lifecycle) { _, command, _ ->
@@ -670,6 +696,14 @@ class FullBottomSheet
     }
 
     private fun refreshSettings(key: String?) {
+        if (key == null || key == "isCarouselControlsEnabled") {
+            val carouselEnabled = prefs.getBooleanStrict("isCarouselControlsEnabled", false)
+            bottomSheetFullCoverFrame.isVisible = !carouselEnabled
+            bottomSheetCarouselControls.isVisible = carouselEnabled
+            bottomSheetFullPreviousButton.isVisible = !carouselEnabled
+            bottomSheetFullControllerButton.isVisible = !carouselEnabled
+            bottomSheetFullNextButton.isVisible = !carouselEnabled
+        }
         if (key == null || key == "default_progress_bar") {
             if (prefs.getBooleanStrict("default_progress_bar", false)) {
                 bottomSheetFullSlider.visibility = VISIBLE
@@ -1421,6 +1455,28 @@ class FullBottomSheet
         waiter.await()
     }
 
+    private fun updateCarouselArtwork() {
+        val player = instance
+
+        fun artworkAt(index: Int): Uri? {
+            return if (player != null && index in 0 until player.mediaItemCount) {
+                player.getMediaItemAt(index).mediaMetadata.artworkUri
+            } else {
+                null
+            }
+        }
+
+        carouselPreviousArtwork =
+            artworkAt(player?.previousMediaItemIndex ?: C.INDEX_UNSET)
+        carouselCurrentArtwork = player?.currentMediaItem?.mediaMetadata?.artworkUri
+        carouselNextArtwork =
+            artworkAt(player?.nextMediaItemIndex ?: C.INDEX_UNSET)
+    }
+
+    override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+        updateCarouselArtwork()
+    }
+
     @SuppressLint("NotifyDataSetChanged")
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,
@@ -1449,6 +1505,7 @@ class FullBottomSheet
         } else {
             bottomSheetFullCover.dispose()
         }
+        updateCarouselArtwork()
     }
 
     override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
@@ -1459,6 +1516,7 @@ class FullBottomSheet
                 (mediaMetadata.userRating as? HeartRating)?.isHeart == true
         }
         bottomSheetFavoriteButton.addOnCheckedChangeListener(this) // see onCheckedChanged
+        updateCarouselArtwork()
     }
 
     private fun updateDuration() {
