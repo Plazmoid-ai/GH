@@ -121,7 +121,7 @@
     <string name="settings_color_accuracy_summary">Более точная генерация цветов</string>
     <string name="settings_experimental_settings_summary">Тестирование функций, разное</string>
     <!-- Экспериментальный вариант экрана «Сейчас играет». -->
-    <string name="settings_carousel_controls">Карусель обложек</string>
+    <string name="settings_carousel_controls">Управление каруселью</string>
     <string name="settings_carousel_controls_summary">Показывать обложки предыдущего, текущего и следующего треков вместо большой обложки и кнопок управления</string>
     <string name="settings_blacklist">Чёрный список</string>
     <string name="sort_by_add_date">Дата добавления</string>
