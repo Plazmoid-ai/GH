@@ -1559,6 +1559,7 @@ class FullBottomSheet
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
         bottomSheetShuffleButton.isChecked = shuffleModeEnabled
+        updateCarouselArtwork()
     }
 
     override fun onRepeatModeChanged(repeatMode: Int) {
@@ -1581,6 +1582,7 @@ class FullBottomSheet
                     AppCompatResources.getDrawable(context, R.drawable.ic_repeat)
             }
         }
+        updateCarouselArtwork()
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
