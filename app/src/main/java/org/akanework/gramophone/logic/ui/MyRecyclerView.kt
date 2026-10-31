@@ -148,11 +148,6 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         } else {
             removeOnScrollListener(headerScrollListener)
             isNestedScrollingEnabled = true
-            appBarLayout?.findViewById<View>(R.id.topAppBar)?.let { header ->
-                header.animate().cancel()
-                header.translationY = 0f
-            }
-            isAnimating = false
             appBarLayout?.setExpanded(true, false)
             isAnimating = false
             targetAppBarOffset = null
