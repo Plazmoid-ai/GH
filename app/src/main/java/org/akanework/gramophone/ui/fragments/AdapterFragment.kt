@@ -26,6 +26,7 @@ import android.view.ViewGroup
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.flow.Flow
@@ -78,6 +79,10 @@ class AdapterFragment : BaseFragment(null) {
         adapter = createAdapter(savedInstanceState)
         recyclerView.adapter = adapter.concatAdapter
         recyclerView.setAppBar((requireParentFragment() as ViewPagerFragment).appBarLayout)
+        recyclerView.setHeaderAutoHideEnabled(
+            PreferenceManager.getDefaultSharedPreferences(requireContext())
+                .getBoolean(MyRecyclerView.PREF_HIDE_HEADER_ON_SCROLL, false)
+        )
         recyclerView.fastScroll(adapter, adapter.itemHeightHelper)
         (adapter as? RequestAdapter)?.let { it1 ->
             intentSender =
@@ -92,6 +97,12 @@ class AdapterFragment : BaseFragment(null) {
     override fun onDestroyView() {
         adapter.onFullyDrawnListener = null
         super.onDestroyView()
+    }
+
+    fun setHeaderAutoHideEnabled(enabled: Boolean) {
+        if (::recyclerView.isInitialized) {
+            recyclerView.setHeaderAutoHideEnabled(enabled)
+        }
     }
 
     fun onTabReselected() {

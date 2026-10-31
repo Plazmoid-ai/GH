@@ -33,10 +33,16 @@ import me.zhanghai.android.fastscroll.FastScrollerBuilder
 import me.zhanghai.android.fastscroll.FixOnItemTouchListenerRecyclerView
 import me.zhanghai.android.fastscroll.PopupTextProvider
 import org.akanework.gramophone.R
+import kotlin.math.abs
 import org.akanework.gramophone.ui.components.GridPaddingDecoration
 
 open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     AppBarLayout.OnOffsetChangedListener {
+    companion object {
+        const val PREF_HIDE_HEADER_ON_SCROLL = "mods_hide_header_on_scroll"
+        private const val HEADER_SCROLL_THRESHOLD_PX = 10
+    }
+
     constructor(context: Context, attributeSet: AttributeSet?, defStyleAttr: Int) :
             super(context, attributeSet, defStyleAttr) {
         val arr = context.theme.obtainStyledAttributes(
@@ -63,6 +69,35 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     private var ah: MyAnimationHelper? = null
     private var scrollInProgress = false
     private var scrollIsNatural = false
+    private var headerAutoHideEnabled = false
+    private var accumulatedHeaderScrollPx = 0
+    private var lastHeaderScrollDirection = 0
+
+    private val headerScrollListener = object : OnScrollListener() {
+        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            if (!headerAutoHideEnabled || dy == 0) return
+
+            val direction = if (dy > 0) 1 else -1
+            if (direction != lastHeaderScrollDirection) {
+                lastHeaderScrollDirection = direction
+                accumulatedHeaderScrollPx = 0
+            }
+            accumulatedHeaderScrollPx += abs(dy)
+
+            // Always reveal the toolbar as soon as the list reaches its top.
+            if (!canScrollVertically(-1)) {
+                setAppBarExpanded(true)
+                accumulatedHeaderScrollPx = 0
+                return
+            }
+
+            // Ignore tiny movements and only react after a consistent scroll direction.
+            if (accumulatedHeaderScrollPx >= HEADER_SCROLL_THRESHOLD_PX) {
+                setAppBarExpanded(direction < 0)
+                accumulatedHeaderScrollPx = 0
+            }
+        }
+    }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val width = r - l
@@ -100,6 +135,26 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
             appBarLayout?.addOnOffsetChangedListener(this)
     }
 
+    fun setHeaderAutoHideEnabled(enabled: Boolean) {
+        if (headerAutoHideEnabled == enabled) return
+
+        headerAutoHideEnabled = enabled
+        accumulatedHeaderScrollPx = 0
+        lastHeaderScrollDirection = 0
+
+        if (enabled) {
+            // The toolbar is controlled by the thresholded listener below, not by
+            // AppBarLayout's immediate nested-scroll response.
+            isNestedScrollingEnabled = false
+            addOnScrollListener(headerScrollListener)
+            if (!canScrollVertically(-1)) setAppBarExpanded(true)
+        } else {
+            removeOnScrollListener(headerScrollListener)
+            isNestedScrollingEnabled = true
+            appBarLayout?.setExpanded(true, false)
+        }
+    }
+
     private fun setAppBarExpanded(expanded: Boolean) {
         val behavior = (appBarLayout?.layoutParams as CoordinatorLayout.LayoutParams?)?.behavior
         val isExpanded = behavior is AppBarLayout.Behavior && behavior.topAndBottomOffset == 0
@@ -126,6 +181,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
 
     @Suppress("UNCHECKED_CAST")
     private fun setAppBarNotExpandedQuickly() {
+        if (!headerAutoHideEnabled) return
         val apb = (appBarLayout?.layoutParams as CoordinatorLayout.LayoutParams?)?.behavior
         val isExpanded = apb is AppBarLayout.Behavior && apb.topAndBottomOffset == 0
         if (appBarLayout != null && isExpanded) {
@@ -154,9 +210,9 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         } else if (!scrollIsNatural && state == SCROLL_STATE_SETTLING) {
             scrollInProgress = true
         } else if (state == SCROLL_STATE_IDLE) {
-            if (scrollInProgress && !scrollIsNatural) {
+            if (scrollInProgress && !scrollIsNatural && headerAutoHideEnabled) {
                 val pos =
-                    (layoutManager as? LinearLayoutManager)?.findFirstCompletelyVisibleItemPosition()
+                    (layoutManager as? LinearLayoutManager)?.findFirstVisibleItemPosition()
                 setAppBarExpanded(pos == 0)
             }
             scrollInProgress = false

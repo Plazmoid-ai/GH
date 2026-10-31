@@ -541,4 +541,6 @@
     <string name="settings_always_skip_previous">Всегда переключать на предыдущий трек</string>
     <string name="settings_always_skip_previous_summary">Мгновенное переключение на предыдущий трек вместо перемотки в начало при нажатии кнопки «Назад»</string>
     <string name="reverse_order">Инвертировать порядок</string>
+    <string name="settings_category_mods">Mods</string>
+    <string name="settings_hide_header_on_scroll">Скрывать шапку при прокрутке</string>
 </resources>
