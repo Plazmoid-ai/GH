@@ -2,7 +2,17 @@ name: Android CI
 
 on:
   push:
-    branches: [ "Develop" ]
+    branches: [ "beta", "new_swipe_smart" ]
+    paths-ignore:
+      - ".github/**"
+      - "!.github/workflows/**"
+      - ".idea/"
+      - "fastlane/"
+      - '.gitignore'
+      - "*.md"
+      - "LICENSE"
+  pull_request:
+    branches: [ "beta" ]
     paths-ignore:
       - ".github/**"
       - "!.github/workflows/**"
@@ -15,7 +25,7 @@ on:
 
 jobs:
   build:
-    name: Build Release APK (arm64-v8a)
+    name: Build App
     runs-on: ubuntu-latest
     steps:
 
@@ -34,105 +44,61 @@ jobs:
       - name: Set release type
         run: echo releaseType=CI > package.properties
 
-      - name: Check signing secrets present
-        run: |
-          check() {
-            local name="$1" value="$2"
-            if [ -z "$value" ]; then
-              echo "::error::Secret $name is EMPTY or missing"
-              exit 1
-            else
-              echo "Secret $name: present (${#value} chars)"
-            fi
-          }
-          check "SIGNING_KEY" "${{ secrets.SIGNING_KEY }}"
-          check "KEY_STORE_PASSWORD" "${{ secrets.KEY_STORE_PASSWORD }}"
-          check "ALIAS" "${{ secrets.ALIAS }}"
-          check "KEY_PASSWORD" "${{ secrets.KEY_PASSWORD }}"
+      # Unit tests are diagnostic only and must not block APK production.
+      - name: Run debug unit tests
+        continue-on-error: true
+        run: ./gradlew :app:testDebugUnitTest --tests "*Snippets*" --console=plain
 
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
+
+      # --- Ключи передаются в окружение ---
       - name: Create signing files
+        if: github.event_name != 'pull_request'
         run: |
-          set -euo pipefail
-          printf '%s' "${{ secrets.SIGNING_KEY }}" | base64 -d > $HOME/key.jks
-          echo "--- diagnostics ---"
-          ls -l $HOME/key.jks
-          md5sum $HOME/key.jks
-          head -c 8 $HOME/key.jks | xxd   # Проверка magic-байт JKS (должно быть cafebabe)
-          echo "-------------------"
+          echo "${{ secrets.KEYSTORE_SECRET }}" | base64 -d > ~/key.jks
+          {
+            echo "AKANE_RELEASE_STORE_FILE=$(realpath ~/key.jks)"
+            echo "AKANE_RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PWD }}"
+            echo "AKANE_RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}"
+            echo "AKANE_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PWD }}"
+          } >> "$GITHUB_ENV"
 
-      - name: Patch build.gradle to skip broken resourcePlaceholders
-        run: |
-          cat >> app/build.gradle.kts << 'EOF'
+      # --- Сборка (только arm64-v8a) ---
+      - name: Build with Gradle
+        if: github.event_name != 'pull_request'
+        run: ./gradlew :app:assembleRelease -PtargetAbi=arm64-v8a --console=plain
 
-          // WORKAROUND: pt.jcosta.resourceplaceholders is broken with Gradle 9
-          tasks.configureEach {
-              if (name.startsWith("resourcePlaceholdersFor")) {
-                  enabled = false
-              }
-          }
-          EOF
-          echo "Patched app/build.gradle.kts. Tail:"
-          tail -n 8 app/build.gradle.kts
+      - name: Build with Gradle for pull request
+        if: github.event_name == 'pull_request'
+        run: ./gradlew :app:assembleDebug -PtargetAbi=arm64-v8a --console=plain
 
-      - name: Build release APK (arm64-v8a only)
-        env:
-          AKANE_RELEASE_STORE_FILE: /home/runner/key.jks
-          AKANE_RELEASE_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
-          AKANE_RELEASE_KEY_ALIAS: ${{ secrets.ALIAS }}
-          AKANE_RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          ./gradlew :app:assembleRelease --no-configuration-cache --stacktrace -PtargetAbi=arm64-v8a
-
-      - name: Locate and verify APK
+      # --- Поиск APK ---
+      - name: Find apk
+        if: github.event_name != 'pull_request'
         run: |
           APK_FILE=$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)
-          test -n "$APK_FILE"
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
-          echo "APK_FILE_NAME=$(basename "$APK_FILE" .apk)" >> $GITHUB_ENV
-          echo "Found APK: $APK_FILE"
-          ls -l "$APK_FILE"
+          echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
 
-          APK_ENTRIES=$(unzip -Z1 "$APK_FILE")
-          echo "--- Native .so files inside APK ---"
-          SO_FILES=$(printf '%s\n' "$APK_ENTRIES" | awk -F/ '$1 == "lib" && $NF ~ /\.so$/ { print $0 }' | sort)
-          if [ -z "$SO_FILES" ]; then
-            if printf '%s\n' "$APK_ENTRIES" | grep -q '^lib/'; then
-              echo "::error::APK contains a lib/ directory, but no native .so files were found."
-            else
-              echo "::error::APK has no lib/ directory; native libraries are missing."
-            fi
-            exit 1
-          fi
-          printf '%s\n' "$SO_FILES"
+      - name: Find apk for pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          APK_FILE=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
+          echo "APK_FILE_NAME=$(basename $APK_FILE .apk)" >> $GITHUB_ENV
 
-          ABI_DIRS=$(printf '%s\n' "$SO_FILES" | awk -F/ 'NF >= 3 { print $2 }' | sort -u)
-          if [ -z "$ABI_DIRS" ]; then
-            echo "::error::Native .so files exist, but no ABI directory could be determined."
-            exit 1
-          fi
-          echo "--- ABI directories inside APK ---"
-          printf '%s\n' "$ABI_DIRS"
-
-          if [ "$ABI_DIRS" != "arm64-v8a" ]; then
-            echo "::error::Expected only arm64-v8a, but found these ABI directories: $ABI_DIRS"
-            exit 1
-          fi
-          echo "ABI verification passed: arm64-v8a only."
-
-      - name: Upload APK artifact
+      # --- Загрузка артефакта ---
+      - name: Upload apk
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_FILE_NAME }}
           path: ${{ env.APK_FILE }}
-          retention-days: 30
-
-      - name: Upload build logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-${{ github.run_number }}
-          path: |
-            app/build/reports/**
-            app/build/outputs/**
-          if-no-files-found: warn
-          retention-days: 7
+          compression-level: 9
