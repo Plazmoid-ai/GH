@@ -237,7 +237,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView {
             if (scrollInProgress && !scrollIsNatural && headerAutoHideEnabled) {
                 val pos =
                     (layoutManager as? LinearLayoutManager)?.findFirstVisibleItemPosition()
-                setAppBarExpanded(pos == 0)
+                setHeaderExpanded(pos == 0)
             }
             scrollInProgress = false
             scrollIsNatural = false
