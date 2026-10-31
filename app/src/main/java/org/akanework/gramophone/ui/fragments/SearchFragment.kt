@@ -87,7 +87,6 @@ class SearchFragment : BaseFragment(true) {
         val returnButton = rootView.findViewById<Button>(R.id.return_button)
 
         recyclerView.enableEdgeToEdgePaddingListener(ime = true)
-        recyclerView.setAppBar(appBarLayout)
         recyclerView.layoutManager = LinearLayoutManager(activity)
         recyclerView.adapter = songAdapter.concatAdapter
 
