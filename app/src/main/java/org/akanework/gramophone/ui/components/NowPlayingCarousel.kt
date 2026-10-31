@@ -10,7 +10,6 @@
 package org.akanework.gramophone.ui.components
 
 import android.net.Uri
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -76,23 +74,14 @@ private fun ArtworkCard(
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        if (artworkUri == null) {
-            Image(
-                painter = painterResource(R.drawable.ic_default_cover),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            AsyncImage(
-                model = artworkUri,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                error = painterResource(R.drawable.ic_default_cover),
-                fallback = painterResource(R.drawable.ic_default_cover),
-                placeholder = painterResource(R.drawable.ic_default_cover),
-            )
-        }
+        AsyncImage(
+            model = artworkUri ?: R.drawable.ic_default_cover,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            error = null,
+            fallback = null,
+            placeholder = null,
+        )
     }
 }
