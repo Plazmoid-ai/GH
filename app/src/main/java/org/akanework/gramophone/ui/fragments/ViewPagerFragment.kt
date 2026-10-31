@@ -75,6 +75,7 @@ class ViewPagerFragment : BaseFragment(true) {
     val recycledViewPool = RecyclerView.RecycledViewPool()
     private lateinit var viewPager2: ViewPager2
     private lateinit var adapter: ViewPager2Adapter
+    private var headerOffsetListener: AppBarLayout.OnOffsetChangedListener? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -88,6 +89,20 @@ class ViewPagerFragment : BaseFragment(true) {
 
         appBarLayout = rootView.findViewById(R.id.appbarlayout)
         appBarLayout.enableEdgeToEdgePaddingListener()
+
+        // AppBarLayout's top inset is kept outside its scroll range. Compensate on the
+        // toolbar itself so the title fully clears the status bar when the header collapses,
+        // while the tab row remains positioned below the status bar.
+        headerOffsetListener = AppBarLayout.OnOffsetChangedListener { layout, verticalOffset ->
+            val scrollRange = layout.totalScrollRange
+            val collapseFraction = if (scrollRange > 0) {
+                (-verticalOffset.toFloat() / scrollRange).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            topAppBar.translationY = -layout.paddingTop * collapseFraction
+        }
+        appBarLayout.addOnOffsetChangedListener(headerOffsetListener)
         topAppBar.overflowIcon =
             AppCompatResources.getDrawable(requireContext(), R.drawable.ic_more_vert_alt_topappbar)
 
@@ -269,6 +284,12 @@ class ViewPagerFragment : BaseFragment(true) {
         }
 
         return rootView
+    }
+
+    override fun onDestroyView() {
+        headerOffsetListener?.let { appBarLayout.removeOnOffsetChangedListener(it) }
+        headerOffsetListener = null
+        super.onDestroyView()
     }
 
     override fun onResume() {
