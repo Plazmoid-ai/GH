@@ -85,7 +85,6 @@ class ViewPagerFragment : BaseFragment(true) {
         val systemBarTypes =
             WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
         val initialTopPadding = rootView.paddingTop
-        rootView.clipToPadding = true
         ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, insets ->
             val visibleInsets = insets.getInsets(systemBarTypes)
             val stableInsets = insets.getInsetsIgnoringVisibility(systemBarTypes)
