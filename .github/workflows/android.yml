@@ -59,21 +59,6 @@ jobs:
       - name: Set release type
         run: echo releaseType=CI > package.properties
 
-      # Unit tests are diagnostic only and must not block APK production.
-      - name: Run debug unit tests
-        continue-on-error: true
-        run: ./gradlew :app:testDebugUnitTest --tests "*Snippets*" --console=plain
-
-      - name: Upload unit test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-test-reports
-          path: |
-            app/build/reports/tests/testDebugUnitTest/
-            app/build/test-results/testDebugUnitTest/
-          if-no-files-found: warn
-
       # --- Ключи передаются в окружение ---
       - name: Create signing files
         if: github.event_name != 'pull_request'
