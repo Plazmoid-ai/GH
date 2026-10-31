@@ -181,7 +181,6 @@ class GeneralSubFragment : BaseFragment(true) {
             )
 
         recyclerView.enableEdgeToEdgePaddingListener()
-        recyclerView.setAppBar(appBarLayout)
         recyclerView.adapter = songAdapter.concatAdapter
 
         // Build FastScroller.
