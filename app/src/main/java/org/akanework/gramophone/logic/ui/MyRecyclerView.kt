@@ -65,7 +65,6 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView {
 
     private var lastWidth = 0
     private var deferredFastScrollBuilder: (() -> FastScroller)? = null
-    private var appBarLayout: AppBarLayout? = null
     private var headerView: View? = null
     private var expandedHeaderHeight = 0
     private var headerAnimator: ValueAnimator? = null
@@ -92,7 +91,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView {
             // movement instead of immediately toggling the header.
             scrollAccumulator += dy
             if (abs(scrollAccumulator) >= HEADER_SCROLL_THRESHOLD_PX) {
-                setAppBarExpanded(scrollAccumulator < 0)
+                setHeaderExpanded(scrollAccumulator < 0)
                 scrollAccumulator = 0
             }
         }
@@ -127,7 +126,6 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView {
     }
 
     fun setAppBar(appBarLayout: AppBarLayout?) {
-        this.appBarLayout = appBarLayout
         headerView = appBarLayout?.findViewById(R.id.topAppBar)
         headerView?.let { header ->
             val height = header.layoutParams.height
@@ -152,7 +150,17 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView {
         } else {
             removeOnScrollListener(headerScrollListener)
             isNestedScrollingEnabled = true
-            setHeaderExpanded(true)
+            // Disabling the experiment must restore the full toolbar immediately,
+            // even if a height animation was in progress.
+            headerAnimator?.cancel()
+            headerAnimator = null
+            isAnimating = false
+            headerTargetExpanded = true
+            headerView?.let { header ->
+                header.layoutParams = header.layoutParams.apply {
+                    height = expandedHeaderHeight
+                }
+            }
         }
     }
 
