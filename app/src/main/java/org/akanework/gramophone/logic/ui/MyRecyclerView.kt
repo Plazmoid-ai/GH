@@ -144,7 +144,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         lastHeaderScrollDirection = 0
 
         if (enabled) {
-            headerTargetExpanded = true
+            headerTargetExpanded = isAppBarExpanded()
             // The toolbar is controlled by the thresholded listener below, not by
             // AppBarLayout's immediate nested-scroll response.
             isNestedScrollingEnabled = false
@@ -158,6 +158,11 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         }
     }
 
+    private fun isAppBarExpanded(): Boolean {
+        val behavior = (appBarLayout?.layoutParams as CoordinatorLayout.LayoutParams?)?.behavior
+        return behavior is AppBarLayout.Behavior && behavior.topAndBottomOffset == 0
+    }
+
     private fun setAppBarExpanded(expanded: Boolean) {
         if (headerAutoHideEnabled) {
             // Track the animation target to avoid restarting the same animation
@@ -168,9 +173,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
             return
         }
 
-        val behavior = (appBarLayout?.layoutParams as CoordinatorLayout.LayoutParams?)?.behavior
-        val isExpanded = behavior is AppBarLayout.Behavior && behavior.topAndBottomOffset == 0
-        if (isExpanded != expanded) {
+        if (isAppBarExpanded() != expanded) {
             appBarLayout?.setExpanded(expanded, true)
         }
     }
