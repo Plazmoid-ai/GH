@@ -72,6 +72,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     private var headerAutoHideEnabled = false
     private var accumulatedHeaderScrollPx = 0
     private var lastHeaderScrollDirection = 0
+    private var headerTargetExpanded = true
 
     private val headerScrollListener = object : OnScrollListener() {
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -143,6 +144,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         lastHeaderScrollDirection = 0
 
         if (enabled) {
+            headerTargetExpanded = true
             // The toolbar is controlled by the thresholded listener below, not by
             // AppBarLayout's immediate nested-scroll response.
             isNestedScrollingEnabled = false
@@ -151,11 +153,21 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         } else {
             removeOnScrollListener(headerScrollListener)
             isNestedScrollingEnabled = true
+            headerTargetExpanded = true
             appBarLayout?.setExpanded(true, false)
         }
     }
 
     private fun setAppBarExpanded(expanded: Boolean) {
+        if (headerAutoHideEnabled) {
+            // Track the animation target to avoid restarting the same animation
+            // every time another scroll threshold is crossed.
+            if (headerTargetExpanded == expanded) return
+            headerTargetExpanded = expanded
+            appBarLayout?.setExpanded(expanded, true)
+            return
+        }
+
         val behavior = (appBarLayout?.layoutParams as CoordinatorLayout.LayoutParams?)?.behavior
         val isExpanded = behavior is AppBarLayout.Behavior && behavior.topAndBottomOffset == 0
         if (isExpanded != expanded) {
@@ -185,6 +197,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         val apb = (appBarLayout?.layoutParams as CoordinatorLayout.LayoutParams?)?.behavior
         val isExpanded = apb is AppBarLayout.Behavior && apb.topAndBottomOffset == 0
         if (appBarLayout != null && isExpanded) {
+            headerTargetExpanded = false
             // this is setAppBarExpanded(false) but it works without layout pass
             val behavior: CoordinatorLayout.Behavior<AppBarLayout>? =
                 (appBarLayout!!.layoutParams as CoordinatorLayout.LayoutParams).behavior
