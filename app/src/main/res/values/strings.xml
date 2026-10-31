@@ -245,6 +245,9 @@
     <string name="settings_experimental_settings">Experimental</string>
     <!-- Settings category about experimental features. Subtext -->
     <string name="settings_experimental_settings_summary">Testing features, misc</string>
+    <!-- Experimental player layout that replaces the large cover and transport row. -->
+    <string name="settings_carousel_controls">Cover carousel</string>
+    <string name="settings_carousel_controls_summary">Show the previous, current, and next track covers instead of the large cover and transport buttons</string>
     <!-- Toggle which makes color detection for album cover based color use more CPU to detect the
     color, which improves accuracy but causes some lags on old devices. Subtext -->
     <string name="settings_color_accuracy_summary">Make color generation accurate</string>
