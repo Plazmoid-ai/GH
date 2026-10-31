@@ -163,7 +163,8 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
 
     private fun setAppBarExpanded(expanded: Boolean) {
         val header = appBarLayout?.findViewById<View>(R.id.topAppBar) ?: return
-        if (headerTargetExpanded == expanded) return
+        // Never interrupt an in-flight header animation.
+        if (isAnimating || headerTargetExpanded == expanded) return
 
         headerTargetExpanded = expanded
         isAnimating = true
