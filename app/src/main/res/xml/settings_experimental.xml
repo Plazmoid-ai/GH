@@ -74,18 +74,6 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory
-        android:layout="@layout/preference_category_md"
-        android:title="@string/settings_category_mods">
-
-        <SwitchPreferenceCompat
-            android:defaultValue="false"
-            android:key="mods_hide_header_on_scroll"
-            android:layout="@layout/preference_switch"
-            android:title="@string/settings_hide_header_on_scroll"
-            android:widgetLayout="@layout/preference_switch_widget"
-            app:iconSpaceReserved="false" />
-
     </PreferenceCategory>
 
 </PreferenceScreen>

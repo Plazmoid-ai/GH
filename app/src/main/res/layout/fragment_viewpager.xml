@@ -18,6 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:elevation="0dp"
+            app:layout_scrollFlags="scroll|enterAlways|snap"
             android:paddingStart="24dp"
             android:paddingEnd="8dp"
             app:title="@string/app_name"

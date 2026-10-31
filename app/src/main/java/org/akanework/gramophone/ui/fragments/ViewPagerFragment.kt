@@ -31,7 +31,6 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import coil3.SingletonImageLoader
@@ -55,7 +54,6 @@ import org.akanework.gramophone.logic.needsManualSnackBarInset
 import org.akanework.gramophone.logic.updateMargin
 import org.akanework.gramophone.logic.utils.SdScanner
 import org.akanework.gramophone.logic.setMediaItemsWithTitle
-import org.akanework.gramophone.logic.ui.MyRecyclerView
 import org.akanework.gramophone.ui.MainActivity
 import org.akanework.gramophone.ui.adapters.ViewPager2Adapter
 import org.akanework.gramophone.ui.components.PlayerBottomSheet
@@ -70,8 +68,6 @@ import org.nift4.mediastorecompat.MediaStoreCompat
  * @author AkaneTan
  */
 class ViewPagerFragment : BaseFragment(true) {
-    lateinit var appBarLayout: AppBarLayout
-        private set
     val recycledViewPool = RecyclerView.RecycledViewPool()
     private lateinit var viewPager2: ViewPager2
     private lateinit var adapter: ViewPager2Adapter
@@ -86,7 +82,7 @@ class ViewPagerFragment : BaseFragment(true) {
         val topAppBar = rootView.findViewById<MaterialToolbar>(R.id.topAppBar)
         viewPager2 = rootView.findViewById(R.id.fragment_viewpager)
 
-        appBarLayout = rootView.findViewById(R.id.appbarlayout)
+        val appBarLayout = rootView.findViewById<AppBarLayout>(R.id.appbarlayout)
         appBarLayout.enableEdgeToEdgePaddingListener()
 
         topAppBar.overflowIcon =
@@ -270,23 +266,6 @@ class ViewPagerFragment : BaseFragment(true) {
         }
 
         return rootView
-    }
-
-    override fun onResume() {
-        super.onResume()
-        updateHeaderScrollBehavior()
-    }
-
-    private fun updateHeaderScrollBehavior() {
-        val hideHeaderOnScroll = PreferenceManager.getDefaultSharedPreferences(requireContext())
-            .getBoolean(MyRecyclerView.PREF_HIDE_HEADER_ON_SCROLL, false)
-
-        childFragmentManager.fragments.filterIsInstance<AdapterFragment>().forEach {
-            it.setHeaderAutoHideEnabled(hideHeaderOnScroll)
-        }
-
-        // The AppBarLayout is deliberately non-scrolling. Header visibility is
-        // controlled only by MyRecyclerView's accumulated-scroll height animator.
     }
 
     fun maybeReportFullyDrawn(itemId: Int) {
