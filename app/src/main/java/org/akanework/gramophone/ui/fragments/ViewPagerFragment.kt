@@ -93,7 +93,7 @@ class ViewPagerFragment : BaseFragment(true) {
         // AppBarLayout's top inset is kept outside its scroll range. Compensate on the
         // toolbar itself so the title fully clears the status bar when the header collapses,
         // while the tab row remains positioned below the status bar.
-        headerOffsetListener = AppBarLayout.OnOffsetChangedListener { layout, verticalOffset ->
+        val offsetListener = AppBarLayout.OnOffsetChangedListener { layout, verticalOffset ->
             val scrollRange = layout.totalScrollRange
             val collapseFraction = if (scrollRange > 0) {
                 (-verticalOffset.toFloat() / scrollRange).coerceIn(0f, 1f)
@@ -102,7 +102,8 @@ class ViewPagerFragment : BaseFragment(true) {
             }
             topAppBar.translationY = -layout.paddingTop * collapseFraction
         }
-        appBarLayout.addOnOffsetChangedListener(headerOffsetListener)
+        headerOffsetListener = offsetListener
+        appBarLayout.addOnOffsetChangedListener(offsetListener)
         topAppBar.overflowIcon =
             AppCompatResources.getDrawable(requireContext(), R.drawable.ic_more_vert_alt_topappbar)
 
