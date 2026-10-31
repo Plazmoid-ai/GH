@@ -17,9 +17,11 @@
 
 package org.akanework.gramophone.logic.ui
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.util.AttributeSet
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.media3.common.util.Log
 import androidx.recyclerview.widget.ConcatAdapter
@@ -35,8 +37,7 @@ import org.akanework.gramophone.R
 import kotlin.math.abs
 import org.akanework.gramophone.ui.components.GridPaddingDecoration
 
-open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
-    AppBarLayout.OnOffsetChangedListener {
+open class MyRecyclerView : FixOnItemTouchListenerRecyclerView {
     companion object {
         const val PREF_HIDE_HEADER_ON_SCROLL = "mods_hide_header_on_scroll"
         private const val HEADER_SCROLL_THRESHOLD_PX = 60
@@ -65,6 +66,9 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     private var lastWidth = 0
     private var deferredFastScrollBuilder: (() -> FastScroller)? = null
     private var appBarLayout: AppBarLayout? = null
+    private var headerView: View? = null
+    private var expandedHeaderHeight = 0
+    private var headerAnimator: ValueAnimator? = null
     private var ah: MyAnimationHelper? = null
     private var scrollInProgress = false
     private var scrollIsNatural = false
@@ -72,8 +76,6 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     private var scrollAccumulator = 0
     private var isAnimating = false
     private var headerTargetExpanded = true
-    private var currentAppBarOffset = 0
-    private var targetAppBarOffset: Int? = null
 
     private val headerScrollListener = object : OnScrollListener() {
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -82,7 +84,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
             // Reaching the top always reveals the header.
             if (!canScrollVertically(-1)) {
                 scrollAccumulator = 0
-                setAppBarExpanded(true)
+                setHeaderExpanded(true)
                 return
             }
 
@@ -125,11 +127,15 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     }
 
     fun setAppBar(appBarLayout: AppBarLayout?) {
-        if (isAttachedToWindow)
-            this.appBarLayout?.removeOnOffsetChangedListener(this)
         this.appBarLayout = appBarLayout
-        if (isAttachedToWindow)
-            appBarLayout?.addOnOffsetChangedListener(this)
+        headerView = appBarLayout?.findViewById(R.id.topAppBar)
+        headerView?.let { header ->
+            val height = header.layoutParams.height
+            if (height > 0) expandedHeaderHeight = height
+            if (expandedHeaderHeight == 0 && header.height > 0) {
+                expandedHeaderHeight = header.height
+            }
+        }
     }
 
     fun setHeaderAutoHideEnabled(enabled: Boolean) {
@@ -139,43 +145,54 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
         scrollAccumulator = 0
 
         if (enabled) {
-            headerTargetExpanded = isHeaderExpanded()
-            // The toolbar is controlled by the thresholded listener below, not by
-            // AppBarLayout's immediate nested-scroll response.
+            headerTargetExpanded = true
             isNestedScrollingEnabled = false
             addOnScrollListener(headerScrollListener)
-            if (!canScrollVertically(-1)) setAppBarExpanded(true)
+            if (!canScrollVertically(-1)) setHeaderExpanded(true)
         } else {
             removeOnScrollListener(headerScrollListener)
             isNestedScrollingEnabled = true
-            appBarLayout?.setExpanded(true, false)
-            isAnimating = false
-            targetAppBarOffset = null
-            headerTargetExpanded = true
+            setHeaderExpanded(true)
         }
     }
 
-    private fun isHeaderExpanded(): Boolean = currentAppBarOffset == 0
+    private fun setHeaderExpanded(expanded: Boolean) {
+        val header = headerView ?: return
+        val targetHeight = if (expanded) expandedHeaderHeight else 0
+        if (targetHeight <= 0 && expanded) return
+        if (isAnimating || headerTargetExpanded == expanded) return
 
-    private fun setAppBarExpanded(expanded: Boolean) {
-        val appBar = appBarLayout ?: return
-        val targetOffset = if (expanded) 0 else -appBar.totalScrollRange
-
-        // Do not interrupt an active transition or restart an already reached state.
-        if (isAnimating || targetAppBarOffset == targetOffset) return
-        if (currentAppBarOffset == targetOffset) {
+        val currentHeight = header.layoutParams.height.takeIf { it >= 0 } ?: header.height
+        if (currentHeight == targetHeight) {
             headerTargetExpanded = expanded
             return
         }
 
+        headerAnimator?.cancel()
         headerTargetExpanded = expanded
-        targetAppBarOffset = targetOffset
         isAnimating = true
 
-        // Use AppBarLayout's real collapse behavior. This reduces its measured/visible
-        // height and lets the ViewPager2 scrolling behavior move the list up into the
-        // freed space; translating only the toolbar would leave an empty strip behind.
-        appBar.setExpanded(expanded, true)
+        headerAnimator = ValueAnimator.ofInt(currentHeight, targetHeight).apply {
+            duration = 250L
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { animator ->
+                val params = header.layoutParams
+                params.height = animator.animatedValue as Int
+                header.layoutParams = params
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    isAnimating = false
+                    headerAnimator = null
+                }
+
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    isAnimating = false
+                    headerAnimator = null
+                }
+            })
+            start()
+        }
     }
 
     fun startSmoothScrollCompat(scroller: SmoothScroller) {
@@ -197,7 +214,7 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
     @Suppress("UNCHECKED_CAST")
     private fun setAppBarNotExpandedQuickly() {
         if (!headerAutoHideEnabled) return
-        if (headerAutoHideEnabled) setAppBarExpanded(false)
+        if (headerAutoHideEnabled) setHeaderExpanded(false)
     }
 
     override fun onScrollStateChanged(state: Int) {
@@ -250,22 +267,8 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
             adapter.dispatchToAdapter { it.onWidthChanged(width) }
     }
 
-    override fun onOffsetChanged(unused: AppBarLayout?, offset: Int) {
-        currentAppBarOffset = offset
-        if (offset == 0) ah?.hideScrollbar()
-
-        val targetOffset = targetAppBarOffset
-        if (targetOffset != null &&
-            (if (targetOffset == 0) offset == 0 else offset <= targetOffset)
-        ) {
-            isAnimating = false
-            targetAppBarOffset = null
-        }
-    }
-
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        appBarLayout?.removeOnOffsetChangedListener(this)
         // Let's clean up some resources by pretending the view is gone (a detached view is as good
         // as gone for our purposes anyway)
         adapter?.onDetachedFromRecyclerView(this)
@@ -273,7 +276,6 @@ open class MyRecyclerView : FixOnItemTouchListenerRecyclerView,
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        appBarLayout?.addOnOffsetChangedListener(this)
         // We're so back
         adapter?.onAttachedToRecyclerView(this)
     }
