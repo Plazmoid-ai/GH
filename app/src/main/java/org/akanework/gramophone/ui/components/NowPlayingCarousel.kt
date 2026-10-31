@@ -51,7 +51,7 @@ internal fun NowPlayingCarousel(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ArtworkCard(previousArtworkUri, sideSize, onPreviousArtworkClick)
