@@ -97,7 +97,6 @@ class ArtistSubFragment : BaseFragment(true), PopupTextProvider {
                 ConcatAdapter.Config.Builder().setIsolateViewTypes(false).build(),
                 albumAdapter.concatAdapter, songAdapter.concatAdapter
             )
-        recyclerView!!.setAppBar(appBarLayout)
         recyclerView!!.fastScroll(this, ih)
 
         topAppBar.setNavigationOnClickListener {
